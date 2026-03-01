@@ -11,7 +11,26 @@ pub fn default_config() -> Config {
         save: SaveConfig::default(),
         theme: ThemeConfig::default(),
         titlecase: TitlecaseConfig::default(),
+        field_groups: default_field_groups(),
     }
+}
+
+pub fn default_field_groups() -> Vec<CustomFieldGroup> {
+    vec![
+        CustomFieldGroup {
+            name: "Identifiers".to_string(),
+            fields: vec![
+                "isbn".to_string(),
+                "issn".to_string(),
+                "lccn".to_string(),
+                "eprint".to_string(),
+                "archiveprefix".to_string(),
+                "primaryclass".to_string(),
+                "pmid".to_string(),
+                "arxivid".to_string(),
+            ],
+        },
+    ]
 }
 
 pub fn default_columns() -> Vec<ColumnConfig> {

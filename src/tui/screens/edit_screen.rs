@@ -19,7 +19,7 @@ pub fn render_edit_screen(f: &mut Frame, app: &mut App) {
         if let Some(entry) = app.database.entries.get(key) {
             let entry = entry.clone();
             if let Some(ref mut detail_state) = app.detail_state {
-                render_entry_detail(f, vertical[0], &entry, detail_state, &app.theme, app.show_braces);
+                render_entry_detail(f, vertical[0], &entry, detail_state, &app.theme, app.show_braces, app.render_latex);
             }
         }
     }

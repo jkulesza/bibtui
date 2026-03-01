@@ -66,6 +66,8 @@ pub fn render_main_screen(f: &mut Frame, app: &mut App) {
             &app.theme,
             is_list_focused,
             app.show_braces,
+            app.render_latex,
+            app.config.display.abbreviate_authors,
         );
     } else {
         let entries: Vec<&Entry> = visible_keys
@@ -82,6 +84,8 @@ pub fn render_main_screen(f: &mut Frame, app: &mut App) {
             &app.theme,
             true,
             app.show_braces,
+            app.render_latex,
+            app.config.display.abbreviate_authors,
         );
     }
 

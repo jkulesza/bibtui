@@ -23,6 +23,18 @@ display:
   # Toggle at runtime with 'B' in normal mode.  Default: true (show as-is).
   show_braces: true
 
+  # Render LaTeX markup to Unicode for display (accents, math, dashes).
+  # Examples: {\'e} → é, $\alpha$ → α, -- → –
+  # Toggle at runtime with 'L' in normal mode.  Default: false.
+  render_latex: false
+
+  # Abbreviate author lists in the entry list:
+  #   1 author  → last name only
+  #   2 authors → "Last1 and Last2"
+  #   3+ authors → "Last1 et al."
+  # Default: true
+  abbreviate_authors: true
+
   # Default sort for the entry list.
   # field: any BibTeX field name, or 'citation_key' / 'entrytype'
   # ascending: true = A→Z, false = Z→A
@@ -104,3 +116,16 @@ theme:
   header_fg:   "#7aa2f7"
   search_match: "#ff9e64"
   border_color: "#565f89"
+
+# Custom field groups for the entry detail view.
+# Fields listed here are pulled out of the generic "Other" section and shown
+# under their own named header.  Each field is assigned to the FIRST matching group.
+# Fields already in "Required" or "Optional" for the entry type are unaffected.
+field_groups:
+  - name: Identifiers
+    fields: [isbn, issn, lccn, eprint, archiveprefix, primaryclass, pmid, arxivid]
+  # Uncomment to add more groups:
+  # - name: Library of Congress
+  #   fields: [lccn, isbn, issn]
+  # - name: arXiv
+  #   fields: [eprint, archiveprefix, primaryclass]

@@ -11,6 +11,7 @@ pub struct Config {
     pub save: SaveConfig,
     pub theme: ThemeConfig,
     pub titlecase: TitlecaseConfig,
+    pub field_groups: Vec<CustomFieldGroup>,
 }
 
 impl Default for Config {
@@ -47,6 +48,12 @@ pub struct DisplayConfig {
     /// Show BibTeX case-protecting braces (e.g. `{MCNP}`) in field values.
     /// Toggle at runtime with `B`. Default true (show as-is).
     pub show_braces: bool,
+    /// Render LaTeX markup (accents, math, dashes) to Unicode for display.
+    /// Toggle at runtime with `L`. Default false.
+    pub render_latex: bool,
+    /// Abbreviate author lists in the entry list (1 author → last name;
+    /// 2 → "Last1 and Last2"; 3+ → "Last1 et al."). Default true.
+    pub abbreviate_authors: bool,
 }
 
 impl Default for DisplayConfig {
@@ -60,6 +67,8 @@ impl Default for DisplayConfig {
                 ascending: true,
             },
             show_braces: true,
+            render_latex: false,
+            abbreviate_authors: true,
         }
     }
 }
@@ -177,4 +186,13 @@ impl Default for ThemeConfig {
             border_color: "#565f89".to_string(),
         }
     }
+}
+
+/// A named group of extra fields shown as a separate section in the detail view.
+/// Fields listed here that are present on an entry are pulled out of the generic
+/// "Other" section and shown under their own header.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CustomFieldGroup {
+    pub name: String,
+    pub fields: Vec<String>,
 }

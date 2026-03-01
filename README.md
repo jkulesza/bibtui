@@ -78,6 +78,7 @@ bibtui --config ~/dotfiles/bibtui.yaml references.bib
 | `o` | Open attached file(s) in OS default viewer |
 | `w` | Open DOI / URL in default browser |
 | `B` | Toggle case-protecting brace display |
+| `L` | Toggle LaTeX rendering (accents, math, dashes) |
 | `:` | Open command palette |
 | `?` | Show help |
 | `q` | Quit |
@@ -103,6 +104,7 @@ Search syntax:
 | `a` | Add new field |
 | `d` | Delete selected field |
 | `T` | Convert selected field to title case |
+| `N` | Normalize author names to "Last, First" form |
 | `o` | Open attached file(s) in OS default viewer |
 | `w` | Open DOI / URL in default browser |
 | `g` | Edit entry's groups |
@@ -173,6 +175,8 @@ display:
   show_groups: true
   group_sidebar_width: 30
   show_braces: true                       # show/hide case-protecting {braces}; toggle with B
+  render_latex: false                     # render LaTeX → Unicode for display; toggle with L
+  abbreviate_authors: true                # abbreviate author lists in entry list
   default_sort:
     field: citation_key
     ascending: true
@@ -189,6 +193,13 @@ theme:
   border_color: "#565f89"
 ```
 
+```yaml
+# Custom field groups in the detail view (fields pulled out of the "Other" section)
+field_groups:
+  - name: Identifiers
+    fields: [isbn, issn, lccn, eprint, archiveprefix, primaryclass]
+```
+
 See `bibtui.yaml.example` for all options including columns, citekey templates, and save normalization.
 
 ## Running Tests
@@ -197,4 +208,4 @@ See `bibtui.yaml.example` for all options including columns, citekey templates, 
 cargo test
 ```
 
-All 26 tests should pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation).
+All 34 tests should pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation).

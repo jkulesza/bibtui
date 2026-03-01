@@ -6,7 +6,9 @@ use ratatui::Frame;
 
 use crate::bib::entry_types::fields_for_type;
 use crate::bib::model::Entry;
+use crate::config::schema::CustomFieldGroup;
 use crate::tui::theme::Theme;
+use crate::util::latex::render_latex;
 use crate::util::titlecase::strip_case_braces;
 
 /// A single row in the detail view — either a non-selectable category header
@@ -26,6 +28,7 @@ pub enum FieldCategory {
     Required,
     Optional,
     Other,
+    Custom(String),
 }
 
 pub struct EntryDetailState {
@@ -33,11 +36,13 @@ pub struct EntryDetailState {
     /// All display rows including category headers.
     /// The list_state selection index into this vec.
     pub display_fields: Vec<DisplayItem>,
+    /// Custom field groups from config — stored so refresh() can use them.
+    field_groups: Vec<CustomFieldGroup>,
 }
 
 impl EntryDetailState {
-    pub fn new(entry: &Entry) -> Self {
-        let display_fields = build_display_items(entry);
+    pub fn new(entry: &Entry, field_groups: Vec<CustomFieldGroup>) -> Self {
+        let display_fields = build_display_items(entry, &field_groups);
         let mut state = ListState::default();
         // Start on the first selectable (non-header) item
         let first = display_fields.iter().position(|i| matches!(i, DisplayItem::Field { .. }));
@@ -45,6 +50,7 @@ impl EntryDetailState {
         EntryDetailState {
             list_state: state,
             display_fields,
+            field_groups,
         }
     }
 
@@ -90,7 +96,7 @@ impl EntryDetailState {
 
     pub fn refresh(&mut self, entry: &Entry) {
         let sel = self.selected();
-        self.display_fields = build_display_items(entry);
+        self.display_fields = build_display_items(entry, &self.field_groups);
         // Keep selection near the same position, on a Field row
         let count = self.display_fields.len();
         if count == 0 {
@@ -104,7 +110,7 @@ impl EntryDetailState {
     }
 }
 
-fn build_display_items(entry: &Entry) -> Vec<DisplayItem> {
+fn build_display_items(entry: &Entry, field_groups: &[CustomFieldGroup]) -> Vec<DisplayItem> {
     let (required, optional) = fields_for_type(&entry.entry_type);
     let mut result = Vec::new();
 
@@ -121,14 +127,43 @@ fn build_display_items(entry: &Entry) -> Vec<DisplayItem> {
         .filter_map(|f| entry.fields.get(*f).map(|v| (f.to_string(), v.clone())))
         .collect();
 
-    let other_fields: Vec<(String, String)> = entry
+    // Build set of fields already claimed by required/optional
+    let claimed: std::collections::HashSet<String> = required
+        .iter()
+        .chain(optional.iter())
+        .map(|s| s.to_lowercase())
+        .collect();
+
+    // Remaining entry fields not in required/optional
+    let remaining: Vec<(String, String)> = entry
         .fields
         .iter()
-        .filter(|(k, _)| {
-            let kl = k.to_lowercase();
-            !required.contains(&kl.as_str()) && !optional.contains(&kl.as_str())
-        })
+        .filter(|(k, _)| !claimed.contains(&k.to_lowercase()))
         .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+
+    // Partition remaining into custom groups and a leftover "Other" bucket.
+    // Each field is assigned to the FIRST custom group whose `fields` list
+    // contains it (case-insensitive). The field is not duplicated.
+    let mut assigned: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut custom_sections: Vec<(String, Vec<(String, String)>)> = Vec::new();
+    for group in field_groups {
+        let mut members: Vec<(String, String)> = Vec::new();
+        for (name, value) in &remaining {
+            let key = name.to_lowercase();
+            if !assigned.contains(&key)
+                && group.fields.iter().any(|gf| gf.to_lowercase() == key)
+            {
+                assigned.insert(key);
+                members.push((name.clone(), value.clone()));
+            }
+        }
+        custom_sections.push((group.name.clone(), members));
+    }
+
+    let other_fields: Vec<(String, String)> = remaining
+        .into_iter()
+        .filter(|(name, _)| !assigned.contains(&name.to_lowercase()))
         .collect();
 
     if !required_fields.is_empty() {
@@ -153,6 +188,20 @@ fn build_display_items(entry: &Entry) -> Vec<DisplayItem> {
         }
     }
 
+    // Custom group sections (only rendered if non-empty)
+    for (group_name, fields) in custom_sections.drain(..) {
+        if !fields.is_empty() {
+            result.push(DisplayItem::Header(format!("{}:", group_name)));
+            for (name, value) in fields {
+                result.push(DisplayItem::Field {
+                    name,
+                    value,
+                    category: FieldCategory::Custom(group_name.clone()),
+                });
+            }
+        }
+    }
+
     if !other_fields.is_empty() {
         result.push(DisplayItem::Header("Other:".to_string()));
         for (name, value) in other_fields {
@@ -174,13 +223,14 @@ pub fn render_entry_detail(
     state: &mut EntryDetailState,
     theme: &Theme,
     show_braces: bool,
+    render_latex_enabled: bool,
 ) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(theme.border)
         .title(format!(" {} ", entry.citation_key))
         .title_bottom(
-            Line::from(" [e]dit  [a]dd  [d]el  [T]itlecase  [o]pen file  [w]eb  [g]roups  [c]itekey  [Esc] back ")
+            Line::from(" [e]dit  [a]dd  [d]el  [T]itlecase  [N]orm author  [o]pen file  [w]eb  [g]roups  [c]itekey  [Esc] back ")
                 .style(theme.label),
         );
 
@@ -216,7 +266,9 @@ pub fn render_entry_detail(
                 let padding = " ".repeat(max_name_len.saturating_sub(name.len()));
                 let name_style = match category {
                     FieldCategory::Required => theme.required_label,
-                    FieldCategory::Optional | FieldCategory::Other => theme.label,
+                    FieldCategory::Optional
+                    | FieldCategory::Other
+                    | FieldCategory::Custom(_) => theme.label,
                 };
                 let value_style = if value.is_empty() && *category == FieldCategory::Required {
                     theme.search_match.add_modifier(Modifier::DIM)
@@ -225,10 +277,8 @@ pub fn render_entry_detail(
                 };
                 let display_value: String = if value.is_empty() {
                     "·".to_string()
-                } else if show_braces {
-                    value.clone()
                 } else {
-                    strip_case_braces(value)
+                    apply_display_pipeline(value, show_braces, render_latex_enabled)
                 };
                 ListItem::new(Line::from(vec![
                     Span::styled(format!("    {}{} : ", name, padding), name_style),
@@ -256,11 +306,7 @@ pub fn render_entry_detail(
     // Preview pane: show full value of selected field with wrapping
     let (preview_label, preview_text) = match state.selected_field() {
         Some((name, value)) if !value.is_empty() => {
-            let text = if show_braces {
-                value.to_string()
-            } else {
-                strip_case_braces(value)
-            };
+            let text = apply_display_pipeline(value, show_braces, render_latex_enabled);
             (format!(" {} ", name), text)
         }
         Some((name, _)) => (format!(" {} ", name), "(empty)".to_string()),
@@ -276,4 +322,19 @@ pub fn render_entry_detail(
         .wrap(Wrap { trim: true })
         .style(theme.value);
     f.render_widget(preview, chunks[2]);
+}
+
+/// Apply the display pipeline: optionally render LaTeX, then optionally strip braces.
+/// LaTeX must run first because it needs the `{...}` accent patterns.
+fn apply_display_pipeline(value: &str, show_braces: bool, render_latex_enabled: bool) -> String {
+    let s = if render_latex_enabled {
+        render_latex(value)
+    } else {
+        value.to_string()
+    };
+    if show_braces {
+        s
+    } else {
+        strip_case_braces(&s)
+    }
 }

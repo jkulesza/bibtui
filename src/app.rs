@@ -74,6 +74,8 @@ pub enum Action {
     ShowHelp,
     TitlecaseField,
     ToggleBraces,
+    ToggleLatex,
+    NormalizeAuthor,
     OpenFile,
     OpenWeb,
 }
@@ -87,6 +89,7 @@ pub struct App {
     pub focus: Focus,
     pub show_groups: bool,
     pub show_braces: bool,
+    pub render_latex: bool,
     pub dirty: bool,
     pub should_quit: bool,
     pub status_message: Option<String>,
@@ -136,6 +139,7 @@ impl App {
         let sorted_keys = sort_entries(&database.entries, &config);
 
         let show_braces = config.display.show_braces;
+        let render_latex = config.display.render_latex;
 
         let app = App {
             database,
@@ -146,6 +150,7 @@ impl App {
             focus: Focus::List,
             show_groups: true,
             show_braces,
+            render_latex,
             dirty: false,
             should_quit: false,
             status_message: None,
@@ -352,10 +357,11 @@ impl App {
             }
             Action::ShowHelp => {
                 self.status_message = Some(
-                    "j/k:nav  /:search  Enter:detail  a:add  dd:del  D:dup  yy:yank  o:file  w:web  B:braces  Tab:groups  :w save  q:quit".to_string(),
+                    "j/k:nav  /:search  Enter:detail  a:add  dd:del  D:dup  yy:yank  o:file  w:web  B:braces  L:latex  Tab:groups  :w save  q:quit".to_string(),
                 );
             }
             Action::TitlecaseField => self.titlecase_selected_field(),
+            Action::NormalizeAuthor => self.normalize_author_field(),
             Action::OpenFile => self.open_file(),
             Action::OpenWeb => self.open_web(),
             Action::ToggleBraces => {
@@ -364,6 +370,14 @@ impl App {
                     "Braces shown".to_string()
                 } else {
                     "Braces hidden".to_string()
+                });
+            }
+            Action::ToggleLatex => {
+                self.render_latex = !self.render_latex;
+                self.status_message = Some(if self.render_latex {
+                    "LaTeX rendering on".to_string()
+                } else {
+                    "LaTeX rendering off".to_string()
                 });
             }
         }
@@ -505,7 +519,7 @@ impl App {
     fn open_detail(&mut self) {
         if let Some(key) = self.selected_entry_key() {
             if let Some(entry) = self.database.entries.get(&key) {
-                self.detail_state = Some(EntryDetailState::new(entry));
+                self.detail_state = Some(EntryDetailState::new(entry, self.config.field_groups.clone()));
                 self.detail_entry_key = Some(key);
                 self.mode = InputMode::Detail;
             }
@@ -674,7 +688,7 @@ impl App {
         // Open detail view for the new entry
         self.detail_entry_key = Some(key.clone());
         if let Some(entry) = self.database.entries.get(&key) {
-            self.detail_state = Some(EntryDetailState::new(entry));
+            self.detail_state = Some(EntryDetailState::new(entry, self.config.field_groups.clone()));
         }
         self.mode = InputMode::Detail;
         self.status_message = Some(format!("Added new {} entry", type_name));
@@ -752,6 +766,46 @@ impl App {
                             self.status_message =
                                 Some(format!("'{}' already in title case", field_name));
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    fn normalize_author_field(&mut self) {
+        let (field_name, is_author) = match self
+            .detail_state
+            .as_ref()
+            .and_then(|d| d.selected_field())
+            .map(|(name, _)| (name.to_string(), name == "author"))
+        {
+            Some(pair) => pair,
+            None => return,
+        };
+
+        if !is_author {
+            self.status_message = Some("N only works on the 'author' field".to_string());
+            return;
+        }
+
+        if let Some(key) = self.detail_entry_key.clone() {
+            if let Some(entry) = self.database.entries.get_mut(&key) {
+                if let Some(value) = entry.fields.get(&field_name).cloned() {
+                    let normalized =
+                        crate::util::author::normalize_author_names(&value);
+                    if normalized != value {
+                        entry.fields.insert(field_name.clone(), normalized);
+                        entry.dirty = true;
+                        self.dirty = true;
+                        let entry_clone = entry.clone();
+                        if let Some(ref mut detail) = self.detail_state {
+                            detail.refresh(&entry_clone);
+                        }
+                        self.status_message =
+                            Some("Author names normalized to 'Last, First' form".to_string());
+                    } else {
+                        self.status_message =
+                            Some("Author names already in 'Last, First' form".to_string());
                     }
                 }
             }

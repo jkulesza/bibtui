@@ -6,6 +6,8 @@ use ratatui::Frame;
 use crate::bib::model::Entry;
 use crate::config::schema::{ColumnConfig, ColumnWidth};
 use crate::tui::theme::Theme;
+use crate::util::author::abbreviate_authors;
+use crate::util::latex::render_latex;
 use crate::util::titlecase::strip_case_braces;
 pub struct EntryListState {
     pub table_state: TableState,
@@ -38,6 +40,8 @@ pub fn render_entry_list(
     theme: &Theme,
     focused: bool,
     show_braces: bool,
+    render_latex_enabled: bool,
+    abbreviate_authors_enabled: bool,
 ) {
     let total_width = area.width.saturating_sub(2); // borders
 
@@ -74,8 +78,8 @@ pub fn render_entry_list(
             let cells: Vec<Cell> = columns
                 .iter()
                 .map(|col| {
-                    let raw = get_field_value(entry, &col.field);
-                    let value = if show_braces { raw } else { strip_case_braces(&raw) };
+                    let raw = get_field_value(entry, &col.field, abbreviate_authors_enabled);
+                    let value = apply_display_pipeline(&raw, show_braces, render_latex_enabled);
                     Cell::from(value)
                 })
                 .collect();
@@ -102,7 +106,7 @@ pub fn render_entry_list(
     f.render_stateful_widget(table, area, &mut state.table_state);
 }
 
-fn get_field_value(entry: &Entry, field: &str) -> String {
+fn get_field_value(entry: &Entry, field: &str, abbreviate_authors_enabled: bool) -> String {
     match field {
         "dirty" => if entry.dirty { "●".to_string() } else { " ".to_string() },
         "file_indicator" => {
@@ -118,10 +122,28 @@ fn get_field_value(entry: &Entry, field: &str) -> String {
         }
         "entrytype" | "type" => entry.entry_type.display_name().to_string(),
         "citation_key" | "key" | "citekey" => entry.citation_key.clone(),
-        "author" => entry.author_display(),
+        "author" => {
+            let raw = entry.author_display();
+            if abbreviate_authors_enabled { abbreviate_authors(&raw) } else { raw }
+        }
         "title" => entry.title_display(),
         "year" => entry.year_display(),
         "journal" => entry.journal_display(),
         _ => entry.fields.get(field).cloned().unwrap_or_default(),
+    }
+}
+
+/// Apply the display pipeline: optionally render LaTeX, then optionally strip braces.
+/// LaTeX must run first because it needs the `{...}` accent patterns.
+fn apply_display_pipeline(value: &str, show_braces: bool, render_latex_enabled: bool) -> String {
+    let s = if render_latex_enabled {
+        render_latex(value)
+    } else {
+        value.to_string()
+    };
+    if show_braces {
+        s
+    } else {
+        strip_case_braces(&s)
     }
 }
