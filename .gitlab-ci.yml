@@ -77,10 +77,14 @@ build:windows-x86_64:
 # macOS builds require a GitLab SaaS macOS runner (Premium/Ultimate plan).
 # Both Intel and Apple Silicon binaries are produced from the same M1 runner
 # job using Rust's built-in cross-compilation support.
+# allow_failure: true — the runner requires a Premium/Ultimate plan and may
+# not be available.  The pipeline (and release) will still succeed without it;
+# macOS binaries simply won't be included in that release.
 build:macos:
   stage: build
   tags:
     - saas-macos-medium-m1
+  allow_failure: true
   variables:
     CARGO_HOME: "${CI_PROJECT_DIR}/.cargo"
   cache:
@@ -117,7 +121,8 @@ package:
   needs:
     - build:linux-x86_64
     - build:windows-x86_64
-    - build:macos
+    - job: build:macos
+      optional: true   # proceed even if the macOS runner was unavailable
   before_script:
     - apk add --no-cache curl zip
   script:
@@ -125,20 +130,33 @@ package:
       tar -czf ${PACKAGE_NAME}-linux-x86_64.tar.gz
       -C target/x86_64-unknown-linux-musl/release ${PACKAGE_NAME}
     - >
-      tar -czf ${PACKAGE_NAME}-macos-aarch64.tar.gz
-      -C target/aarch64-apple-darwin/release ${PACKAGE_NAME}
-    - >
-      tar -czf ${PACKAGE_NAME}-macos-x86_64.tar.gz
-      -C target/x86_64-apple-darwin/release ${PACKAGE_NAME}
-    - >
       zip -j ${PACKAGE_NAME}-windows-x86_64.zip
       target/x86_64-pc-windows-gnu/release/${PACKAGE_NAME}.exe
+    # macOS binaries are optional — skip packaging if the build was unavailable.
+    - >
+      if [ -f target/aarch64-apple-darwin/release/${PACKAGE_NAME} ]; then
+        tar -czf ${PACKAGE_NAME}-macos-aarch64.tar.gz
+        -C target/aarch64-apple-darwin/release ${PACKAGE_NAME};
+      else
+        echo "macOS aarch64 binary not present, skipping";
+      fi
+    - >
+      if [ -f target/x86_64-apple-darwin/release/${PACKAGE_NAME} ]; then
+        tar -czf ${PACKAGE_NAME}-macos-x86_64.tar.gz
+        -C target/x86_64-apple-darwin/release ${PACKAGE_NAME};
+      else
+        echo "macOS x86_64 binary not present, skipping";
+      fi
     - |
       for archive in \
           "${PACKAGE_NAME}-linux-x86_64.tar.gz" \
           "${PACKAGE_NAME}-macos-aarch64.tar.gz" \
           "${PACKAGE_NAME}-macos-x86_64.tar.gz" \
           "${PACKAGE_NAME}-windows-x86_64.zip"; do
+        if [ ! -f "${archive}" ]; then
+          echo "Skipping upload of ${archive} (not built)"
+          continue
+        fi
         curl --fail --silent --show-error \
              --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
              --upload-file "${archive}" \

@@ -38,6 +38,10 @@ jobs:
     needs: test
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ${{ matrix.os }}
+    # macOS builds are best-effort: runner availability and SDK changes can
+    # cause transient failures.  allow-failure prevents them from blocking
+    # the release of Linux and Windows binaries.
+    continue-on-error: ${{ startsWith(matrix.platform, 'macos') }}
     strategy:
       fail-fast: false
       matrix:
