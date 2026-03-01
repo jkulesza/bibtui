@@ -126,11 +126,18 @@ jobs:
           merge-multiple: true
           path: artifacts
 
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
         run: |
+          PREV_TAG=$(git tag --sort=-version:refname | grep -v "^${TAG}$" | head -1)
+
           cat > notes.md << EOF
           ## bibtui ${TAG}
 
@@ -154,8 +161,13 @@ jobs:
           **Windows** — extract \`bibtui.exe\` from the zip and place it in a directory on your \`%PATH%\`.
           EOF
 
+          if [ -n "${PREV_TAG}" ]; then
+            echo "" >> notes.md
+            echo "**Full Changelog**: https://github.com/${REPO}/compare/${PREV_TAG}...${TAG}" >> notes.md
+          fi
+
           gh release create "${TAG}" \
-            --repo "${{ github.repository }}" \
+            --repo "${REPO}" \
             --title "${TAG}" \
             --notes-file notes.md \
             artifacts/*
