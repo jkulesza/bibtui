@@ -46,7 +46,7 @@ pub struct DisplayConfig {
     pub columns: Vec<ColumnConfig>,
     pub default_sort: SortConfig,
     /// Show BibTeX case-protecting braces (e.g. `{MCNP}`) in field values.
-    /// Toggle at runtime with `B`. Default true (show as-is).
+    /// Toggle at runtime with `B`. Default false (braces hidden).
     pub show_braces: bool,
     /// Render LaTeX markup (accents, math, dashes) to Unicode for display.
     /// Toggle at runtime with `L`. Default true.
@@ -66,7 +66,7 @@ impl Default for DisplayConfig {
                 field: "citation_key".to_string(),
                 ascending: true,
             },
-            show_braces: true,
+            show_braces: false,
             render_latex: true,
             abbreviate_authors: true,
         }

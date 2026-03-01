@@ -20,8 +20,8 @@ display:
   group_sidebar_width: 30
 
   # Show BibTeX case-protecting braces (e.g. {MCNP}) in field values.
-  # Toggle at runtime with 'B' in normal mode.  Default: true (show as-is).
-  show_braces: true
+  # Toggle at runtime with 'B' (normal or detail mode).  Default: false (braces hidden).
+  show_braces: false
 
   # Render LaTeX markup to Unicode for display (accents, math, dashes).
   # Examples: {\'e} → é, $\alpha$ → α, -- → –
