@@ -3,17 +3,12 @@ name: CI
 on:
   push:
     branches: ["**"]
-    tags: ["v*"]
   pull_request:
 
 env:
   CARGO_TERM_COLOR: always
-  PACKAGE_NAME: bibtui
 
 jobs:
-  # ── Test ────────────────────────────────────────────────────────────────────
-  # Runs on every push and pull request.
-
   test:
     name: Test
     runs-on: ubuntu-latest
@@ -26,140 +21,3 @@ jobs:
 
       - name: Run tests
         run: cargo test --verbose
-
-  # ── Build ───────────────────────────────────────────────────────────────────
-  # Runs only on version tags. Produces stripped release binaries for all
-  # platforms via a matrix. macOS builds (both architectures) run on the same
-  # macos-latest (Apple Silicon) runner using cross-compilation for Intel.
-  # Windows uses the native MSVC toolchain on a windows-latest runner.
-
-  build:
-    name: Build — ${{ matrix.platform }}
-    needs: test
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ${{ matrix.os }}
-    # macOS builds are best-effort: runner availability and SDK changes can
-    # cause transient failures.  allow-failure prevents them from blocking
-    # the release of Linux and Windows binaries.
-    continue-on-error: ${{ startsWith(matrix.platform, 'macos') }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: linux-x86_64
-            os: ubuntu-latest
-            target: x86_64-unknown-linux-musl
-            binary: bibtui
-            archive: tar
-
-          - platform: macos-aarch64
-            os: macos-latest
-            target: aarch64-apple-darwin
-            binary: bibtui
-            archive: tar
-
-          - platform: macos-x86_64
-            os: macos-latest
-            target: x86_64-apple-darwin
-            binary: bibtui
-            archive: tar
-
-          - platform: windows-x86_64
-            os: windows-latest
-            target: x86_64-pc-windows-msvc
-            binary: bibtui.exe
-            archive: zip
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ matrix.target }}
-
-      - name: Install musl-tools (Linux)
-        if: matrix.target == 'x86_64-unknown-linux-musl'
-        run: sudo apt-get install -y musl-tools
-
-      - name: Build
-        run: cargo build --release --target ${{ matrix.target }}
-
-      - name: Strip binary (Unix)
-        if: matrix.os != 'windows-latest'
-        run: strip target/${{ matrix.target }}/release/${{ matrix.binary }}
-
-      - name: Package (tar.gz)
-        if: matrix.archive == 'tar'
-        run: >
-          tar -czf ${{ env.PACKAGE_NAME }}-${{ matrix.platform }}.tar.gz
-          -C target/${{ matrix.target }}/release ${{ matrix.binary }}
-
-      - name: Package (zip)
-        if: matrix.archive == 'zip'
-        shell: pwsh
-        run: >
-          Compress-Archive
-          -Path target/${{ matrix.target }}/release/${{ matrix.binary }}
-          -DestinationPath ${{ env.PACKAGE_NAME }}-${{ matrix.platform }}.zip
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.PACKAGE_NAME }}-${{ matrix.platform }}
-          path: ${{ env.PACKAGE_NAME }}-${{ matrix.platform }}.*
-          if-no-files-found: error
-
-  # ── Release ─────────────────────────────────────────────────────────────────
-  # Downloads all build artifacts, then creates a GitHub release with them
-  # attached. Triggered only when a version tag (v*) is pushed.
-
-  release:
-    name: Release
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          merge-multiple: true
-          path: artifacts
-
-      - name: Create GitHub release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.ref_name }}
-        run: |
-          cat > notes.md << EOF
-          ## bibtui ${TAG}
-
-          A terminal UI BibTeX manager.
-
-          ### Downloads
-
-          | Platform               | Archive                            |
-          |------------------------|------------------------------------|
-          | Linux x86-64 (static)  | \`bibtui-linux-x86_64.tar.gz\`      |
-          | macOS Apple Silicon    | \`bibtui-macos-aarch64.tar.gz\`     |
-          | macOS Intel            | \`bibtui-macos-x86_64.tar.gz\`      |
-          | Windows x86-64         | \`bibtui-windows-x86_64.zip\`       |
-
-          **Linux / macOS** — extract and place on your \`\$PATH\`:
-          \`\`\`
-          tar -xzf bibtui-<platform>.tar.gz
-          mv bibtui ~/.local/bin/
-          \`\`\`
-
-          **Windows** — extract \`bibtui.exe\` from the zip and place it in a directory on your \`%PATH%\`.
-          EOF
-
-          gh release create "${TAG}" \
-            --repo "${{ github.repository }}" \
-            --title "${TAG}" \
-            --notes-file notes.md \
-            artifacts/*
