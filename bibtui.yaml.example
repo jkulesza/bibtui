@@ -25,8 +25,8 @@ display:
 
   # Render LaTeX markup to Unicode for display (accents, math, dashes).
   # Examples: {\'e} → é, $\alpha$ → α, -- → –
-  # Toggle at runtime with 'L' in normal mode.  Default: false.
-  render_latex: false
+  # Toggle at runtime with 'L' (normal or detail mode).  Default: true.
+  render_latex: true
 
   # Abbreviate author lists in the entry list:
   #   1 author  → last name only

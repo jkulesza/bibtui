@@ -99,6 +99,8 @@ fn map_detail_key(key: KeyEvent) -> Option<Action> {
         KeyCode::Char('w') => Some(Action::OpenWeb),
         KeyCode::Char('g') => Some(Action::EditGroups),
         KeyCode::Char('c') => Some(Action::RegenCitekey),
+        KeyCode::Char('L') => Some(Action::ToggleLatex),
+        KeyCode::Char('B') => Some(Action::ToggleBraces),
         _ => None,
     }
 }

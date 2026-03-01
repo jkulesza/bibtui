@@ -49,7 +49,7 @@ pub struct DisplayConfig {
     /// Toggle at runtime with `B`. Default true (show as-is).
     pub show_braces: bool,
     /// Render LaTeX markup (accents, math, dashes) to Unicode for display.
-    /// Toggle at runtime with `L`. Default false.
+    /// Toggle at runtime with `L`. Default true.
     pub render_latex: bool,
     /// Abbreviate author lists in the entry list (1 author → last name;
     /// 2 → "Last1 and Last2"; 3+ → "Last1 et al."). Default true.
@@ -67,7 +67,7 @@ impl Default for DisplayConfig {
                 ascending: true,
             },
             show_braces: true,
-            render_latex: false,
+            render_latex: true,
             abbreviate_authors: true,
         }
     }
