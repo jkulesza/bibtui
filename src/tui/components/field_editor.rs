@@ -31,6 +31,18 @@ impl FieldEditorState {
         }
     }
 
+    /// Create a single-phase input editor (e.g. for group name entry).
+    pub fn for_input(prompt: &str) -> Self {
+        FieldEditorState {
+            field_name: prompt.to_string(),
+            name_cursor: 0,
+            value: String::new(),
+            cursor: 0,
+            is_new: false,
+            editing_name: false,
+        }
+    }
+
     /// Create an editor for a brand-new field (name then value).
     pub fn new_field() -> Self {
         FieldEditorState {

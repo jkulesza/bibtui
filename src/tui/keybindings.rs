@@ -130,6 +130,7 @@ fn map_dialog_key(key: KeyEvent) -> Option<Action> {
         KeyCode::Enter | KeyCode::Char('y') => Some(Action::DialogConfirm),
         KeyCode::Char('j') | KeyCode::Down => Some(Action::MoveDown),
         KeyCode::Char('k') | KeyCode::Up => Some(Action::MoveUp),
+        KeyCode::Char(' ') => Some(Action::DialogToggle),
         KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             Some(Action::PageDown)
         }

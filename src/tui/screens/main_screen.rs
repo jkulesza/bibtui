@@ -137,6 +137,11 @@ pub fn render_main_screen(f: &mut Frame, app: &mut App) {
     if let Some(ref mut dialog) = app.dialog_state {
         crate::tui::components::dialog::render_dialog(f, area, dialog, &app.theme);
     }
+
+    // Field editor overlay (e.g. group name input)
+    if let Some(ref editor_state) = app.field_editor_state {
+        crate::tui::components::field_editor::render_field_editor(f, area, editor_state, &app.theme);
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

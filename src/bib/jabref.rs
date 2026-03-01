@@ -1,5 +1,44 @@
 use super::model::*;
 
+/// Serialize a GroupTree back to JabRef grouping text format.
+/// The returned string is the content between `grouping:\n` and the closing `}`.
+pub fn serialize_group_tree(tree: &GroupTree) -> String {
+    let mut lines = Vec::new();
+    serialize_node(&tree.root, 0, &mut lines);
+    lines.join("\n")
+}
+
+fn serialize_node(node: &GroupNode, depth: usize, lines: &mut Vec<String>) {
+    let line = match &node.group.group_type {
+        GroupType::AllEntries => format!("{} AllEntriesGroup:;", depth),
+        GroupType::Static => {
+            let expanded = if node.expanded { "1" } else { "0" };
+            format!(
+                "{} StaticGroup:{}\\;2\\;{}\\;\\;\\;\\;;",
+                depth, node.group.name, expanded
+            )
+        }
+        GroupType::Keyword {
+            field,
+            search_term,
+            case_sensitive,
+            regex,
+        } => {
+            let cs = if *case_sensitive { "1" } else { "0" };
+            let rx = if *regex { "1" } else { "0" };
+            let expanded = if node.expanded { "1" } else { "0" };
+            format!(
+                "{} KeywordGroup:{}\\;0\\;{}\\;{}\\;{}\\;{}\\;{}\\;\\;\\;\\;;",
+                depth, node.group.name, field, search_term, cs, rx, expanded
+            )
+        }
+    };
+    lines.push(line);
+    for child in &node.children {
+        serialize_node(child, depth + 1, lines);
+    }
+}
+
 /// Parse a JabRef @Comment block and extract metadata into JabRefMeta.
 pub fn parse_jabref_comment(raw_text: &str, meta: &mut JabRefMeta) {
     // JabRef metadata comments look like: @Comment{jabref-meta: key:value;}

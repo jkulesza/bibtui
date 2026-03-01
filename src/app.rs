@@ -6,6 +6,7 @@ use crossterm::event::{Event, KeyCode, KeyEvent};
 use indexmap::IndexMap;
 
 use crate::bib::citekey::generate_citekey;
+use crate::bib::jabref::serialize_group_tree;
 use crate::bib::model::*;
 use crate::bib::parser::{build_database, parse_bib_file};
 use crate::bib::writer::{serialize_entry, write_bib_file};
@@ -71,6 +72,7 @@ pub enum Action {
     CommandBackspace,
     DialogConfirm,
     DialogCancel,
+    DialogToggle,
     ShowHelp,
     TitlecaseField,
     ToggleBraces,
@@ -122,6 +124,9 @@ enum PendingAction {
     AddEntryType,
     OpenFile(Vec<crate::util::open::ParsedFile>),
     OpenWeb(Vec<String>),
+    AddGroup { parent_path: Vec<usize> },
+    DeleteGroup { path: Vec<usize> },
+    AssignGroups { entry_key: String },
 }
 
 impl App {
@@ -268,13 +273,12 @@ impl App {
                 self.mode = InputMode::Editing;
             }
             Action::DeleteField => self.delete_field(),
-            Action::EditGroups => {
-                self.status_message = Some("Group editing: use :addgroup/:rmgroup commands".to_string());
-            }
+            Action::EditGroups => self.start_edit_groups(),
             Action::RegenCitekey => self.regen_citekey(),
             Action::ConfirmEdit => self.confirm_edit(),
             Action::CancelEdit => {
                 self.field_editor_state = None;
+                self.pending_action = None;
                 self.mode = if self.detail_state.is_some() {
                     InputMode::Detail
                 } else {
@@ -316,8 +320,20 @@ impl App {
                     editor.cursor_end();
                 }
             }
-            Action::AddEntry => self.start_add_entry(),
-            Action::DeleteEntry => self.start_delete_entry(),
+            Action::AddEntry => {
+                if self.focus == Focus::Groups && self.show_groups {
+                    self.start_add_group();
+                } else {
+                    self.start_add_entry();
+                }
+            }
+            Action::DeleteEntry => {
+                if self.focus == Focus::Groups && self.show_groups {
+                    self.start_delete_group();
+                } else {
+                    self.start_delete_entry();
+                }
+            }
             Action::DuplicateEntry => self.duplicate_entry(),
             Action::YankCitekey => self.yank_citekey(),
             Action::ToggleGroups => {
@@ -353,11 +369,20 @@ impl App {
             Action::DialogCancel => {
                 self.dialog_state = None;
                 self.pending_action = None;
-                self.mode = InputMode::Normal;
+                self.mode = if self.detail_state.is_some() {
+                    InputMode::Detail
+                } else {
+                    InputMode::Normal
+                };
+            }
+            Action::DialogToggle => {
+                if let Some(ref mut dialog) = self.dialog_state {
+                    dialog.toggle_selected();
+                }
             }
             Action::ShowHelp => {
                 self.status_message = Some(
-                    "j/k:nav  /:search  Enter:detail  a:add  dd:del  D:dup  yy:yank  o:file  w:web  B:braces  L:latex  Tab:groups  :w save  q:quit".to_string(),
+                    "j/k:nav  /:search  Enter:detail  a:add  dd:del  D:dup  yy:yank  o:file  w:web  B:braces  L:latex  Tab:groups  h/l:focus  a/dd:group(grp focus)  g:assign groups(detail)  :w save  q:quit".to_string(),
                 );
             }
             Action::TitlecaseField => self.titlecase_selected_field(),
@@ -546,6 +571,25 @@ impl App {
     }
 
     fn confirm_edit(&mut self) {
+        // Group name input — handled separately from field editing
+        if matches!(self.pending_action, Some(PendingAction::AddGroup { .. })) {
+            let name = self
+                .field_editor_state
+                .as_ref()
+                .map(|e| e.value.trim().to_string())
+                .unwrap_or_default();
+            let parent_path = match self.pending_action.take() {
+                Some(PendingAction::AddGroup { parent_path }) => parent_path,
+                _ => vec![],
+            };
+            self.field_editor_state = None;
+            self.mode = InputMode::Normal;
+            if !name.is_empty() {
+                self.finish_add_group(name, parent_path);
+            }
+            return;
+        }
+
         // Two-phase for new fields: first confirm name, then enter value
         if let Some(ref mut editor) = self.field_editor_state {
             if editor.advance_phase() {
@@ -1053,6 +1097,25 @@ impl App {
                     }
                 }
             }
+            Some(PendingAction::DeleteGroup { path }) => {
+                self.finish_delete_group(path);
+            }
+            Some(PendingAction::AssignGroups { entry_key }) => {
+                if let Some(dialog) = dialog {
+                    if let DialogKind::GroupAssign { groups } = &dialog.kind {
+                        let selected: Vec<String> = groups
+                            .iter()
+                            .filter(|(_, checked)| *checked)
+                            .map(|(name, _)| name.clone())
+                            .collect();
+                        self.finish_assign_groups(&entry_key.clone(), selected);
+                    }
+                }
+                self.mode = InputMode::Detail;
+            }
+            Some(PendingAction::AddGroup { .. }) => {
+                // AddGroup is confirmed through confirm_edit(), not this path
+            }
             None => {
                 // Quit confirmation
                 self.should_quit = true;
@@ -1169,6 +1232,158 @@ impl App {
             }
         }
     }
+
+    // ── Group management ──
+
+    fn start_add_group(&mut self) {
+        let parent_path = self
+            .group_tree_state
+            .selected_item()
+            .map(|item| item.path.clone())
+            .unwrap_or_default();
+        self.field_editor_state = Some(FieldEditorState::for_input("Group name"));
+        self.pending_action = Some(PendingAction::AddGroup { parent_path });
+        self.mode = InputMode::Editing;
+    }
+
+    fn start_delete_group(&mut self) {
+        let item = match self.group_tree_state.selected_item() {
+            Some(item) => item.clone(),
+            None => return,
+        };
+        if item.depth == 0 {
+            self.status_message = Some("Cannot delete root group".to_string());
+            return;
+        }
+        let name = item.name.clone();
+        let path = item.path.clone();
+        self.dialog_state = Some(DialogState::confirm(
+            "Delete Group",
+            &format!("Delete group '{}'?", name),
+        ));
+        self.pending_action = Some(PendingAction::DeleteGroup { path });
+        self.mode = InputMode::Dialog;
+    }
+
+    fn start_edit_groups(&mut self) {
+        let entry_key = match self.detail_entry_key.clone() {
+            Some(k) => k,
+            None => return,
+        };
+        let entry = match self.database.entries.get(&entry_key) {
+            Some(e) => e,
+            None => return,
+        };
+        let memberships = entry.group_memberships.clone();
+        let mut group_names = Vec::new();
+        collect_group_names(&self.database.groups.root, &mut group_names);
+        if group_names.is_empty() {
+            self.status_message = Some("No groups defined".to_string());
+            return;
+        }
+        let groups: Vec<(String, bool)> = group_names
+            .into_iter()
+            .map(|name| {
+                let checked = memberships.contains(&name);
+                (name, checked)
+            })
+            .collect();
+        self.dialog_state = Some(DialogState::group_assign(groups));
+        self.pending_action = Some(PendingAction::AssignGroups { entry_key });
+        self.mode = InputMode::Dialog;
+    }
+
+    fn finish_add_group(&mut self, name: String, parent_path: Vec<usize>) {
+        let new_node = GroupNode {
+            group: Group {
+                name: name.clone(),
+                group_type: GroupType::Static,
+            },
+            children: Vec::new(),
+            expanded: true,
+        };
+        if let Some(parent) =
+            find_group_node_mut(&mut self.database.groups.root, &parent_path)
+        {
+            parent.children.push(new_node);
+        }
+        self.sync_groups_to_raw();
+        self.group_tree_state.refresh(&self.database.groups);
+        self.dirty = true;
+        self.status_message = Some(format!("Group '{}' added", name));
+    }
+
+    fn finish_delete_group(&mut self, path: Vec<usize>) {
+        if path.is_empty() {
+            return;
+        }
+        let (parent_path, child_idx) = path.split_at(path.len() - 1);
+        let child_idx = child_idx[0];
+        if let Some(parent) =
+            find_group_node_mut(&mut self.database.groups.root, parent_path)
+        {
+            if child_idx < parent.children.len() {
+                let removed = parent.children.remove(child_idx);
+                self.sync_groups_to_raw();
+                self.group_tree_state.refresh(&self.database.groups);
+                // Clear active group filter if the deleted group was active
+                if self.group_tree_state.active_group.as_deref()
+                    == Some(removed.group.name.as_str())
+                {
+                    self.group_tree_state.active_group = None;
+                    self.filtered_indices = None;
+                }
+                self.dirty = true;
+                self.status_message =
+                    Some(format!("Group '{}' deleted", removed.group.name));
+            }
+        }
+    }
+
+    fn finish_assign_groups(&mut self, entry_key: &str, selected_groups: Vec<String>) {
+        if let Some(entry) = self.database.entries.get_mut(entry_key) {
+            if selected_groups.is_empty() {
+                entry.fields.shift_remove("groups");
+            } else {
+                entry
+                    .fields
+                    .insert("groups".to_string(), selected_groups.join(","));
+            }
+            entry.group_memberships = selected_groups;
+            entry.dirty = true;
+            self.dirty = true;
+            let entry_clone = entry.clone();
+            if let Some(ref mut detail) = self.detail_state {
+                detail.refresh(&entry_clone);
+            }
+        }
+    }
+
+    fn sync_groups_to_raw(&mut self) {
+        let serialized = serialize_group_tree(&self.database.groups);
+        let new_raw = format!("@Comment{{jabref-meta: grouping:\n{};}}", serialized);
+        for item in &mut self.database.raw_file.items {
+            if let RawItem::Comment { raw_text } = item {
+                if raw_text.contains("jabref-meta: grouping:") {
+                    *raw_text = new_raw;
+                    self.database
+                        .jabref_meta
+                        .unknown_meta
+                        .insert("grouping".to_string(), serialized);
+                    return;
+                }
+            }
+        }
+        // No existing grouping comment — append one
+        self.database
+            .raw_file
+            .items
+            .push(RawItem::Comment { raw_text: new_raw });
+        self.database
+            .jabref_meta
+            .unknown_meta
+            .insert("grouping".to_string(), serialized);
+    }
 }
 
 fn sort_entries(entries: &IndexMap<String, Entry>, config: &Config) -> Vec<String> {
@@ -1212,4 +1427,26 @@ fn find_group_node<'a>(node: &'a GroupNode, name: &str) -> Option<&'a GroupNode>
         }
     }
     None
+}
+
+fn find_group_node_mut<'a>(
+    node: &'a mut GroupNode,
+    path: &[usize],
+) -> Option<&'a mut GroupNode> {
+    if path.is_empty() {
+        return Some(node);
+    }
+    let idx = path[0];
+    node.children
+        .get_mut(idx)
+        .and_then(|child| find_group_node_mut(child, &path[1..]))
+}
+
+fn collect_group_names(node: &GroupNode, names: &mut Vec<String>) {
+    if !matches!(node.group.group_type, GroupType::AllEntries) {
+        names.push(node.group.name.clone());
+    }
+    for child in &node.children {
+        collect_group_names(child, names);
+    }
 }

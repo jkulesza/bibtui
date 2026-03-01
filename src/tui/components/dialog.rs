@@ -15,6 +15,9 @@ pub enum DialogKind {
         title: String,
         options: Vec<String>,
     },
+    GroupAssign {
+        groups: Vec<(String, bool)>,
+    },
 }
 
 pub struct DialogState {
@@ -51,6 +54,17 @@ impl DialogState {
         }
     }
 
+    pub fn group_assign(groups: Vec<(String, bool)>) -> Self {
+        let mut state = ListState::default();
+        if !groups.is_empty() {
+            state.select(Some(0));
+        }
+        DialogState {
+            kind: DialogKind::GroupAssign { groups },
+            list_state: state,
+        }
+    }
+
     pub fn selected(&self) -> usize {
         self.list_state.selected().unwrap_or(0)
     }
@@ -63,17 +77,33 @@ impl DialogState {
         match &self.kind {
             DialogKind::Confirm { .. } => 2,
             DialogKind::TypePicker { options, .. } => options.len(),
+            DialogKind::GroupAssign { groups } => groups.len(),
+        }
+    }
 
+    pub fn toggle_selected(&mut self) {
+        if let DialogKind::GroupAssign { groups } = &mut self.kind {
+            let idx = self.list_state.selected().unwrap_or(0);
+            if let Some((_, checked)) = groups.get_mut(idx) {
+                *checked = !*checked;
+            }
         }
     }
 }
 
 pub fn render_dialog(f: &mut Frame, area: Rect, state: &mut DialogState, theme: &Theme) {
-    // Center a dialog box
-    let dialog_width = 40u16.min(area.width.saturating_sub(4));
+    let dialog_width = match &state.kind {
+        DialogKind::GroupAssign { .. } => 50u16.min(area.width.saturating_sub(4)),
+        _ => 40u16.min(area.width.saturating_sub(4)),
+    };
     let dialog_height = match &state.kind {
         DialogKind::Confirm { .. } => 5,
-        DialogKind::TypePicker { options, .. } => (options.len() as u16 + 4).min(area.height - 4),
+        DialogKind::TypePicker { options, .. } => {
+            (options.len() as u16 + 4).min(area.height.saturating_sub(4))
+        }
+        DialogKind::GroupAssign { groups } => {
+            (groups.len() as u16 + 5).min(area.height.saturating_sub(4))
+        }
     };
 
     let x = area.x + (area.width.saturating_sub(dialog_width)) / 2;
@@ -113,6 +143,30 @@ pub fn render_dialog(f: &mut Frame, area: Rect, state: &mut DialogState, theme: 
             let items: Vec<ListItem> = options
                 .iter()
                 .map(|opt| ListItem::new(Line::from(format!("  {}", opt))))
+                .collect();
+
+            let list = List::new(items)
+                .block(block)
+                .highlight_style(theme.selected);
+
+            f.render_stateful_widget(list, dialog_area, &mut state.list_state);
+        }
+        DialogKind::GroupAssign { groups } => {
+            let block = Block::default()
+                .borders(Borders::ALL)
+                .border_style(theme.border)
+                .title(" Assign Groups ")
+                .title_bottom(Line::from(Span::styled(
+                    " Space:toggle  Enter:confirm  Esc:cancel ",
+                    theme.label,
+                )));
+
+            let items: Vec<ListItem> = groups
+                .iter()
+                .map(|(name, checked)| {
+                    let mark = if *checked { "[x]" } else { "[ ]" };
+                    ListItem::new(Line::from(format!("  {} {}", mark, name)))
+                })
                 .collect();
 
             let list = List::new(items)
