@@ -1,4 +1,8 @@
+use std::path::PathBuf;
+
 use bibtui::bib::parser::{build_database, parse_bib_file};
+use bibtui::util::latex::render_latex;
+use bibtui::util::titlecase::strip_case_braces;
 
 #[test]
 fn test_jabref_groups_parsed() {
@@ -46,6 +50,35 @@ fn test_jabref_database_type() {
         db.jabref_meta.database_type.as_deref(),
         Some("bibtex")
     );
+}
+
+/// Brantley & Larsen 2000: title = {{The Simplified $P_3$ Approximation}}
+/// The double-braced field stores the inner value with one brace pair.
+/// With LaTeX rendering, $P_3$ must display as P₃.
+#[test]
+fn test_brantley_p3_latex_display() {
+    let bib_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("jabref.bib");
+    if !bib_path.exists() {
+        eprintln!("Skipping: jabref.bib not found");
+        return;
+    }
+    let input = std::fs::read_to_string(&bib_path).unwrap();
+    let raw = parse_bib_file(&input).unwrap();
+    let db = build_database(raw);
+
+    let entry = db
+        .entries
+        .get("Article_2000_NSaE_BrantleyLarsen_1--21")
+        .expect("Brantley entry not found");
+
+    let raw_title = entry.fields.get("title").expect("title field missing");
+
+    // Confirm the raw stored value (inner braces of the double-braced field)
+    assert_eq!(raw_title, "{The Simplified $P_3$ Approximation}");
+
+    // Full display pipeline: render LaTeX then strip case-protecting braces
+    let displayed = strip_case_braces(&render_latex(raw_title));
+    assert_eq!(displayed, "The Simplified P₃ Approximation");
 }
 
 #[test]

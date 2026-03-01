@@ -450,6 +450,11 @@ mod tests {
         assert_eq!(render_latex("$x_a$"), "xₐ");
         assert_eq!(render_latex("$k^n$"), "kⁿ");
         assert_eq!(render_latex("$x^a$"), "xᵃ");
+        // Brantley & Larsen title: double-braced field value with inline math
+        assert_eq!(
+            render_latex("{The Simplified $P_3$ Approximation}"),
+            "{The Simplified P₃ Approximation}",
+        );
     }
 
     #[test]
