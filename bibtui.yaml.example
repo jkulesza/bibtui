@@ -1,0 +1,106 @@
+# bibtui configuration file
+# Copy to ~/.config/bibtui/config.yaml (or $XDG_CONFIG_HOME/bibtui/config.yaml)
+# All fields are optional — built-in defaults are used for anything not specified.
+
+general:
+  # Default .bib file to open when none is given on the command line
+  # bib_file: ~/documents/references.bib
+
+  # External editor launched by the 'open in editor' command (not yet wired)
+  editor: nvim
+
+  # Write a .bib.bak backup before every save
+  backup_on_save: true
+
+display:
+  # Show the JabRef group tree sidebar on startup
+  show_groups: true
+
+  # Width (columns) of the group sidebar
+  group_sidebar_width: 30
+
+  # Show BibTeX case-protecting braces (e.g. {MCNP}) in field values.
+  # Toggle at runtime with 'B' in normal mode.  Default: true (show as-is).
+  show_braces: true
+
+  # Default sort for the entry list.
+  # field: any BibTeX field name, or 'citation_key' / 'entrytype'
+  # ascending: true = A→Z, false = Z→A
+  default_sort:
+    field: citation_key
+    ascending: true
+
+  # Entry-list columns.  Each column needs:
+  #   field  – BibTeX field name (or 'entrytype', 'citation_key')
+  #   header – column heading text
+  #   width  – Fixed(N), Percent(N), or Flex
+  #   max_width (optional) – cap for Percent columns
+  columns:
+    - field: entrytype
+      header: "Type"
+      width: !Fixed 12
+    - field: year
+      header: "Year"
+      width: !Fixed 6
+    - field: author
+      header: "Author"
+      width: !Percent 25
+      max_width: 40
+    - field: title
+      header: "Title"
+      width: !Flex
+    - field: journal
+      header: "Journal"
+      width: !Percent 15
+
+citekey:
+  # Citation-key templates.  Available tokens:
+  #   {year}              – year field
+  #   {author_last}       – last name of first author
+  #   {authors}           – up to 3 last names joined by "_"
+  #   {title_camel}       – first significant word of title, CamelCase
+  #   {journal_abbrev}    – first letters of each journal-name word
+  #   {booktitle_abbrev}  – same for booktitle
+  #   {institution_abbrev}– same for institution
+  #   {number}            – number / report-number field
+  #   {pages}             – pages field (first page only)
+  #   {howpublished_camel}– howpublished, CamelCase
+  #   {category}          – keywords field first token (used for books)
+  templates:
+    article:       "Article_{year}_{journal_abbrev}_{authors}_{pages}"
+    book:          "Book_{category}_{year}_{author_last}_{title_camel}"
+    techreport:    "TechReport_{year}_{institution_abbrev}_{number}_{authors}"
+    inproceedings: "Proceedings_{year}_{booktitle_abbrev}_{authors}_{pages}"
+    phdthesis:     "PhD-Thesis_{year}_{author_last}"
+    mastersthesis: "MS-Thesis_{year}_{author_last}"
+    misc:          "Misc_{year}_{howpublished_camel}_{authors}_{title_camel}"
+
+titlecase:
+  # Words reproduced verbatim (case-insensitive match) when converting a field
+  # to title case with 'T' in the entry detail view.
+  ignore_words:
+    - MCNP
+    - OpenMC
+
+save:
+  # Align field values to a common column within each entry
+  align_fields: true
+
+  # Field ordering strategy: 'jabref' preserves JabRef order; 'alpha' sorts alphabetically
+  field_order: jabref
+
+  # Post-save normalization actions (applied to dirty entries only)
+  actions:
+    - field: month
+      action: normalize_month       # jan/Jan/January → jan
+    - field: pages
+      action: normalize_page_numbers # 1--10 or 1-10 → normalised
+
+theme:
+  # Tokyo Night dark palette (hex colours)
+  selected_bg: "#3b4261"
+  selected_fg: "#c0caf5"
+  header_bg:   "#1a1b26"
+  header_fg:   "#7aa2f7"
+  search_match: "#ff9e64"
+  border_color: "#565f89"

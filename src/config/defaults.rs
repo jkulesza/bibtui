@@ -1,0 +1,101 @@
+use indexmap::IndexMap;
+
+use super::schema::*;
+
+pub fn default_config() -> Config {
+    Config {
+        general: GeneralConfig::default(),
+        display: DisplayConfig::default(),
+        citekey: CitekeyConfig::default(),
+        entry_types: IndexMap::new(),
+        save: SaveConfig::default(),
+        theme: ThemeConfig::default(),
+        titlecase: TitlecaseConfig::default(),
+    }
+}
+
+pub fn default_columns() -> Vec<ColumnConfig> {
+    vec![
+        ColumnConfig {
+            field: "dirty".to_string(),
+            header: " ".to_string(),
+            width: ColumnWidth::Fixed(2),
+            max_width: None,
+        },
+        ColumnConfig {
+            field: "file_indicator".to_string(),
+            header: "\u{2398}".to_string(),
+            width: ColumnWidth::Fixed(2),
+            max_width: None,
+        },
+        ColumnConfig {
+            field: "web_indicator".to_string(),
+            header: "\u{238B}".to_string(),
+            width: ColumnWidth::Fixed(2),
+            max_width: None,
+        },
+        ColumnConfig {
+            field: "entrytype".to_string(),
+            header: "Type".to_string(),
+            width: ColumnWidth::Fixed(12),
+            max_width: None,
+        },
+        ColumnConfig {
+            field: "year".to_string(),
+            header: "Year".to_string(),
+            width: ColumnWidth::Fixed(6),
+            max_width: None,
+        },
+        ColumnConfig {
+            field: "author".to_string(),
+            header: "Author".to_string(),
+            width: ColumnWidth::Percent(25),
+            max_width: Some(40),
+        },
+        ColumnConfig {
+            field: "title".to_string(),
+            header: "Title".to_string(),
+            width: ColumnWidth::Flex,
+            max_width: None,
+        },
+        ColumnConfig {
+            field: "journal".to_string(),
+            header: "Journal".to_string(),
+            width: ColumnWidth::Percent(15),
+            max_width: None,
+        },
+    ]
+}
+
+pub fn default_citekey_templates() -> IndexMap<String, String> {
+    let mut m = IndexMap::new();
+    m.insert(
+        "article".to_string(),
+        "Article_{year}_{journal_abbrev}_{authors}_{pages}".to_string(),
+    );
+    m.insert(
+        "book".to_string(),
+        "Book_{category}_{year}_{author_last}_{title_camel}".to_string(),
+    );
+    m.insert(
+        "techreport".to_string(),
+        "TechReport_{year}_{institution_abbrev}_{number}_{authors}".to_string(),
+    );
+    m.insert(
+        "inproceedings".to_string(),
+        "Proceedings_{year}_{booktitle_abbrev}_{authors}_{pages}".to_string(),
+    );
+    m.insert(
+        "phdthesis".to_string(),
+        "PhD-Thesis_{year}_{author_last}".to_string(),
+    );
+    m.insert(
+        "mastersthesis".to_string(),
+        "MS-Thesis_{year}_{author_last}".to_string(),
+    );
+    m.insert(
+        "misc".to_string(),
+        "Misc_{year}_{howpublished_camel}_{authors}_{title_camel}".to_string(),
+    );
+    m
+}
