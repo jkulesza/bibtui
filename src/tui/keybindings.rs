@@ -11,6 +11,7 @@ pub fn map_key(key: KeyEvent, mode: &InputMode, last_key: Option<char>) -> Optio
         InputMode::Editing => map_editing_key(key),
         InputMode::Dialog => map_dialog_key(key),
         InputMode::Command => map_command_key(key),
+        InputMode::CitationPreview => Some(Action::CloseCitationPreview),
     }
 }
 
@@ -22,6 +23,7 @@ pub enum InputMode {
     Editing,
     Dialog,
     Command,
+    CitationPreview,
 }
 
 fn map_normal_key(key: KeyEvent, last_key: Option<char>) -> Option<Action> {

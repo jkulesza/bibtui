@@ -1,4 +1,5 @@
 pub mod author;
+pub mod citation;
 pub mod clipboard;
 pub mod latex;
 pub mod open;

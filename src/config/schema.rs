@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 pub struct Config {
     pub general: GeneralConfig,
     pub display: DisplayConfig,
+    pub citation: CitationConfig,
     pub citekey: CitekeyConfig,
     pub entry_types: IndexMap<String, EntryTypeConfig>,
     pub save: SaveConfig,
@@ -185,6 +186,21 @@ impl Default for ThemeConfig {
             search_match: "#ff9e64".to_string(),
             border_color: "#565f89".to_string(),
         }
+    }
+}
+
+/// Configuration for the citation preview popup (Space in entry list).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CitationConfig {
+    /// Bibliography style used to format the preview.
+    /// Currently supported: IEEEtranN (default).
+    pub style: String,
+}
+
+impl Default for CitationConfig {
+    fn default() -> Self {
+        CitationConfig { style: "IEEEtranN".to_string() }
     }
 }
 

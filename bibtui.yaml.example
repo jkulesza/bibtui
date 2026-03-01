@@ -65,6 +65,11 @@ display:
       header: "Journal"
       width: !Percent 15
 
+citation:
+  # Bibliography style used to format the citation preview popup (Space in the entry list).
+  # Currently supported: IEEEtranN
+  style: IEEEtranN
+
 citekey:
   # Citation-key templates.  Available tokens:
   #   {year}              – year field

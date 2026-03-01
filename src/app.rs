@@ -8,6 +8,8 @@ use indexmap::IndexMap;
 use crate::bib::citekey::generate_citekey;
 use crate::bib::jabref::serialize_group_tree;
 use crate::bib::model::*;
+use crate::tui::components::citation_preview::CitationPreviewState;
+use crate::util::citation::format_citation;
 use crate::bib::parser::{build_database, parse_bib_file};
 use crate::bib::writer::{serialize_entry, write_bib_file};
 use crate::config::schema::Config;
@@ -80,6 +82,7 @@ pub enum Action {
     NormalizeAuthor,
     OpenFile,
     OpenWeb,
+    CloseCitationPreview,
 }
 
 pub struct App {
@@ -106,6 +109,7 @@ pub struct App {
     pub field_editor_state: Option<FieldEditorState>,
     pub dialog_state: Option<DialogState>,
     pub command_palette_state: CommandPaletteState,
+    pub citation_preview_state: Option<CitationPreviewState>,
 
     // Search
     pub search_engine: SearchEngine,
@@ -168,6 +172,7 @@ impl App {
             field_editor_state: None,
             dialog_state: None,
             command_palette_state: CommandPaletteState::new(),
+            citation_preview_state: None,
             search_engine: SearchEngine::new(),
             filtered_indices: None,
             sorted_keys,
@@ -347,7 +352,17 @@ impl App {
             Action::FocusList => {
                 self.focus = Focus::List;
             }
-            Action::SelectGroup => self.select_group(),
+            Action::SelectGroup => {
+                if self.focus == Focus::List {
+                    self.show_citation_preview();
+                } else {
+                    self.select_group();
+                }
+            }
+            Action::CloseCitationPreview => {
+                self.citation_preview_state = None;
+                self.mode = InputMode::Normal;
+            }
             Action::EnterCommand => {
                 self.mode = InputMode::Command;
                 self.command_palette_state.clear();
@@ -995,6 +1010,36 @@ impl App {
             }
             self.focus = Focus::List;
         }
+    }
+
+    // ── Citation preview ──
+
+    fn show_citation_preview(&mut self) {
+        let key = match self.current_entry_key() {
+            Some(k) => k,
+            None => return,
+        };
+        let citation = match self.database.entries.get(&key) {
+            Some(entry) => format_citation(entry, &self.config.citation.style),
+            None => return,
+        };
+        self.citation_preview_state = Some(CitationPreviewState {
+            citation,
+            entry_key: key,
+            style_name: self.config.citation.style.clone(),
+        });
+        self.mode = InputMode::CitationPreview;
+    }
+
+    /// Return the citation key of the currently selected entry list row.
+    fn current_entry_key(&self) -> Option<String> {
+        let idx = self.entry_list_state.selected();
+        let visible: Vec<&String> = if let Some(ref indices) = self.filtered_indices {
+            indices.iter().filter_map(|&i| self.sorted_keys.get(i)).collect()
+        } else {
+            self.sorted_keys.iter().collect()
+        };
+        visible.get(idx).map(|k| (*k).clone())
     }
 
     // ── Commands ──

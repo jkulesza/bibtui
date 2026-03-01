@@ -146,6 +146,13 @@ pub fn render_main_screen(f: &mut Frame, app: &mut App) {
     if let Some(ref editor_state) = app.field_editor_state {
         crate::tui::components::field_editor::render_field_editor(f, area, editor_state, &app.theme);
     }
+
+    // Citation preview overlay
+    if let Some(ref preview_state) = app.citation_preview_state {
+        crate::tui::components::citation_preview::render_citation_preview(
+            f, area, preview_state, &app.theme,
+        );
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

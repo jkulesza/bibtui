@@ -6,6 +6,7 @@ pub fn default_config() -> Config {
     Config {
         general: GeneralConfig::default(),
         display: DisplayConfig::default(),
+        citation: super::schema::CitationConfig::default(),
         citekey: CitekeyConfig::default(),
         entry_types: IndexMap::new(),
         save: SaveConfig::default(),
