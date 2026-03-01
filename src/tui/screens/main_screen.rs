@@ -57,6 +57,7 @@ pub fn render_main_screen(f: &mut Frame, app: &mut App) {
             .filter_map(|k| app.database.entries.get(k))
             .collect();
 
+        let bib_dir = app.bib_path.parent().unwrap_or(std::path::Path::new("."));
         crate::tui::components::entry_list::render_entry_list(
             f,
             horizontal[1],
@@ -68,6 +69,7 @@ pub fn render_main_screen(f: &mut Frame, app: &mut App) {
             app.show_braces,
             app.render_latex,
             app.config.display.abbreviate_authors,
+            bib_dir,
         );
     } else {
         let entries: Vec<&Entry> = visible_keys
@@ -75,6 +77,7 @@ pub fn render_main_screen(f: &mut Frame, app: &mut App) {
             .filter_map(|k| app.database.entries.get(k))
             .collect();
 
+        let bib_dir = app.bib_path.parent().unwrap_or(std::path::Path::new("."));
         crate::tui::components::entry_list::render_entry_list(
             f,
             main_area,
@@ -86,6 +89,7 @@ pub fn render_main_screen(f: &mut Frame, app: &mut App) {
             app.show_braces,
             app.render_latex,
             app.config.display.abbreviate_authors,
+            bib_dir,
         );
     }
 

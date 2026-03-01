@@ -1,5 +1,7 @@
+use std::path::Path;
+
 use ratatui::layout::{Constraint, Rect};
-use ratatui::style::Modifier;
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{Block, Borders, Cell, Row, Table, TableState};
 use ratatui::Frame;
 
@@ -8,6 +10,7 @@ use crate::config::schema::{ColumnConfig, ColumnWidth};
 use crate::tui::theme::Theme;
 use crate::util::author::abbreviate_authors;
 use crate::util::latex::render_latex;
+use crate::util::open::{parse_file_field, resolve_file_path};
 use crate::util::titlecase::strip_case_braces;
 pub struct EntryListState {
     pub table_state: TableState,
@@ -42,6 +45,7 @@ pub fn render_entry_list(
     show_braces: bool,
     render_latex_enabled: bool,
     abbreviate_authors_enabled: bool,
+    bib_dir: &Path,
 ) {
     let total_width = area.width.saturating_sub(2); // borders
 
@@ -78,6 +82,9 @@ pub fn render_entry_list(
             let cells: Vec<Cell> = columns
                 .iter()
                 .map(|col| {
+                    if col.field == "file_indicator" {
+                        return file_indicator_cell(entry, bib_dir);
+                    }
                     let raw = get_field_value(entry, &col.field, abbreviate_authors_enabled);
                     let value = apply_display_pipeline(&raw, show_braces, render_latex_enabled);
                     Cell::from(value)
@@ -106,15 +113,29 @@ pub fn render_entry_list(
     f.render_stateful_widget(table, area, &mut state.table_state);
 }
 
+/// Return a styled Cell for the file indicator column.
+/// Red if the `file` field has content but every referenced file is missing on disk;
+/// normal otherwise (including when the field is absent).
+fn file_indicator_cell(entry: &Entry, bib_dir: &Path) -> Cell<'static> {
+    let file_val = match entry.fields.get("file") {
+        Some(v) if !v.trim().is_empty() => v.trim().to_string(),
+        _ => return Cell::from(" "),
+    };
+    let files = parse_file_field(&file_val);
+    let all_missing = files.is_empty()
+        || files
+            .iter()
+            .all(|f| !resolve_file_path(&f.path, bib_dir).exists());
+    if all_missing {
+        Cell::from("\u{2398}").style(Style::default().fg(Color::Red))
+    } else {
+        Cell::from("\u{2398}")
+    }
+}
+
 fn get_field_value(entry: &Entry, field: &str, abbreviate_authors_enabled: bool) -> String {
     match field {
         "dirty" => if entry.dirty { "●".to_string() } else { " ".to_string() },
-        "file_indicator" => {
-            let has_file = entry.fields.get("file")
-                .map(|v| !v.trim().is_empty())
-                .unwrap_or(false);
-            if has_file { "\u{2398}".to_string() } else { " ".to_string() }
-        }
         "web_indicator" => {
             let has_doi = entry.fields.get("doi").map(|v| !v.trim().is_empty()).unwrap_or(false);
             let has_url = entry.fields.get("url").map(|v| !v.trim().is_empty()).unwrap_or(false);
