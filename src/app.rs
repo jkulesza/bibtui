@@ -876,7 +876,7 @@ impl App {
     }
 
     fn open_file(&mut self) {
-        use crate::util::open::{parse_file_field, resolve_file_path, open_path};
+        use crate::util::open::{parse_file_field, resolve_file_path, effective_file_dir, open_path};
 
         let key = match self.action_entry_key() {
             Some(k) => k,
@@ -899,10 +899,10 @@ impl App {
         }
 
         if files.len() == 1 {
-            let bib_dir = self.bib_path
-                .parent()
-                .unwrap_or(std::path::Path::new("."))
-                .to_path_buf();
+            let bib_dir = effective_file_dir(
+                &self.bib_path,
+                self.database.jabref_meta.file_directory.as_deref(),
+            );
             let path = resolve_file_path(&files[0].path, &bib_dir);
             match open_path(&path) {
                 Ok(()) => self.status_message = Some(format!("Opening {}", path.display())),
@@ -1117,10 +1117,10 @@ impl App {
                 if let Some(dialog) = dialog {
                     let selected = dialog.selected();
                     if let Some(file) = files.get(selected) {
-                        let bib_dir = self.bib_path
-                            .parent()
-                            .unwrap_or(std::path::Path::new("."))
-                            .to_path_buf();
+                        let bib_dir = crate::util::open::effective_file_dir(
+                            &self.bib_path,
+                            self.database.jabref_meta.file_directory.as_deref(),
+                        );
                         let path = crate::util::open::resolve_file_path(&file.path, &bib_dir);
                         match crate::util::open::open_path(&path) {
                             Ok(()) => self.status_message =

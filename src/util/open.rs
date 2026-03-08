@@ -109,6 +109,22 @@ fn split_colons(s: &str) -> Vec<String> {
     parts
 }
 
+/// Return the effective file directory, preferring JabRef's `fileDirectory` metadata when set.
+///
+/// - If `file_directory` is absolute, use it directly.
+/// - If relative, resolve it against `bib_path`'s parent.
+/// - If absent, fall back to `bib_path`'s parent.
+pub fn effective_file_dir(bib_path: &Path, file_directory: Option<&str>) -> PathBuf {
+    let bib_dir = bib_path.parent().unwrap_or(Path::new("."));
+    match file_directory {
+        Some(fd) if !fd.trim().is_empty() => {
+            let fd_path = PathBuf::from(fd.trim());
+            if fd_path.is_absolute() { fd_path } else { bib_dir.join(fd_path) }
+        }
+        _ => bib_dir.to_path_buf(),
+    }
+}
+
 /// Resolve a (possibly relative) file path against the directory of the .bib file.
 pub fn resolve_file_path(path: &str, bib_dir: &Path) -> PathBuf {
     let p = PathBuf::from(path);
