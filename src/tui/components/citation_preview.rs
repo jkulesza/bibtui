@@ -53,47 +53,16 @@ pub fn render_citation_preview(
 }
 
 /// Roughly estimate the number of terminal lines needed to display `text` when
-/// word-wrapped to `width` columns.  OSC 8 hyperlink escape sequences are stripped
-/// before counting so they don't inflate the estimate.
+/// word-wrapped to `width` columns.
 fn estimate_wrapped_lines(text: &str, width: usize) -> usize {
     if width == 0 {
         return text.len().max(1);
     }
     text.lines()
         .map(|line| {
-            let visible = strip_osc8(line);
-            let chars = visible.chars().count();
+            let chars = line.chars().count();
             if chars == 0 { 1 } else { (chars + width - 1) / width }
         })
         .sum::<usize>()
         .max(1)
-}
-
-/// Remove OSC 8 hyperlink escape sequences (`ESC ] 8 ;; url ESC \`) from a string,
-/// leaving only the visible link text.
-fn strip_osc8(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut chars = s.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '\x1b' {
-            match chars.peek() {
-                Some(']') => {
-                    // consume everything up to and including the ST (ESC \)
-                    chars.next(); // consume ']'
-                    let mut prev = '\0';
-                    for inner in chars.by_ref() {
-                        if prev == '\x1b' && inner == '\\' {
-                            break;
-                        }
-                        prev = inner;
-                    }
-                }
-                Some('\\') => { chars.next(); } // lone ST
-                _ => {}
-            }
-        } else {
-            out.push(c);
-        }
-    }
-    out
 }

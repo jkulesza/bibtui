@@ -257,11 +257,7 @@ fn push_link(s: &mut String, entry: &Entry) {
         _ => {}
     }
 
-    // OSC 8 hyperlink: ESC ] 8 ;; <url> ESC \ <text> ESC ] 8 ;; ESC \
-    s.push_str(&format!(
-        ". \x1b]8;;{url}\x1b\\{url}\x1b]8;;\x1b\\.",
-        url = link_url
-    ));
+    s.push_str(&format!(". {}.", link_url));
 }
 
 /// Ensure the string ends with a period (adds one if missing, replaces trailing comma).
