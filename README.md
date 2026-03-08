@@ -8,12 +8,15 @@ A terminal UI BibTeX manager written in Rust. Designed as a lightweight, keyboar
 - JabRef-compatible group tree (static and keyword groups)
 - Byte-perfect BibTeX round-tripping — formatting is preserved for unmodified entries
 - Vim-style navigation throughout
-- Entry CRUD: add, edit, duplicate, delete
+- Entry CRUD: add, edit, duplicate, delete with undo (`u`)
 - Template-based citation key generation
 - Clipboard yank of citation keys
 - Per-entry status indicators: `●` unsaved change, `⎘` file attachment, `⎋` DOI/URL
 - Open attached files (`o`) or DOI/URL links (`w`) with OS default applications
+- Citation preview popup (`Space`) formatted in IEEEtranN style
+- LaTeX markup rendered to Unicode for display (`L` to toggle)
 - Configurable columns, sort, theme, and citekey templates via YAML
+- In-TUI settings editor (`S`) with live config import and export
 
 ## Requirements
 
@@ -77,8 +80,11 @@ bibtui --config ~/dotfiles/bibtui.yaml references.bib
 | `Space` | Select focused group |
 | `o` | Open attached file(s) in OS default viewer |
 | `w` | Open DOI / URL in default browser |
+| `Space` | Citation preview popup (IEEEtranN format) |
 | `B` | Toggle case-protecting brace display |
 | `L` | Toggle LaTeX rendering (accents, math, dashes) |
+| `S` | Open settings editor |
+| `u` | Undo last change |
 | `:` | Open command palette |
 | `?` | Show help |
 | `q` | Quit |
@@ -109,6 +115,9 @@ Search syntax:
 | `w` | Open DOI / URL in default browser |
 | `g` | Edit entry's groups |
 | `c` | Regenerate citation key from template |
+| `B` | Toggle case-protecting brace display |
+| `L` | Toggle LaTeX rendering |
+| `u` | Undo last change |
 | `Esc` / `q` | Close detail, return to list |
 
 ### Field editor (Editing mode)
@@ -122,6 +131,21 @@ Search syntax:
 | `Backspace` / `Delete` | Delete character |
 | `Enter` | Confirm edit |
 | `Esc` | Cancel edit |
+
+### Settings editor (`S`)
+
+Opens a full-screen view of all configuration options. Changes apply immediately to the running session.
+
+| Key | Action |
+|-----|--------|
+| `j` / `k` | Navigate settings |
+| `Enter` / `Space` | Toggle boolean setting |
+| `e` | Edit string setting |
+| `E` | Export current config to a YAML file |
+| `I` | Import config from a YAML file |
+| `Esc` / `q` | Close settings |
+
+Settings marked with `●` differ from their default value.
 
 ### Command palette
 
@@ -181,6 +205,11 @@ display:
     field: citation_key
     ascending: true
 
+save:
+  align_fields: true                      # align field values to a column on save
+  field_order: jabref                     # jabref | alphabetical
+  sync_filenames: false                   # rename attached files to match citation key on save
+
 titlecase:
   ignore_words: [MCNP, OpenMC]           # words kept verbatim by the T title-case command
 
@@ -208,4 +237,4 @@ See `bibtui.yaml.example` for all options including columns, citekey templates, 
 cargo test
 ```
 
-All 34 tests should pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation).
+All 80 tests should pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation).
