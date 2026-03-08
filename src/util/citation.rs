@@ -43,13 +43,8 @@ fn format_ieeetran(entry: &Entry) -> String {
             push_vol_no(&mut p, entry);
             push_pages(&mut p, entry);
             push_year_month(&mut p, entry, &year);
-            let doi = field(entry, "doi");
             let mut s = p.join(", ");
-            if !doi.is_empty() {
-                s.push_str(&format!(", doi: {}.", doi));
-            } else {
-                terminate(&mut s);
-            }
+            push_link(&mut s, entry);
             s
         }
 
@@ -74,7 +69,7 @@ fn format_ieeetran(entry: &Entry) -> String {
             }
             push_nonempty(&mut p, year.clone());
             let mut s = p.join(", ");
-            terminate(&mut s);
+            push_link(&mut s, entry);
             s
         }
 
@@ -91,7 +86,7 @@ fn format_ieeetran(entry: &Entry) -> String {
             push_nonempty(&mut p, year.clone());
             push_pages(&mut p, entry);
             let mut s = p.join(", ");
-            terminate(&mut s);
+            push_link(&mut s, entry);
             s
         }
 
@@ -112,7 +107,7 @@ fn format_ieeetran(entry: &Entry) -> String {
             }
             push_nonempty(&mut p, year.clone());
             let mut s = p.join(", ");
-            terminate(&mut s);
+            push_link(&mut s, entry);
             s
         }
 
@@ -125,7 +120,7 @@ fn format_ieeetran(entry: &Entry) -> String {
             push_nonempty(&mut p, field(entry, "address"));
             push_nonempty(&mut p, year.clone());
             let mut s = p.join(", ");
-            terminate(&mut s);
+            push_link(&mut s, entry);
             s
         }
 
@@ -138,7 +133,7 @@ fn format_ieeetran(entry: &Entry) -> String {
             push_nonempty(&mut p, field(entry, "address"));
             push_nonempty(&mut p, year.clone());
             let mut s = p.join(", ");
-            terminate(&mut s);
+            push_link(&mut s, entry);
             s
         }
 
@@ -149,7 +144,7 @@ fn format_ieeetran(entry: &Entry) -> String {
             push_nonempty(&mut p, field(entry, "note"));
             push_nonempty(&mut p, year.clone());
             let mut s = p.join(", ");
-            terminate(&mut s);
+            push_link(&mut s, entry);
             s
         }
 
@@ -165,7 +160,7 @@ fn format_ieeetran(entry: &Entry) -> String {
             push_nonempty(&mut p, field(entry, "address"));
             push_nonempty(&mut p, year.clone());
             let mut s = p.join(", ");
-            terminate(&mut s);
+            push_link(&mut s, entry);
             s
         }
 
@@ -177,14 +172,9 @@ fn format_ieeetran(entry: &Entry) -> String {
             let how = field(entry, "howpublished");
             push_nonempty(&mut p, how.clone());
             push_nonempty(&mut p, year.clone());
-            let note = field(entry, "note");
-            push_nonempty(&mut p, note);
-            let url = field(entry, "url");
-            if !url.is_empty() && how.is_empty() {
-                p.push(format!("[Online]. Available: {}", url));
-            }
+            push_nonempty(&mut p, field(entry, "note"));
             let mut s = p.join(", ");
-            terminate(&mut s);
+            push_link(&mut s, entry);
             s
         }
     }
@@ -235,6 +225,43 @@ fn push_year_month(p: &mut Vec<String>, entry: &Entry, year: &str) {
     } else if !year.is_empty() {
         p.push(year.to_string());
     }
+}
+
+/// Append a DOI hyperlink (preferred) or URL to the citation, then terminate with a period.
+///
+/// DOI is formatted as `https://doi.org/{doi}` and takes precedence over the `url` field.
+/// The URL is wrapped in an OSC 8 terminal hyperlink so it is clickable in supporting
+/// terminals while remaining readable as plain text everywhere else.
+fn push_link(s: &mut String, entry: &Entry) {
+    let doi = field(entry, "doi");
+    let url = field(entry, "url");
+
+    let link_url = if !doi.is_empty() {
+        let raw = doi.trim();
+        if raw.starts_with("http://") || raw.starts_with("https://") {
+            raw.to_string()
+        } else {
+            format!("https://doi.org/{}", raw)
+        }
+    } else if !url.is_empty() {
+        url
+    } else {
+        terminate(s);
+        return;
+    };
+
+    // Ensure the body ends cleanly before appending the link.
+    match s.chars().last() {
+        Some(',') => { s.pop(); }
+        Some('.') | Some('?') | Some('!') => {}
+        _ => {}
+    }
+
+    // OSC 8 hyperlink: ESC ] 8 ;; <url> ESC \ <text> ESC ] 8 ;; ESC \
+    s.push_str(&format!(
+        ". \x1b]8;;{url}\x1b\\{url}\x1b]8;;\x1b\\.",
+        url = link_url
+    ));
 }
 
 /// Ensure the string ends with a period (adds one if missing, replaces trailing comma).
