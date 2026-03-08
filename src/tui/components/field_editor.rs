@@ -205,7 +205,34 @@ pub fn render_field_editor(
         (&state.value, state.cursor)
     };
 
-    let (before, after) = text.split_at(cursor_pos);
+    // Horizontal scrolling: keep cursor visible within the inner width.
+    // Step 1: tentative scroll assuming full width (to detect left overflow).
+    let inner_w = inner.width as usize;
+    let cursor_char_idx = text[..cursor_pos].chars().count();
+    let tentative_scroll = if cursor_char_idx + 1 > inner_w {
+        cursor_char_idx + 1 - inner_w
+    } else {
+        0
+    };
+    let has_left = tentative_scroll > 0;
+
+    // Step 2: reserve 1 col for left indicator when scrolled, then recompute scroll.
+    let text_w = if has_left { inner_w - 1 } else { inner_w };
+    let scroll_chars = if cursor_char_idx + 1 > text_w {
+        cursor_char_idx + 1 - text_w
+    } else {
+        0
+    };
+    let scroll_byte = text
+        .char_indices()
+        .nth(scroll_chars)
+        .map(|(i, _)| i)
+        .unwrap_or(text.len());
+
+    let visible_text = &text[scroll_byte..];
+    let visible_cursor_pos = cursor_pos - scroll_byte;
+
+    let (before, after) = visible_text.split_at(visible_cursor_pos);
     let cursor_char = after.chars().next().unwrap_or(' ');
     let after_cursor = if after.is_empty() {
         ""
@@ -213,14 +240,33 @@ pub fn render_field_editor(
         &after[cursor_char.len_utf8()..]
     };
 
-    let line = Line::from(vec![
-        Span::raw(before.to_string()),
-        Span::styled(
-            cursor_char.to_string(),
-            Style::default().add_modifier(Modifier::REVERSED),
-        ),
-        Span::raw(after_cursor.to_string()),
-    ]);
+    // Step 3: check right overflow, reserve 1 col for right indicator if needed.
+    let before_char_count = before.chars().count();
+    let after_max_full = text_w.saturating_sub(before_char_count + 1);
+    let has_right = after_cursor.chars().count() > after_max_full;
+    let after_max = if has_right {
+        after_max_full.saturating_sub(1)
+    } else {
+        after_max_full
+    };
+    let after_visible: String = after_cursor.chars().take(after_max).collect();
+
+    // Build the line with optional scroll indicators at each end.
+    let indicator_style = theme.label;
+    let mut spans: Vec<Span> = Vec::new();
+    if has_left {
+        spans.push(Span::styled("<", indicator_style));
+    }
+    spans.push(Span::raw(before.to_string()));
+    spans.push(Span::styled(
+        cursor_char.to_string(),
+        Style::default().add_modifier(Modifier::REVERSED),
+    ));
+    spans.push(Span::raw(after_visible));
+    if has_right {
+        spans.push(Span::styled(">", indicator_style));
+    }
+    let line = Line::from(spans);
 
     let hint = if state.is_new && state.editing_name {
         Line::from(Span::styled(" Enter: next  Esc: cancel", theme.label))
