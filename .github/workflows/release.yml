@@ -78,6 +78,14 @@ jobs:
         with:
           key: ${{ matrix.target }}
 
+      - name: Set version from tag
+        shell: bash
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          sed -i.bak "s/^version = \"[^\"]*\"/version = \"${VERSION}\"/" Cargo.toml
+          rm -f Cargo.toml.bak
+
       - name: Install musl-tools (Linux)
         if: matrix.target == 'x86_64-unknown-linux-musl'
         run: sudo apt-get install -y musl-tools
@@ -92,7 +100,7 @@ jobs:
       - name: Package (tar.gz)
         if: matrix.archive == 'tar'
         run: >
-          tar -czf ${{ env.PACKAGE_NAME }}-${{ matrix.platform }}.tar.gz
+          tar -czf ${{ env.PACKAGE_NAME }}-${{ github.ref_name }}-${{ matrix.platform }}.tar.gz
           -C target/${{ matrix.target }}/release ${{ matrix.binary }}
 
       - name: Package (zip)
@@ -101,12 +109,12 @@ jobs:
         run: >
           Compress-Archive
           -Path target/${{ matrix.target }}/release/${{ matrix.binary }}
-          -DestinationPath ${{ env.PACKAGE_NAME }}-${{ matrix.platform }}.zip
+          -DestinationPath ${{ env.PACKAGE_NAME }}-${{ github.ref_name }}-${{ matrix.platform }}.zip
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.PACKAGE_NAME }}-${{ matrix.platform }}
-          path: ${{ env.PACKAGE_NAME }}-${{ matrix.platform }}.*
+          name: ${{ env.PACKAGE_NAME }}-${{ github.ref_name }}-${{ matrix.platform }}
+          path: ${{ env.PACKAGE_NAME }}-${{ github.ref_name }}-${{ matrix.platform }}.*
           if-no-files-found: error
 
   # ── Release ───────────────────────────────────────────────────────────────────
@@ -145,12 +153,12 @@ jobs:
 
           ### Downloads
 
-          | Platform               | Archive                            |
-          |------------------------|-------------------------------------|
-          | Linux x86-64 (static)  | \`bibtui-linux-x86_64.tar.gz\`      |
-          | macOS Apple Silicon    | \`bibtui-macos-aarch64.tar.gz\`     |
-          | macOS Intel            | \`bibtui-macos-x86_64.tar.gz\`      |
-          | Windows x86-64         | \`bibtui-windows-x86_64.zip\`       |
+          | Platform               | Archive                                          |
+          |------------------------|--------------------------------------------------|
+          | Linux x86-64 (static)  | \`bibtui-${TAG}-linux-x86_64.tar.gz\`            |
+          | macOS Apple Silicon    | \`bibtui-${TAG}-macos-aarch64.tar.gz\`           |
+          | macOS Intel            | \`bibtui-${TAG}-macos-x86_64.tar.gz\`            |
+          | Windows x86-64         | \`bibtui-${TAG}-windows-x86_64.zip\`             |
 
           **Linux / macOS** — extract and place on your \`\$PATH\`:
           \`\`\`
