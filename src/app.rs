@@ -8,6 +8,7 @@ use indexmap::IndexMap;
 use crate::bib::citekey::generate_citekey;
 use crate::bib::jabref::serialize_group_tree;
 use crate::bib::model::*;
+use crate::util::open::{effective_file_dir, parse_file_field, serialize_file_field};
 use crate::tui::components::citation_preview::CitationPreviewState;
 use crate::util::citation::format_citation;
 use crate::bib::parser::{build_database, parse_bib_file};
@@ -1238,7 +1239,116 @@ impl App {
 
     // ── Save ──
 
+    /// Rename attached files to match the citation key, updating the `file` field in place.
+    ///
+    /// - One file  →  `citekey.ext`
+    /// - N files   →  `citekey_1.ext`, `citekey_2.ext`, …
+    ///
+    /// Only dirty entries with a `file` field are processed.  The actual file is
+    /// renamed on disk; if the rename fails the entry is left unchanged.
+    fn sync_filenames(&mut self) {
+        if !self.config.save.sync_filenames {
+            return;
+        }
+
+        let file_dir = effective_file_dir(
+            &self.bib_path,
+            self.database.jabref_meta.file_directory.as_deref(),
+        );
+
+        let keys: Vec<String> = self
+            .database
+            .entries
+            .iter()
+            .filter(|(_, e)| e.dirty && e.fields.contains_key("file"))
+            .map(|(k, _)| k.clone())
+            .collect();
+
+        let mut rename_msgs: Vec<String> = Vec::new();
+
+        for key in keys {
+            let (citekey, file_val) = {
+                let entry = &self.database.entries[&key];
+                (entry.citation_key.clone(), entry.fields["file"].clone())
+            };
+
+            let mut parsed = parse_file_field(&file_val);
+            if parsed.is_empty() {
+                continue;
+            }
+
+            let multi = parsed.len() > 1;
+            let mut changed = false;
+
+            for (i, pf) in parsed.iter_mut().enumerate() {
+                let old_rel = PathBuf::from(&pf.path);
+                let ext = old_rel
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("pdf")
+                    .to_string();
+
+                let new_filename = if multi {
+                    format!("{}_{}.{}", citekey, i + 1, ext)
+                } else {
+                    format!("{}.{}", citekey, ext)
+                };
+
+                // Already correctly named?
+                if old_rel.file_name().and_then(|n| n.to_str()) == Some(&new_filename) {
+                    continue;
+                }
+
+                // Resolve to absolute paths.
+                let old_abs = if old_rel.is_absolute() {
+                    old_rel.clone()
+                } else {
+                    file_dir.join(&old_rel)
+                };
+                let new_abs = old_abs
+                    .parent()
+                    .map(|p| p.join(&new_filename))
+                    .unwrap_or_else(|| file_dir.join(&new_filename));
+
+                if old_abs.exists() {
+                    if let Err(e) = std::fs::rename(&old_abs, &new_abs) {
+                        rename_msgs.push(format!("rename {}: {}", old_abs.display(), e));
+                        continue;
+                    }
+                }
+
+                // Update path in the parsed struct, preserving relative vs absolute.
+                pf.path = if old_rel.is_absolute() {
+                    new_abs.to_string_lossy().into_owned()
+                } else {
+                    old_rel
+                        .parent()
+                        .map(|p| p.join(&new_filename))
+                        .unwrap_or_else(|| PathBuf::from(&new_filename))
+                        .to_string_lossy()
+                        .into_owned()
+                };
+                changed = true;
+            }
+
+            if changed {
+                let new_file_val = serialize_file_field(&parsed);
+                if let Some(entry) = self.database.entries.get_mut(&key) {
+                    entry.fields.insert("file".to_string(), new_file_val);
+                    entry.dirty = true;
+                }
+            }
+        }
+
+        if !rename_msgs.is_empty() {
+            self.status_message = Some(format!("File rename errors: {}", rename_msgs.join("; ")));
+        }
+    }
+
     fn save(&mut self) {
+        // Rename attached files to match citation keys before serialising.
+        self.sync_filenames();
+
         // Backup
         if self.config.general.backup_on_save {
             let backup_path = self.bib_path.with_extension("bib.bak");

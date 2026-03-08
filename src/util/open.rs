@@ -135,6 +135,17 @@ pub fn resolve_file_path(path: &str, bib_dir: &Path) -> PathBuf {
     }
 }
 
+/// Serialize a list of `ParsedFile`s back into the JabRef `file` field format.
+///
+/// Produces `Description:Path:Type` entries joined by `;`.
+pub fn serialize_file_field(files: &[ParsedFile]) -> String {
+    files
+        .iter()
+        .map(|f| format!("{}:{}:{}", f.description, f.path, f.file_type))
+        .collect::<Vec<_>>()
+        .join(";")
+}
+
 /// Convert a DOI string to a full `https://doi.org/` URL.
 /// If the input already looks like a URL, return it unchanged.
 pub fn doi_to_url(doi: &str) -> String {

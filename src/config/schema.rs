@@ -122,6 +122,9 @@ pub struct SaveConfig {
     pub align_fields: bool,
     pub field_order: String,
     pub actions: Vec<SaveAction>,
+    /// Rename attached files to match the citation key on save.
+    /// Single file: `citekey.ext`. Multiple files: `citekey_1.ext`, `citekey_2.ext`, …
+    pub sync_filenames: bool,
 }
 
 impl Default for SaveConfig {
@@ -139,6 +142,7 @@ impl Default for SaveConfig {
                     action: "normalize_page_numbers".to_string(),
                 },
             ],
+            sync_filenames: false,
         }
     }
 }
