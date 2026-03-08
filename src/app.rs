@@ -1170,9 +1170,13 @@ impl App {
 
     fn yank_citekey(&mut self) {
         if let Some(key) = self.selected_entry_key() {
-            match crate::util::clipboard::copy_to_clipboard(&key) {
+            let text = match self.database.entries.get(&key) {
+                Some(entry) => format_citation(entry, &self.config.citation.style),
+                None => return,
+            };
+            match crate::util::clipboard::copy_to_clipboard(&text) {
                 Ok(()) => {
-                    self.status_message = Some(format!("Copied '{}' to clipboard", key));
+                    self.status_message = Some(format!("Copied citation for '{}' to clipboard", key));
                 }
                 Err(e) => {
                     self.status_message = Some(format!("Clipboard error: {}", e));

@@ -72,7 +72,7 @@ bibtui --config ~/dotfiles/bibtui.yaml references.bib
 | `a` | Add new entry |
 | `dd` | Delete selected entry |
 | `D` | Duplicate selected entry |
-| `yy` | Yank citation key to clipboard |
+| `yy` | Yank formatted citation to clipboard (IEEEtranN style) |
 | `/` | Start fuzzy search |
 | `h` / `←` | Focus group tree |
 | `l` / `→` | Focus entry list |
