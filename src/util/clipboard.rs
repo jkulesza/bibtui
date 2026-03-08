@@ -1,9 +1,8 @@
-use std::process::Command;
-
 /// Copy text to system clipboard.
 pub fn copy_to_clipboard(text: &str) -> anyhow::Result<()> {
     #[cfg(target_os = "macos")]
     {
+        use std::process::Command;
         let mut child = Command::new("pbcopy")
             .stdin(std::process::Stdio::piped())
             .spawn()?;
@@ -17,6 +16,7 @@ pub fn copy_to_clipboard(text: &str) -> anyhow::Result<()> {
 
     #[cfg(target_os = "linux")]
     {
+        use std::process::Command;
         // Try xclip first, then xsel
         let result = Command::new("xclip")
             .args(["-selection", "clipboard"])
