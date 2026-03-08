@@ -25,8 +25,10 @@ use crate::tui::components::group_tree::GroupTreeState;
 use crate::tui::components::search_bar::SearchBarState;
 use crate::tui::event::poll_event;
 use crate::tui::keybindings::{map_key, InputMode};
+use crate::tui::components::settings::{SettingValue, SettingsState};
 use crate::tui::screens::main_screen::{render_main_screen, Focus};
 use crate::tui::screens::edit_screen::render_edit_screen;
+use crate::tui::screens::settings_screen::render_settings_screen;
 use crate::tui::theme::Theme;
 use crate::tui::Term;
 
@@ -85,6 +87,15 @@ pub enum Action {
     OpenWeb,
     CloseCitationPreview,
     Undo,
+    // Settings screen
+    EnterSettings,
+    ExitSettings,
+    SettingsMoveDown,
+    SettingsMoveUp,
+    SettingsToggle,
+    SettingsEdit,
+    SettingsExport,
+    SettingsImport,
 }
 
 /// A single reversible operation stored on the undo stack.
@@ -144,6 +155,7 @@ pub struct App {
     pub dialog_state: Option<DialogState>,
     pub command_palette_state: CommandPaletteState,
     pub citation_preview_state: Option<CitationPreviewState>,
+    pub settings_state: Option<SettingsState>,
 
     // Search
     pub search_engine: SearchEngine,
@@ -172,6 +184,9 @@ enum PendingAction {
     AddGroup { parent_path: Vec<usize> },
     DeleteGroup { path: Vec<usize> },
     AssignGroups { entry_key: String },
+    EditSetting { setting_id: &'static str },
+    ExportSettings,
+    ImportSettings,
 }
 
 impl App {
@@ -214,6 +229,7 @@ impl App {
             dialog_state: None,
             command_palette_state: CommandPaletteState::new(),
             citation_preview_state: None,
+            settings_state: None,
             search_engine: SearchEngine::new(),
             filtered_indices: None,
             sorted_keys,
@@ -238,7 +254,9 @@ impl App {
     }
 
     fn render(&mut self, f: &mut ratatui::Frame) {
-        if self.detail_state.is_some() {
+        if self.settings_state.is_some() {
+            render_settings_screen(f, self);
+        } else if self.detail_state.is_some() {
             render_edit_screen(f, self);
         } else {
             render_main_screen(f, self);
@@ -327,7 +345,9 @@ impl App {
             Action::CancelEdit => {
                 self.field_editor_state = None;
                 self.pending_action = None;
-                self.mode = if self.detail_state.is_some() {
+                self.mode = if self.settings_state.is_some() {
+                    InputMode::Settings
+                } else if self.detail_state.is_some() {
                     InputMode::Detail
                 } else {
                     InputMode::Normal
@@ -464,6 +484,66 @@ impl App {
                 });
             }
             Action::Undo => self.undo(),
+
+            // ── Settings ──
+            Action::EnterSettings => {
+                self.settings_state = Some(SettingsState::new(&self.config));
+                self.mode = InputMode::Settings;
+            }
+            Action::ExitSettings => {
+                self.settings_state = None;
+                self.mode = InputMode::Normal;
+            }
+            Action::SettingsMoveDown => {
+                if let Some(ref mut s) = self.settings_state {
+                    s.move_down();
+                }
+            }
+            Action::SettingsMoveUp => {
+                if let Some(ref mut s) = self.settings_state {
+                    s.move_up();
+                }
+            }
+            Action::SettingsToggle => {
+                if let Some(ref mut s) = self.settings_state {
+                    if s.selected_item().map(|i| i.value.is_bool()).unwrap_or(false) {
+                        s.toggle_selected();
+                        s.apply_to_config(&mut self.config);
+                        // Sync runtime toggles
+                        self.render_latex = self.config.display.render_latex;
+                        self.show_braces = self.config.display.show_braces;
+                        self.show_groups = self.config.display.show_groups;
+                    }
+                }
+            }
+            Action::SettingsEdit => {
+                if let Some(ref s) = self.settings_state {
+                    if let Some(id) = s.selected_id() {
+                        if !s.selected_item().map(|i| i.value.is_bool()).unwrap_or(true) {
+                            let current = s.selected_value_str();
+                            let label = s.selected_item().map(|i| i.label).unwrap_or(id);
+                            self.field_editor_state =
+                                Some(FieldEditorState::new(label, &current));
+                            self.pending_action =
+                                Some(PendingAction::EditSetting { setting_id: id });
+                            self.mode = InputMode::Editing;
+                        }
+                    }
+                }
+            }
+            Action::SettingsExport => {
+                // Prompt for export path, defaulting to ./bibtui.yaml
+                self.field_editor_state =
+                    Some(FieldEditorState::new("Export path", "bibtui.yaml"));
+                self.pending_action = Some(PendingAction::ExportSettings);
+                self.mode = InputMode::Editing;
+            }
+            Action::SettingsImport => {
+                self.field_editor_state =
+                    Some(FieldEditorState::new("Import path", ""));
+                self.pending_action = Some(PendingAction::ImportSettings);
+                self.mode = InputMode::Editing;
+            }
         }
     }
 
@@ -630,6 +710,55 @@ impl App {
     }
 
     fn confirm_edit(&mut self) {
+        // Export settings ─────────────────────────────────────────────────────
+        if matches!(self.pending_action, Some(PendingAction::ExportSettings)) {
+            let path_str = self
+                .field_editor_state
+                .as_ref()
+                .map(|e| e.value.trim().to_string())
+                .unwrap_or_else(|| "bibtui.yaml".to_string());
+            self.field_editor_state = None;
+            self.pending_action = None;
+            self.mode = InputMode::Settings;
+            if !path_str.is_empty() {
+                self.export_settings(&path_str);
+            }
+            return;
+        }
+
+        // Import settings ─────────────────────────────────────────────────────
+        if matches!(self.pending_action, Some(PendingAction::ImportSettings)) {
+            let path_str = self
+                .field_editor_state
+                .as_ref()
+                .map(|e| e.value.trim().to_string())
+                .unwrap_or_default();
+            self.field_editor_state = None;
+            self.pending_action = None;
+            self.mode = InputMode::Settings;
+            if !path_str.is_empty() {
+                self.import_settings(&path_str);
+            }
+            return;
+        }
+
+        // Edit a string setting ───────────────────────────────────────────────
+        if let Some(PendingAction::EditSetting { setting_id }) = self.pending_action {
+            let new_val = self
+                .field_editor_state
+                .as_ref()
+                .map(|e| e.value.clone())
+                .unwrap_or_default();
+            self.field_editor_state = None;
+            self.pending_action = None;
+            self.mode = InputMode::Settings;
+            if let Some(ref mut s) = self.settings_state {
+                s.set_value(setting_id, SettingValue::Str(new_val));
+                s.apply_to_config(&mut self.config);
+            }
+            return;
+        }
+
         // Group name input — handled separately from field editing
         if matches!(self.pending_action, Some(PendingAction::AddGroup { .. })) {
             let name = self
@@ -1227,8 +1356,11 @@ impl App {
                 }
                 self.mode = InputMode::Detail;
             }
-            Some(PendingAction::AddGroup { .. }) => {
-                // AddGroup is confirmed through confirm_edit(), not this path
+            Some(PendingAction::AddGroup { .. })
+            | Some(PendingAction::EditSetting { .. })
+            | Some(PendingAction::ExportSettings)
+            | Some(PendingAction::ImportSettings) => {
+                // These are confirmed through confirm_edit(), not this path
             }
             None => {
                 // Quit confirmation
@@ -1238,6 +1370,50 @@ impl App {
     }
 
     // ── Save ──
+
+    // ── Settings import / export ──
+
+    fn export_settings(&mut self, path: &str) {
+        match serde_yaml::to_string(&self.config) {
+            Ok(yaml) => match std::fs::write(path, yaml) {
+                Ok(()) => {
+                    self.status_message =
+                        Some(format!("Settings exported to {}", path));
+                }
+                Err(e) => {
+                    self.status_message = Some(format!("Export failed: {}", e));
+                }
+            },
+            Err(e) => {
+                self.status_message = Some(format!("Serialise failed: {}", e));
+            }
+        }
+    }
+
+    fn import_settings(&mut self, path: &str) {
+        match std::fs::read_to_string(path) {
+            Ok(contents) => match serde_yaml::from_str::<crate::config::schema::Config>(&contents) {
+                Ok(cfg) => {
+                    self.config = cfg;
+                    // Sync runtime toggles from new config
+                    self.render_latex = self.config.display.render_latex;
+                    self.show_braces = self.config.display.show_braces;
+                    self.show_groups = self.config.display.show_groups;
+                    self.theme = Theme::from_config(&self.config.theme);
+                    // Refresh settings panel to reflect imported values
+                    self.settings_state = Some(SettingsState::new(&self.config));
+                    self.status_message =
+                        Some(format!("Settings imported from {}", path));
+                }
+                Err(e) => {
+                    self.status_message = Some(format!("Parse failed: {}", e));
+                }
+            },
+            Err(e) => {
+                self.status_message = Some(format!("Read failed: {}", e));
+            }
+        }
+    }
 
     /// Rename attached files to match the citation key, updating the `file` field in place.
     ///

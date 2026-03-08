@@ -12,6 +12,7 @@ pub fn map_key(key: KeyEvent, mode: &InputMode, last_key: Option<char>) -> Optio
         InputMode::Dialog => map_dialog_key(key),
         InputMode::Command => map_command_key(key),
         InputMode::CitationPreview => Some(Action::CloseCitationPreview),
+        InputMode::Settings => map_settings_key(key),
     }
 }
 
@@ -24,6 +25,7 @@ pub enum InputMode {
     Dialog,
     Command,
     CitationPreview,
+    Settings,
 }
 
 fn map_normal_key(key: KeyEvent, last_key: Option<char>) -> Option<Action> {
@@ -74,6 +76,7 @@ fn map_normal_key(key: KeyEvent, last_key: Option<char>) -> Option<Action> {
         KeyCode::Char('w') => Some(Action::OpenWeb),
         KeyCode::Char(':') => Some(Action::EnterCommand),
         KeyCode::Char('?') => Some(Action::ShowHelp),
+        KeyCode::Char('S') => Some(Action::EnterSettings),
         _ => None,
     }
 }
@@ -153,6 +156,19 @@ fn map_command_key(key: KeyEvent) -> Option<Action> {
         KeyCode::Enter => Some(Action::ExecuteCommand),
         KeyCode::Backspace => Some(Action::CommandBackspace),
         KeyCode::Char(c) => Some(Action::CommandChar(c)),
+        _ => None,
+    }
+}
+
+fn map_settings_key(key: KeyEvent) -> Option<Action> {
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('q') => Some(Action::ExitSettings),
+        KeyCode::Char('j') | KeyCode::Down => Some(Action::SettingsMoveDown),
+        KeyCode::Char('k') | KeyCode::Up => Some(Action::SettingsMoveUp),
+        KeyCode::Enter | KeyCode::Char(' ') => Some(Action::SettingsToggle),
+        KeyCode::Char('e') => Some(Action::SettingsEdit),
+        KeyCode::Char('E') => Some(Action::SettingsExport),
+        KeyCode::Char('I') => Some(Action::SettingsImport),
         _ => None,
     }
 }
