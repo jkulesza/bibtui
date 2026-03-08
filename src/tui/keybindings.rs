@@ -45,6 +45,7 @@ fn map_normal_key(key: KeyEvent, last_key: Option<char>) -> Option<Action> {
         KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             Some(Action::PageUp)
         }
+        KeyCode::Char('u') => Some(Action::Undo),
         KeyCode::Char('/') => Some(Action::EnterSearch),
         KeyCode::Enter => Some(Action::OpenDetail),
         KeyCode::Char('a') => Some(Action::AddEntry),
@@ -103,6 +104,7 @@ fn map_detail_key(key: KeyEvent) -> Option<Action> {
         KeyCode::Char('c') => Some(Action::RegenCitekey),
         KeyCode::Char('L') => Some(Action::ToggleLatex),
         KeyCode::Char('B') => Some(Action::ToggleBraces),
+        KeyCode::Char('u') => Some(Action::Undo),
         _ => None,
     }
 }

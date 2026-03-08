@@ -83,7 +83,40 @@ pub enum Action {
     OpenFile,
     OpenWeb,
     CloseCitationPreview,
+    Undo,
 }
+
+/// A single reversible operation stored on the undo stack.
+#[derive(Debug, Clone)]
+enum UndoItem {
+    /// A field value was inserted, modified, or deleted on a single entry.
+    FieldChanged {
+        entry_key: String,
+        field_name: String,
+        /// `None` means the field did not exist before (so undo removes it).
+        old_value: Option<String>,
+    },
+    /// An entire entry was deleted.
+    EntryDeleted { entry: Entry },
+    /// An entry was added (new or duplicated); undo removes it.
+    EntryAdded { entry_key: String },
+    /// The citation key was regenerated; undo restores the old key.
+    CitekeyChanged {
+        old_key: String,
+        new_key: String,
+        entry_snapshot: Entry,
+    },
+    /// The group tree was changed (group added or deleted).
+    GroupTreeChanged { old_tree: GroupTree },
+    /// An entry's group memberships were reassigned.
+    GroupMembershipChanged {
+        entry_key: String,
+        old_memberships: Vec<String>,
+        old_groups_field: Option<String>,
+    },
+}
+
+const MAX_UNDO: usize = 100;
 
 pub struct App {
     pub database: Database,
@@ -120,6 +153,13 @@ pub struct App {
     pending_action: Option<PendingAction>,
     /// Raw indices of entries deleted this session (for sync on save)
     deleted_raw_indices: Vec<usize>,
+
+    // Undo
+    undo_stack: Vec<UndoItem>,
+    /// Undo-stack depth at the time of the last save.  `None` when the save
+    /// point has been pushed off the end of the capped stack (i.e. it can
+    /// never be reached by undoing).
+    save_generation: Option<usize>,
 }
 
 #[derive(Debug)]
@@ -178,6 +218,8 @@ impl App {
             sorted_keys,
             pending_action: None,
             deleted_raw_indices: Vec::new(),
+            undo_stack: Vec::new(),
+            save_generation: Some(0),
         };
 
         Ok(app)
@@ -397,7 +439,7 @@ impl App {
             }
             Action::ShowHelp => {
                 self.status_message = Some(
-                    "j/k:nav  /:search  Enter:detail  a:add  dd:del  D:dup  yy:yank  o:file  w:web  B:braces  L:latex  Tab:groups  h/l:focus  a/dd:group(grp focus)  g:assign groups(detail)  :w save  q:quit".to_string(),
+                    "j/k:nav  /:search  Enter:detail  a:add  dd:del  D:dup  yy:yank  o:file  w:web  B:braces  L:latex  Tab:groups  h/l:focus  a/dd:group(grp focus)  g:assign groups(detail)  u:undo  :w save  q:quit".to_string(),
                 );
             }
             Action::TitlecaseField => self.titlecase_selected_field(),
@@ -420,6 +462,7 @@ impl App {
                     "LaTeX rendering off".to_string()
                 });
             }
+            Action::Undo => self.undo(),
         }
     }
 
@@ -619,18 +662,22 @@ impl App {
                 self.mode = InputMode::Detail;
                 return;
             }
-            if let Some(ref key) = self.detail_entry_key {
-                if let Some(entry) = self.database.entries.get_mut(key) {
-                    let existing = entry.fields.get(&editor.field_name).map(|s| s.as_str()).unwrap_or("");
-                    if editor.value != existing {
-                        entry
-                            .fields
-                            .insert(editor.field_name.clone(), editor.value.clone());
+            if let Some(ref key) = self.detail_entry_key.clone() {
+                let existing = self.database.entries.get(key)
+                    .and_then(|e| e.fields.get(&editor.field_name).cloned());
+                let existing_str = existing.clone().unwrap_or_default();
+                if editor.value != existing_str {
+                    self.push_undo(UndoItem::FieldChanged {
+                        entry_key: key.clone(),
+                        field_name: editor.field_name.clone(),
+                        old_value: existing,
+                    });
+                    if let Some(entry) = self.database.entries.get_mut(key) {
+                        entry.fields.insert(editor.field_name.clone(), editor.value.clone());
                         entry.dirty = true;
-                        self.dirty = true;
-
+                        let snapshot = entry.clone();
                         if let Some(ref mut detail) = self.detail_state {
-                            detail.refresh(entry);
+                            detail.refresh(&snapshot);
                         }
                     }
                 }
@@ -648,14 +695,21 @@ impl App {
 
         if let Some(field_name) = field_name_opt {
             if let Some(ref key) = self.detail_entry_key.clone() {
-                if let Some(entry) = self.database.entries.get_mut(key) {
-                    entry.fields.shift_remove(&field_name);
-                    entry.dirty = true;
-                    self.dirty = true;
-
-                    let entry_clone = entry.clone();
-                    if let Some(ref mut detail) = self.detail_state {
-                        detail.refresh(&entry_clone);
+                let old_value = self.database.entries.get(key)
+                    .and_then(|e| e.fields.get(&field_name).cloned());
+                if let Some(old_value) = old_value {
+                    self.push_undo(UndoItem::FieldChanged {
+                        entry_key: key.clone(),
+                        field_name: field_name.clone(),
+                        old_value: Some(old_value),
+                    });
+                    if let Some(entry) = self.database.entries.get_mut(key) {
+                        entry.fields.shift_remove(&field_name);
+                        entry.dirty = true;
+                        let entry_clone = entry.clone();
+                        if let Some(ref mut detail) = self.detail_state {
+                            detail.refresh(&entry_clone);
+                        }
                     }
                 }
             }
@@ -679,11 +733,15 @@ impl App {
                 if new_key != *key {
                     // Re-key the entry
                     if let Some(mut entry) = self.database.entries.shift_remove(key) {
+                        self.push_undo(UndoItem::CitekeyChanged {
+                            old_key: key.clone(),
+                            new_key: new_key.clone(),
+                            entry_snapshot: entry.clone(),
+                        });
                         entry.citation_key = new_key.clone();
                         entry.dirty = true;
                         self.database.entries.insert(new_key.clone(), entry);
                         self.detail_entry_key = Some(new_key);
-                        self.dirty = true;
                         self.sorted_keys = sort_entries(&self.database.entries, &self.config);
 
                         if let Some(ref mut detail) = self.detail_state {
@@ -741,7 +799,7 @@ impl App {
         };
 
         self.database.entries.insert(key.clone(), entry);
-        self.dirty = true;
+        self.push_undo(UndoItem::EntryAdded { entry_key: key.clone() });
         self.sorted_keys = sort_entries(&self.database.entries, &self.config);
 
         // Open detail view for the new entry
@@ -765,13 +823,13 @@ impl App {
     }
 
     fn delete_entry(&mut self, key: &str) {
-        if let Some(entry) = self.database.entries.get(key) {
+        if let Some(entry) = self.database.entries.get(key).cloned() {
+            self.push_undo(UndoItem::EntryDeleted { entry: entry.clone() });
             if entry.raw_index != usize::MAX {
                 self.deleted_raw_indices.push(entry.raw_index);
             }
         }
         self.database.entries.shift_remove(key);
-        self.dirty = true;
         self.sorted_keys = sort_entries(&self.database.entries, &self.config);
 
         let count = self.visible_entry_count();
@@ -788,8 +846,8 @@ impl App {
                 let mut new_entry = entry;
                 new_entry.citation_key = new_key.clone();
                 new_entry.dirty = true;
-                self.database.entries.insert(new_key, new_entry);
-                self.dirty = true;
+                self.database.entries.insert(new_key.clone(), new_entry);
+                self.push_undo(UndoItem::EntryAdded { entry_key: new_key });
                 self.sorted_keys = sort_entries(&self.database.entries, &self.config);
                 self.status_message = Some("Entry duplicated".to_string());
             }
@@ -805,26 +863,31 @@ impl App {
 
         if let Some(field_name) = field_name {
             if let Some(key) = self.detail_entry_key.clone() {
-                if let Some(entry) = self.database.entries.get_mut(&key) {
-                    if let Some(value) = entry.fields.get(&field_name).cloned() {
-                        let converted = crate::util::titlecase::apply_titlecase(
-                            &value,
-                            &self.config.titlecase.ignore_words,
-                        );
-                        if converted != value {
+                let value = self.database.entries.get(&key)
+                    .and_then(|e| e.fields.get(&field_name).cloned());
+                if let Some(value) = value {
+                    let converted = crate::util::titlecase::apply_titlecase(
+                        &value,
+                        &self.config.titlecase.ignore_words,
+                    );
+                    if converted != value {
+                        self.push_undo(UndoItem::FieldChanged {
+                            entry_key: key.clone(),
+                            field_name: field_name.clone(),
+                            old_value: Some(value),
+                        });
+                        if let Some(entry) = self.database.entries.get_mut(&key) {
                             entry.fields.insert(field_name.clone(), converted);
                             entry.dirty = true;
-                            self.dirty = true;
                             let entry_clone = entry.clone();
                             if let Some(ref mut detail) = self.detail_state {
                                 detail.refresh(&entry_clone);
                             }
-                            self.status_message =
-                                Some(format!("Title-cased '{}'", field_name));
-                        } else {
-                            self.status_message =
-                                Some(format!("'{}' already in title case", field_name));
                         }
+                        self.status_message = Some(format!("Title-cased '{}'", field_name));
+                    } else {
+                        self.status_message =
+                            Some(format!("'{}' already in title case", field_name));
                     }
                 }
             }
@@ -848,24 +911,29 @@ impl App {
         }
 
         if let Some(key) = self.detail_entry_key.clone() {
-            if let Some(entry) = self.database.entries.get_mut(&key) {
-                if let Some(value) = entry.fields.get(&field_name).cloned() {
-                    let normalized =
-                        crate::util::author::normalize_author_names(&value);
-                    if normalized != value {
+            let value = self.database.entries.get(&key)
+                .and_then(|e| e.fields.get(&field_name).cloned());
+            if let Some(value) = value {
+                let normalized = crate::util::author::normalize_author_names(&value);
+                if normalized != value {
+                    self.push_undo(UndoItem::FieldChanged {
+                        entry_key: key.clone(),
+                        field_name: field_name.clone(),
+                        old_value: Some(value),
+                    });
+                    if let Some(entry) = self.database.entries.get_mut(&key) {
                         entry.fields.insert(field_name.clone(), normalized);
                         entry.dirty = true;
-                        self.dirty = true;
                         let entry_clone = entry.clone();
                         if let Some(ref mut detail) = self.detail_state {
                             detail.refresh(&entry_clone);
                         }
-                        self.status_message =
-                            Some("Author names normalized to 'Last, First' form".to_string());
-                    } else {
-                        self.status_message =
-                            Some("Author names already in 'Last, First' form".to_string());
                     }
+                    self.status_message =
+                        Some("Author names normalized to 'Last, First' form".to_string());
+                } else {
+                    self.status_message =
+                        Some("Author names already in 'Last, First' form".to_string());
                 }
             }
         }
@@ -1187,6 +1255,7 @@ impl App {
         let output = write_bib_file(&self.database.raw_file);
         match std::fs::write(&self.bib_path, &output) {
             Ok(()) => {
+                self.save_generation = Some(self.undo_stack.len());
                 self.dirty = false;
                 // Mark all entries clean
                 for entry in self.database.entries.values_mut() {
@@ -1339,6 +1408,7 @@ impl App {
     }
 
     fn finish_add_group(&mut self, name: String, parent_path: Vec<usize>) {
+        self.push_undo(UndoItem::GroupTreeChanged { old_tree: self.database.groups.clone() });
         let new_node = GroupNode {
             group: Group {
                 name: name.clone(),
@@ -1354,7 +1424,6 @@ impl App {
         }
         self.sync_groups_to_raw();
         self.group_tree_state.refresh(&self.database.groups);
-        self.dirty = true;
         self.status_message = Some(format!("Group '{}' added", name));
     }
 
@@ -1362,6 +1431,7 @@ impl App {
         if path.is_empty() {
             return;
         }
+        self.push_undo(UndoItem::GroupTreeChanged { old_tree: self.database.groups.clone() });
         let (parent_path, child_idx) = path.split_at(path.len() - 1);
         let child_idx = child_idx[0];
         if let Some(parent) =
@@ -1378,7 +1448,6 @@ impl App {
                     self.group_tree_state.active_group = None;
                     self.filtered_indices = None;
                 }
-                self.dirty = true;
                 self.status_message =
                     Some(format!("Group '{}' deleted", removed.group.name));
             }
@@ -1386,6 +1455,17 @@ impl App {
     }
 
     fn finish_assign_groups(&mut self, entry_key: &str, selected_groups: Vec<String>) {
+        // Snapshot before mutating (avoid holding a mutable borrow while calling push_undo)
+        let undo_item = self.database.entries.get(entry_key).map(|entry| {
+            UndoItem::GroupMembershipChanged {
+                entry_key: entry_key.to_string(),
+                old_memberships: entry.group_memberships.clone(),
+                old_groups_field: entry.fields.get("groups").cloned(),
+            }
+        });
+        if let Some(item) = undo_item {
+            self.push_undo(item);
+        }
         if let Some(entry) = self.database.entries.get_mut(entry_key) {
             if selected_groups.is_empty() {
                 entry.fields.shift_remove("groups");
@@ -1396,10 +1476,122 @@ impl App {
             }
             entry.group_memberships = selected_groups;
             entry.dirty = true;
-            self.dirty = true;
             let entry_clone = entry.clone();
             if let Some(ref mut detail) = self.detail_state {
                 detail.refresh(&entry_clone);
+            }
+        }
+    }
+
+    // ── Undo ──
+
+    fn push_undo(&mut self, item: UndoItem) {
+        if self.undo_stack.len() >= MAX_UNDO {
+            self.undo_stack.remove(0);
+            // Shift the save-generation marker; if it was already at 0 the
+            // save point has been evicted and can never be reached again.
+            self.save_generation = self.save_generation.and_then(|g| g.checked_sub(1));
+        }
+        self.undo_stack.push(item);
+        self.dirty = self.save_generation != Some(self.undo_stack.len());
+    }
+
+    fn undo(&mut self) {
+        let Some(item) = self.undo_stack.pop() else {
+            self.status_message = Some("Nothing to undo".to_string());
+            return;
+        };
+
+        match item {
+            UndoItem::FieldChanged { entry_key, field_name, old_value } => {
+                if let Some(entry) = self.database.entries.get_mut(&entry_key) {
+                    match old_value {
+                        Some(v) => { entry.fields.insert(field_name.clone(), v); }
+                        None    => { entry.fields.shift_remove(&field_name); }
+                    }
+                    entry.dirty = true;
+                    if self.detail_entry_key.as_deref() == Some(entry_key.as_str()) {
+                        let snapshot = entry.clone();
+                        if let Some(ref mut detail) = self.detail_state {
+                            detail.refresh(&snapshot);
+                        }
+                    }
+                }
+                self.status_message = Some(format!("Undo: field '{}'", field_name));
+            }
+            UndoItem::EntryDeleted { entry } => {
+                let key = entry.citation_key.clone();
+                // If the raw_index was queued for removal, cancel that
+                if let Some(pos) = self.deleted_raw_indices.iter().position(|&i| i == entry.raw_index) {
+                    self.deleted_raw_indices.remove(pos);
+                }
+                self.database.entries.insert(key.clone(), entry);
+                self.sorted_keys = sort_entries(&self.database.entries, &self.config);
+                self.status_message = Some(format!("Undo: restored '{}'", key));
+            }
+            UndoItem::EntryAdded { entry_key } => {
+                if let Some(entry) = self.database.entries.get(&entry_key) {
+                    if entry.raw_index != usize::MAX {
+                        self.deleted_raw_indices.push(entry.raw_index);
+                    }
+                }
+                self.database.entries.shift_remove(&entry_key);
+                self.sorted_keys = sort_entries(&self.database.entries, &self.config);
+                if self.detail_entry_key.as_deref() == Some(entry_key.as_str()) {
+                    self.close_detail();
+                }
+                self.status_message = Some(format!("Undo: removed '{}'", entry_key));
+            }
+            UndoItem::CitekeyChanged { old_key, new_key, entry_snapshot } => {
+                self.database.entries.shift_remove(&new_key);
+                let mut entry = entry_snapshot;
+                entry.citation_key = old_key.clone();
+                self.database.entries.insert(old_key.clone(), entry);
+                if self.detail_entry_key.as_deref() == Some(new_key.as_str()) {
+                    self.detail_entry_key = Some(old_key.clone());
+                    if let Some(e) = self.database.entries.get(&old_key) {
+                        let snapshot = e.clone();
+                        if let Some(ref mut detail) = self.detail_state {
+                            detail.refresh(&snapshot);
+                        }
+                    }
+                }
+                self.sorted_keys = sort_entries(&self.database.entries, &self.config);
+                self.status_message = Some(format!("Undo: key reverted to '{}'", old_key));
+            }
+            UndoItem::GroupTreeChanged { old_tree } => {
+                self.database.groups = old_tree;
+                self.sync_groups_to_raw();
+                self.group_tree_state.refresh(&self.database.groups);
+                self.status_message = Some("Undo: group change".to_string());
+            }
+            UndoItem::GroupMembershipChanged { entry_key, old_memberships, old_groups_field } => {
+                if let Some(entry) = self.database.entries.get_mut(&entry_key) {
+                    entry.group_memberships = old_memberships;
+                    match old_groups_field {
+                        Some(v) => { entry.fields.insert("groups".to_string(), v); }
+                        None    => { entry.fields.shift_remove("groups"); }
+                    }
+                    entry.dirty = true;
+                    if self.detail_entry_key.as_deref() == Some(entry_key.as_str()) {
+                        let snapshot = entry.clone();
+                        if let Some(ref mut detail) = self.detail_state {
+                            detail.refresh(&snapshot);
+                        }
+                    }
+                }
+                self.status_message = Some("Undo: group membership".to_string());
+            }
+        }
+
+        // Recompute dirty from the save-generation marker now that the stack shrank.
+        self.dirty = self.save_generation != Some(self.undo_stack.len());
+
+        // If we've returned to the exact saved state, clear per-entry dirty flags
+        // too so the entry-list indicator disappears.
+        if !self.dirty {
+            for entry in self.database.entries.values_mut() {
+                entry.dirty = false;
             }
         }
     }
