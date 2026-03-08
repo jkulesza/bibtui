@@ -78,14 +78,6 @@ jobs:
         with:
           key: ${{ matrix.target }}
 
-      - name: Set version from tag
-        shell: bash
-        run: |
-          VERSION="${{ github.ref_name }}"
-          VERSION="${VERSION#v}"
-          sed -i.bak "s/^version = \"[^\"]*\"/version = \"${VERSION}\"/" Cargo.toml
-          rm -f Cargo.toml.bak
-
       - name: Install musl-tools (Linux)
         if: matrix.target == 'x86_64-unknown-linux-musl'
         run: sudo apt-get install -y musl-tools

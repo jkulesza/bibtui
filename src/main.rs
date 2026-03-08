@@ -11,7 +11,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 
 #[derive(Parser, Debug)]
-#[command(name = "bibtui", version, about = "A TUI BibTeX manager")]
+#[command(name = "bibtui", version = env!("GIT_VERSION"), about = "A TUI BibTeX manager")]
 struct Cli {
     /// Path to .bib file
     #[arg()]
