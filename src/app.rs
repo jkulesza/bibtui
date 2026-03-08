@@ -187,6 +187,7 @@ enum PendingAction {
     EditSetting { setting_id: &'static str },
     ExportSettings,
     ImportSettings,
+    YankPrompt { entry_key: String },
 }
 
 impl App {
@@ -506,7 +507,7 @@ impl App {
             }
             Action::SettingsToggle => {
                 if let Some(ref mut s) = self.settings_state {
-                    if s.selected_item().map(|i| i.value.is_bool()).unwrap_or(false) {
+                    if s.selected_item().map(|i| i.value.is_cyclic()).unwrap_or(false) {
                         s.toggle_selected();
                         s.apply_to_config(&mut self.config);
                         // Sync runtime toggles
@@ -519,7 +520,11 @@ impl App {
             Action::SettingsEdit => {
                 if let Some(ref s) = self.settings_state {
                     if let Some(id) = s.selected_id() {
-                        if !s.selected_item().map(|i| i.value.is_bool()).unwrap_or(true) {
+                        // Only open the text editor for free-form string settings.
+                        let is_str = s.selected_item()
+                            .map(|i| matches!(i.value, SettingValue::Str(_)))
+                            .unwrap_or(false);
+                        if is_str {
                             let current = s.selected_value_str();
                             let label = s.selected_item().map(|i| i.label).unwrap_or(id);
                             self.field_editor_state =
@@ -1169,19 +1174,54 @@ impl App {
     }
 
     fn yank_citekey(&mut self) {
-        if let Some(key) = self.selected_entry_key() {
-            let text = match self.database.entries.get(&key) {
-                Some(entry) => format_citation(entry, &self.config.citation.style),
-                None => return,
-            };
-            match crate::util::clipboard::copy_to_clipboard(&text) {
-                Ok(()) => {
-                    self.status_message = Some(format!("Copied citation for '{}' to clipboard", key));
-                }
-                Err(e) => {
-                    self.status_message = Some(format!("Clipboard error: {}", e));
-                }
+        let key = match self.selected_entry_key() {
+            Some(k) => k,
+            None => return,
+        };
+        let yank_format = self.config.general.yank_format.clone();
+        match yank_format.as_str() {
+            "prompt" => {
+                let style = self.config.citation.style.clone();
+                self.dialog_state = Some(DialogState::type_picker_titled(
+                    "Yank to clipboard",
+                    vec![
+                        "Citation key".to_string(),
+                        "BibTeX entry".to_string(),
+                        format!("Formatted citation ({})", style),
+                    ],
+                ));
+                self.pending_action = Some(PendingAction::YankPrompt { entry_key: key });
+                self.mode = InputMode::Dialog;
             }
+            format => {
+                self.do_yank(&key, &format);
+            }
+        }
+    }
+
+    /// Copy `entry_key` to clipboard in the given format string.
+    fn do_yank(&mut self, entry_key: &str, format: &str) {
+        let entry = match self.database.entries.get(entry_key) {
+            Some(e) => e,
+            None => return,
+        };
+        let (text, label) = match format {
+            "citation_key" => (
+                entry.citation_key.clone(),
+                format!("key '{}'", entry.citation_key),
+            ),
+            "bibtex" => (
+                serialize_entry(entry, self.config.save.align_fields),
+                format!("BibTeX entry for '{}'", entry.citation_key),
+            ),
+            _ => (
+                format_citation(entry, &self.config.citation.style),
+                format!("citation for '{}'", entry.citation_key),
+            ),
+        };
+        match crate::util::clipboard::copy_to_clipboard(&text) {
+            Ok(()) => self.status_message = Some(format!("Copied {} to clipboard", label)),
+            Err(e) => self.status_message = Some(format!("Clipboard error: {}", e)),
         }
     }
 
@@ -1359,6 +1399,14 @@ impl App {
                     }
                 }
                 self.mode = InputMode::Detail;
+            }
+            Some(PendingAction::YankPrompt { entry_key }) => {
+                let format = match dialog.as_ref().map(|d| d.selected()) {
+                    Some(0) => "citation_key",
+                    Some(1) => "bibtex",
+                    _ => "formatted",
+                };
+                self.do_yank(&entry_key.clone(), format);
             }
             Some(PendingAction::AddGroup { .. })
             | Some(PendingAction::EditSetting { .. })

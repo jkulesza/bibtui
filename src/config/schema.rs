@@ -27,6 +27,12 @@ pub struct GeneralConfig {
     pub bib_file: Option<String>,
     pub editor: String,
     pub backup_on_save: bool,
+    /// What `yy` copies to the clipboard.
+    ///
+    /// Values: `citation_key` | `bibtex` | `formatted` | `prompt`
+    ///
+    /// `prompt` opens a picker dialog each time so the user can choose.
+    pub yank_format: String,
 }
 
 impl Default for GeneralConfig {
@@ -35,6 +41,7 @@ impl Default for GeneralConfig {
             bib_file: None,
             editor: "nvim".to_string(),
             backup_on_save: true,
+            yank_format: "prompt".to_string(),
         }
     }
 }

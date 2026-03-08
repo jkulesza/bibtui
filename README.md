@@ -10,10 +10,10 @@ A terminal UI BibTeX manager written in Rust. Designed as a lightweight, keyboar
 - Vim-style navigation throughout
 - Entry CRUD: add, edit, duplicate, delete with undo (`u`)
 - Template-based citation key generation
-- Clipboard yank of citation keys
+- Clipboard yank (`yy`) in configurable format: citation key, raw BibTeX, or formatted citation
 - Per-entry status indicators: `●` unsaved change, `⎘` file attachment, `⎋` DOI/URL
 - Open attached files (`o`) or DOI/URL links (`w`) with OS default applications
-- Citation preview popup (`Space`) formatted in IEEEtranN style
+- Citation preview popup (`Space`) with DOI/URL link, formatted in IEEEtranN style
 - LaTeX markup rendered to Unicode for display (`L` to toggle)
 - Configurable columns, sort, theme, and citekey templates via YAML
 - In-TUI settings editor (`S`) with live config import and export
@@ -72,15 +72,14 @@ bibtui --config ~/dotfiles/bibtui.yaml references.bib
 | `a` | Add new entry |
 | `dd` | Delete selected entry |
 | `D` | Duplicate selected entry |
-| `yy` | Yank formatted citation to clipboard (IEEEtranN style) |
+| `yy` | Yank to clipboard (see `general.yank_format`) |
 | `/` | Start fuzzy search |
-| `h` / `←` | Focus group tree |
+| `h` / `←` | Focus group sidebar |
 | `l` / `→` | Focus entry list |
 | `Tab` | Toggle group sidebar |
-| `Space` | Select focused group |
+| `Space` | Citation preview popup (list focus) / select group (sidebar focus) |
 | `o` | Open attached file(s) in OS default viewer |
 | `w` | Open DOI / URL in default browser |
-| `Space` | Citation preview popup (IEEEtranN format) |
 | `B` | Toggle case-protecting brace display |
 | `L` | Toggle LaTeX rendering (accents, math, dashes) |
 | `S` | Open settings editor |
@@ -131,6 +130,8 @@ Search syntax:
 | `Backspace` / `Delete` | Delete character |
 | `Enter` | Confirm edit |
 | `Esc` | Cancel edit |
+
+Long values scroll horizontally; `<` and `>` at the edges indicate hidden text.
 
 ### Settings editor (`S`)
 
@@ -194,12 +195,17 @@ cp bibtui.yaml.example ~/.config/bibtui/config.yaml
 general:
   bib_file: ~/documents/references.bib   # default file when none given on CLI
   backup_on_save: true                    # write .bib.bak before every save
+  yank_format: prompt                     # citation_key | bibtex | formatted | prompt
+                                          #   citation_key — bare key (e.g. Smith2020)
+                                          #   bibtex       — raw @Article{...} block
+                                          #   formatted    — IEEEtranN citation string
+                                          #   prompt       — picker dialog each time
 
 display:
   show_groups: true
   group_sidebar_width: 30
-  show_braces: true                       # show/hide case-protecting {braces}; toggle with B
-  render_latex: false                     # render LaTeX → Unicode for display; toggle with L
+  show_braces: false                      # show/hide case-protecting {braces}; toggle with B
+  render_latex: true                      # render LaTeX → Unicode for display; toggle with L
   abbreviate_authors: true                # abbreviate author lists in entry list
   default_sort:
     field: citation_key

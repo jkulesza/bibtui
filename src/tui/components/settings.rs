@@ -15,6 +15,8 @@ use crate::tui::theme::Theme;
 pub enum SettingValue {
     Bool(bool),
     Str(String),
+    /// Cycles through a fixed list of string options.
+    Choice { options: &'static [&'static str], index: usize },
 }
 
 impl SettingValue {
@@ -22,17 +24,23 @@ impl SettingValue {
         match self {
             SettingValue::Bool(b) => if *b { "true" } else { "false" }.to_string(),
             SettingValue::Str(s) => s.clone(),
+            SettingValue::Choice { options, index } => options[*index].to_string(),
         }
     }
 
     pub fn toggle(&mut self) {
-        if let SettingValue::Bool(b) = self {
-            *b = !*b;
+        match self {
+            SettingValue::Bool(b) => *b = !*b,
+            SettingValue::Choice { options, index } => {
+                *index = (*index + 1) % options.len();
+            }
+            SettingValue::Str(_) => {}
         }
     }
 
-    pub fn is_bool(&self) -> bool {
-        matches!(self, SettingValue::Bool(_))
+    /// True if Enter/Space should cycle the value (bool or fixed-choice).
+    pub fn is_cyclic(&self) -> bool {
+        matches!(self, SettingValue::Bool(_) | SettingValue::Choice { .. })
     }
 }
 
@@ -75,6 +83,21 @@ impl SettingsState {
                 description: "Create a .bib.bak backup file before each save.",
                 value: SettingValue::Bool(config.general.backup_on_save),
                 default: SettingValue::Bool(defaults.general.backup_on_save),
+            },
+            SettingItem {
+                id: "general.yank_format",
+                label: "yank_format",
+                description: "What 'yy' copies: citation_key | bibtex | formatted | prompt (prompt opens a picker each time).",
+                value: {
+                    const OPTS: &[&str] = &["citation_key", "bibtex", "formatted", "prompt"];
+                    let idx = OPTS.iter().position(|&o| o == config.general.yank_format.as_str()).unwrap_or(3);
+                    SettingValue::Choice { options: OPTS, index: idx }
+                },
+                default: {
+                    const OPTS: &[&str] = &["citation_key", "bibtex", "formatted", "prompt"];
+                    let idx = OPTS.iter().position(|&o| o == defaults.general.yank_format.as_str()).unwrap_or(3);
+                    SettingValue::Choice { options: OPTS, index: idx }
+                },
             },
             SettingItem {
                 id: "general.editor",
@@ -124,8 +147,16 @@ impl SettingsState {
                 id: "save.field_order",
                 label: "field_order",
                 description: "Field ordering strategy on save: 'jabref' (JabRef default order) or 'alphabetical'.",
-                value: SettingValue::Str(config.save.field_order.clone()),
-                default: SettingValue::Str(defaults.save.field_order.clone()),
+                value: {
+                    const OPTS: &[&str] = &["jabref", "alphabetical"];
+                    let idx = OPTS.iter().position(|&o| o == config.save.field_order.as_str()).unwrap_or(0);
+                    SettingValue::Choice { options: OPTS, index: idx }
+                },
+                default: {
+                    const OPTS: &[&str] = &["jabref", "alphabetical"];
+                    let idx = OPTS.iter().position(|&o| o == defaults.save.field_order.as_str()).unwrap_or(0);
+                    SettingValue::Choice { options: OPTS, index: idx }
+                },
             },
             SettingItem {
                 id: "save.sync_filenames",
@@ -139,26 +170,35 @@ impl SettingsState {
                 id: "citation.style",
                 label: "style",
                 description: "Citation preview format style shown when pressing Space on an entry. Currently supported: IEEEtranN.",
-                value: SettingValue::Str(config.citation.style.clone()),
-                default: SettingValue::Str(defaults.citation.style.clone()),
+                value: {
+                    const OPTS: &[&str] = &["IEEEtranN"];
+                    let idx = OPTS.iter().position(|&o| o == config.citation.style.as_str()).unwrap_or(0);
+                    SettingValue::Choice { options: OPTS, index: idx }
+                },
+                default: {
+                    const OPTS: &[&str] = &["IEEEtranN"];
+                    let idx = OPTS.iter().position(|&o| o == defaults.citation.style.as_str()).unwrap_or(0);
+                    SettingValue::Choice { options: OPTS, index: idx }
+                },
             },
         ];
 
         let rows: Vec<SettingRow> = vec![
             SettingRow::Section("General"),
-            SettingRow::Item(0),
-            SettingRow::Item(1),
+            SettingRow::Item(0),  // yank_format
+            SettingRow::Item(1),  // backup_on_save
+            SettingRow::Item(2),  // editor
             SettingRow::Section("Display"),
-            SettingRow::Item(2),
             SettingRow::Item(3),
             SettingRow::Item(4),
             SettingRow::Item(5),
-            SettingRow::Section("Save"),
             SettingRow::Item(6),
+            SettingRow::Section("Save"),
             SettingRow::Item(7),
             SettingRow::Item(8),
-            SettingRow::Section("Citation"),
             SettingRow::Item(9),
+            SettingRow::Section("Citation"),
+            SettingRow::Item(10),
         ];
 
         let cursor = rows
@@ -249,6 +289,9 @@ impl SettingsState {
     pub fn apply_to_config(&self, config: &mut Config) {
         for item in &self.items {
             match (item.id, &item.value) {
+                ("general.yank_format", SettingValue::Choice { options, index }) => {
+                    config.general.yank_format = options[*index].to_string();
+                }
                 ("general.backup_on_save", SettingValue::Bool(v)) => {
                     config.general.backup_on_save = *v;
                 }
@@ -270,14 +313,14 @@ impl SettingsState {
                 ("save.align_fields", SettingValue::Bool(v)) => {
                     config.save.align_fields = *v;
                 }
-                ("save.field_order", SettingValue::Str(v)) => {
-                    config.save.field_order = v.clone();
+                ("save.field_order", SettingValue::Choice { options, index }) => {
+                    config.save.field_order = options[*index].to_string();
                 }
                 ("save.sync_filenames", SettingValue::Bool(v)) => {
                     config.save.sync_filenames = *v;
                 }
-                ("citation.style", SettingValue::Str(v)) => {
-                    config.citation.style = v.clone();
+                ("citation.style", SettingValue::Choice { options, index }) => {
+                    config.citation.style = options[*index].to_string();
                 }
                 _ => {}
             }
@@ -359,6 +402,7 @@ pub fn render_settings(f: &mut Frame, area: Rect, state: &mut SettingsState, the
                 let type_ch = match &item.value {
                     SettingValue::Bool(true) => "[✓]",
                     SettingValue::Bool(false) => "[ ]",
+                    SettingValue::Choice { .. } => "[⇄]",
                     SettingValue::Str(_) => "[-]",
                 };
 
@@ -421,14 +465,10 @@ pub fn render_settings(f: &mut Frame, area: Rect, state: &mut SettingsState, the
     );
 
     // ── Hint bar ────────────────────────────────────────────────────────────
-    let is_bool = state
-        .selected_item()
-        .map(|i| i.value.is_bool())
-        .unwrap_or(false);
-    let action_hint = if is_bool {
-        "Enter/Space: toggle"
-    } else {
-        "e: edit value"
+    let action_hint = match state.selected_item().map(|i| &i.value) {
+        Some(SettingValue::Bool(_)) => "Enter/Space: toggle",
+        Some(SettingValue::Choice { .. }) => "Enter/Space: cycle",
+        _ => "e: edit value",
     };
     let hint = format!(
         " j/k: navigate  {}  E: export config  I: import config  Esc: close",
