@@ -196,6 +196,87 @@ impl SettingsState {
                     SettingValue::Choice { options: OPTS, index: idx }
                 },
             },
+            // ── General (continued) ──
+            SettingItem {
+                id: "general.bib_file".into(),
+                label: "bib_file".into(),
+                description: "Default .bib file to open when none is given on the command line. Leave empty to require a CLI argument.".into(),
+                value: SettingValue::Str(config.general.bib_file.clone().unwrap_or_default()),
+                default: SettingValue::Str(defaults.general.bib_file.clone().unwrap_or_default()),
+            },
+            // ── Display (continued) ──
+            SettingItem {
+                id: "display.group_sidebar_width".into(),
+                label: "group_sidebar_width".into(),
+                description: "Width in columns of the group sidebar.".into(),
+                value: SettingValue::Str(config.display.group_sidebar_width.to_string()),
+                default: SettingValue::Str(defaults.display.group_sidebar_width.to_string()),
+            },
+            SettingItem {
+                id: "display.default_sort.field".into(),
+                label: "default_sort.field".into(),
+                description: "Field used to sort the entry list on startup. Any BibTeX field name, or: citation_key, entrytype.".into(),
+                value: SettingValue::Str(config.display.default_sort.field.clone()),
+                default: SettingValue::Str(defaults.display.default_sort.field.clone()),
+            },
+            SettingItem {
+                id: "display.default_sort.ascending".into(),
+                label: "default_sort.ascending".into(),
+                description: "Sort direction: true = A→Z (ascending), false = Z→A (descending).".into(),
+                value: SettingValue::Bool(config.display.default_sort.ascending),
+                default: SettingValue::Bool(defaults.display.default_sort.ascending),
+            },
+            // ── Titlecase ──
+            SettingItem {
+                id: "titlecase.ignore_words".into(),
+                label: "ignore_words".into(),
+                description: "Words reproduced verbatim (case-insensitive) when pressing T to apply title case. Enter as comma-separated list, e.g.: MCNP, OpenMC, LaTeX.".into(),
+                value: SettingValue::Str(config.titlecase.ignore_words.join(", ")),
+                default: SettingValue::Str(defaults.titlecase.ignore_words.join(", ")),
+            },
+            // ── Theme ──
+            SettingItem {
+                id: "theme.selected_bg".into(),
+                label: "selected_bg".into(),
+                description: "Background colour of the selected row (hex, e.g. #3b4261).".into(),
+                value: SettingValue::Str(config.theme.selected_bg.clone()),
+                default: SettingValue::Str(defaults.theme.selected_bg.clone()),
+            },
+            SettingItem {
+                id: "theme.selected_fg".into(),
+                label: "selected_fg".into(),
+                description: "Foreground colour of the selected row (hex, e.g. #c0caf5).".into(),
+                value: SettingValue::Str(config.theme.selected_fg.clone()),
+                default: SettingValue::Str(defaults.theme.selected_fg.clone()),
+            },
+            SettingItem {
+                id: "theme.header_bg".into(),
+                label: "header_bg".into(),
+                description: "Background colour of header and status bars (hex, e.g. #1a1b26).".into(),
+                value: SettingValue::Str(config.theme.header_bg.clone()),
+                default: SettingValue::Str(defaults.theme.header_bg.clone()),
+            },
+            SettingItem {
+                id: "theme.header_fg".into(),
+                label: "header_fg".into(),
+                description: "Foreground colour of header text (hex, e.g. #7aa2f7).".into(),
+                value: SettingValue::Str(config.theme.header_fg.clone()),
+                default: SettingValue::Str(defaults.theme.header_fg.clone()),
+            },
+            SettingItem {
+                id: "theme.search_match".into(),
+                label: "search_match".into(),
+                description: "Colour used to highlight fuzzy-search matches (hex, e.g. #ff9e64).".into(),
+                value: SettingValue::Str(config.theme.search_match.clone()),
+                default: SettingValue::Str(defaults.theme.search_match.clone()),
+            },
+            SettingItem {
+                id: "theme.border_color".into(),
+                label: "border_color".into(),
+                description: "Colour of panel borders (hex, e.g. #565f89).".into(),
+                value: SettingValue::Str(config.theme.border_color.clone()),
+                default: SettingValue::Str(defaults.theme.border_color.clone()),
+            },
         ];
 
         // ── Citekey Templates (one item per standard entry type) ──
@@ -218,22 +299,52 @@ impl SettingsState {
             });
         }
 
+        // Item index map:
+        //  0  general.backup_on_save       7  save.align_fields
+        //  1  general.yank_format          8  save.field_order
+        //  2  general.editor               9  save.sync_filenames
+        //  3  display.show_groups         10  citation.style
+        //  4  display.render_latex        11  general.bib_file
+        //  5  display.show_braces         12  display.group_sidebar_width
+        //  6  display.abbreviate_authors  13  display.default_sort.field
+        //                                14  display.default_sort.ascending
+        //                                15  titlecase.ignore_words
+        //                                16  theme.selected_bg
+        //                                17  theme.selected_fg
+        //                                18  theme.header_bg
+        //                                19  theme.header_fg
+        //                                20  theme.search_match
+        //                                21  theme.border_color
+        //                                22+ citekey templates
         let mut rows: Vec<SettingRow> = vec![
             SettingRow::Section("General"),
-            SettingRow::Item(0),
-            SettingRow::Item(1),
-            SettingRow::Item(2),
+            SettingRow::Item(11), // bib_file
+            SettingRow::Item(0),  // backup_on_save
+            SettingRow::Item(1),  // yank_format
+            SettingRow::Item(2),  // editor
             SettingRow::Section("Display"),
-            SettingRow::Item(3),
-            SettingRow::Item(4),
-            SettingRow::Item(5),
-            SettingRow::Item(6),
+            SettingRow::Item(3),  // show_groups
+            SettingRow::Item(12), // group_sidebar_width
+            SettingRow::Item(4),  // render_latex
+            SettingRow::Item(5),  // show_braces
+            SettingRow::Item(6),  // abbreviate_authors
+            SettingRow::Item(13), // default_sort.field
+            SettingRow::Item(14), // default_sort.ascending
             SettingRow::Section("Save"),
-            SettingRow::Item(7),
-            SettingRow::Item(8),
-            SettingRow::Item(9),
+            SettingRow::Item(7),  // align_fields
+            SettingRow::Item(8),  // field_order
+            SettingRow::Item(9),  // sync_filenames
             SettingRow::Section("Citation"),
-            SettingRow::Item(10),
+            SettingRow::Item(10), // style
+            SettingRow::Section("Titlecase"),
+            SettingRow::Item(15), // ignore_words
+            SettingRow::Section("Theme"),
+            SettingRow::Item(16), // selected_bg
+            SettingRow::Item(17), // selected_fg
+            SettingRow::Item(18), // header_bg
+            SettingRow::Item(19), // header_fg
+            SettingRow::Item(20), // search_match
+            SettingRow::Item(21), // border_color
             SettingRow::Section("Citekey Templates"),
         ];
         for i in 0..CITEKEY_TYPES.len() {
@@ -374,6 +485,41 @@ impl SettingsState {
                         config.citation.style = options[*index].to_string();
                     }
                 }
+                "general.bib_file" => {
+                    if let SettingValue::Str(v) = &item.value {
+                        config.general.bib_file = if v.trim().is_empty() { None } else { Some(v.trim().to_string()) };
+                    }
+                }
+                "display.group_sidebar_width" => {
+                    if let SettingValue::Str(v) = &item.value {
+                        if let Ok(n) = v.trim().parse::<u16>() {
+                            config.display.group_sidebar_width = n;
+                        }
+                    }
+                }
+                "display.default_sort.field" => {
+                    if let SettingValue::Str(v) = &item.value {
+                        config.display.default_sort.field = v.trim().to_string();
+                    }
+                }
+                "display.default_sort.ascending" => {
+                    if let SettingValue::Bool(v) = item.value { config.display.default_sort.ascending = v; }
+                }
+                "titlecase.ignore_words" => {
+                    if let SettingValue::Str(v) = &item.value {
+                        config.titlecase.ignore_words = v
+                            .split(',')
+                            .map(|s| s.trim().to_string())
+                            .filter(|s| !s.is_empty())
+                            .collect();
+                    }
+                }
+                "theme.selected_bg"  => { if let SettingValue::Str(v) = &item.value { config.theme.selected_bg  = v.clone(); } }
+                "theme.selected_fg"  => { if let SettingValue::Str(v) = &item.value { config.theme.selected_fg  = v.clone(); } }
+                "theme.header_bg"    => { if let SettingValue::Str(v) = &item.value { config.theme.header_bg    = v.clone(); } }
+                "theme.header_fg"    => { if let SettingValue::Str(v) = &item.value { config.theme.header_fg    = v.clone(); } }
+                "theme.search_match" => { if let SettingValue::Str(v) = &item.value { config.theme.search_match = v.clone(); } }
+                "theme.border_color" => { if let SettingValue::Str(v) = &item.value { config.theme.border_color = v.clone(); } }
                 id if id.starts_with("citekey.template.") => {
                     if let SettingValue::Str(v) = &item.value {
                         let type_name = &id["citekey.template.".len()..];

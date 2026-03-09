@@ -510,10 +510,7 @@ impl App {
                     if s.selected_item().map(|i| i.value.is_cyclic()).unwrap_or(false) {
                         s.toggle_selected();
                         s.apply_to_config(&mut self.config);
-                        // Sync runtime toggles
-                        self.render_latex = self.config.display.render_latex;
-                        self.show_braces = self.config.display.show_braces;
-                        self.show_groups = self.config.display.show_groups;
+                        self.sync_runtime_from_config();
                     }
                 }
             }
@@ -760,6 +757,7 @@ impl App {
             if let Some(ref mut s) = self.settings_state {
                 s.set_value(&setting_id, SettingValue::Str(new_val));
                 s.apply_to_config(&mut self.config);
+                self.sync_runtime_from_config();
             }
             return;
         }
@@ -1442,16 +1440,21 @@ impl App {
         }
     }
 
+    /// Sync all runtime fields that shadow config values, and rebuild the theme.
+    /// Call this whenever the config is mutated (settings toggle, edit, or import).
+    fn sync_runtime_from_config(&mut self) {
+        self.render_latex = self.config.display.render_latex;
+        self.show_braces  = self.config.display.show_braces;
+        self.show_groups  = self.config.display.show_groups;
+        self.theme        = Theme::from_config(&self.config.theme);
+    }
+
     fn import_settings(&mut self, path: &str) {
         match std::fs::read_to_string(path) {
             Ok(contents) => match serde_yaml::from_str::<crate::config::schema::Config>(&contents) {
                 Ok(cfg) => {
                     self.config = cfg;
-                    // Sync runtime toggles from new config
-                    self.render_latex = self.config.display.render_latex;
-                    self.show_braces = self.config.display.show_braces;
-                    self.show_groups = self.config.display.show_groups;
-                    self.theme = Theme::from_config(&self.config.theme);
+                    self.sync_runtime_from_config();
                     // Refresh settings panel to reflect imported values
                     self.settings_state = Some(SettingsState::new(&self.config));
                     self.status_message =
