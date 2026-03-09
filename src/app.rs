@@ -2028,3 +2028,611 @@ fn collect_group_names(node: &GroupNode, names: &mut Vec<String>) {
         collect_group_names(child, names);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+    use crate::config::defaults::default_config;
+    use crate::tui::keybindings::InputMode;
+
+    /// Two-entry bib used by most tests. Sorted by citation_key: Doe2021, Smith2020.
+    const TEST_BIB: &str = r#"@Article{Smith2020,
+  author  = {Smith, John},
+  title   = {My Paper},
+  year    = {2020},
+  journal = {Nature},
+}
+
+@Book{Doe2021,
+  author    = {Doe, Jane},
+  title     = {Rust Programming},
+  year      = {2021},
+  publisher = {ACM Press},
+}
+"#;
+
+    /// Build an App from the TEST_BIB string. Returns (App, NamedTempFile);
+    /// the caller must keep the NamedTempFile alive to prevent deletion.
+    fn make_app() -> (App, NamedTempFile) {
+        let mut tmp = NamedTempFile::new().unwrap();
+        write!(tmp, "{}", TEST_BIB).unwrap();
+        tmp.flush().unwrap();
+        let path = tmp.path().to_path_buf();
+        let app = App::new(path, default_config()).unwrap();
+        (app, tmp)
+    }
+
+    // ── Sanity ──────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_app_loads_entries() {
+        let (app, _tmp) = make_app();
+        assert_eq!(app.database.entries.len(), 2);
+    }
+
+    #[test]
+    fn test_initial_mode_is_normal() {
+        let (app, _tmp) = make_app();
+        assert_eq!(app.mode, InputMode::Normal);
+    }
+
+    // ── Navigation ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_move_down() {
+        let (mut app, _tmp) = make_app();
+        assert_eq!(app.entry_list_state.selected(), 0);
+        app.handle_action(Action::MoveDown);
+        assert_eq!(app.entry_list_state.selected(), 1);
+    }
+
+    #[test]
+    fn test_move_down_clamps_at_bottom() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::MoveToBottom);
+        let bottom = app.entry_list_state.selected();
+        app.handle_action(Action::MoveDown);
+        assert_eq!(app.entry_list_state.selected(), bottom);
+    }
+
+    #[test]
+    fn test_move_up_clamps_at_top() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::MoveUp);
+        assert_eq!(app.entry_list_state.selected(), 0);
+    }
+
+    #[test]
+    fn test_move_to_top() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::MoveDown);
+        app.handle_action(Action::MoveToTop);
+        assert_eq!(app.entry_list_state.selected(), 0);
+    }
+
+    #[test]
+    fn test_move_to_bottom() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::MoveToBottom);
+        assert_eq!(app.entry_list_state.selected(), 1); // 2 entries, index 1
+    }
+
+    #[test]
+    fn test_page_down_clamps() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::PageDown);
+        assert_eq!(app.entry_list_state.selected(), 1); // only 2 entries
+    }
+
+    #[test]
+    fn test_page_up_from_top_stays_at_zero() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::PageUp);
+        assert_eq!(app.entry_list_state.selected(), 0);
+    }
+
+    // ── Focus ────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_focus_groups() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::FocusGroups);
+        assert_eq!(app.focus, Focus::Groups);
+    }
+
+    #[test]
+    fn test_focus_list() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::FocusGroups);
+        app.handle_action(Action::FocusList);
+        assert_eq!(app.focus, Focus::List);
+    }
+
+    #[test]
+    fn test_toggle_groups() {
+        let (mut app, _tmp) = make_app();
+        let initial = app.show_groups;
+        app.handle_action(Action::ToggleGroups);
+        assert_eq!(app.show_groups, !initial);
+        app.handle_action(Action::ToggleGroups);
+        assert_eq!(app.show_groups, initial);
+    }
+
+    // ── Mode transitions ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_enter_exit_search() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::EnterSearch);
+        assert_eq!(app.mode, InputMode::Search);
+        app.handle_action(Action::ExitSearch);
+        assert_eq!(app.mode, InputMode::Normal);
+        assert!(app.filtered_indices.is_none());
+    }
+
+    #[test]
+    fn test_confirm_search_stays_normal() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::EnterSearch);
+        app.handle_action(Action::ConfirmSearch);
+        assert_eq!(app.mode, InputMode::Normal);
+    }
+
+    #[test]
+    fn test_enter_exit_command() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::EnterCommand);
+        assert_eq!(app.mode, InputMode::Command);
+        app.handle_action(Action::ExitCommand);
+        assert_eq!(app.mode, InputMode::Normal);
+    }
+
+    #[test]
+    fn test_enter_exit_settings() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::EnterSettings);
+        assert_eq!(app.mode, InputMode::Settings);
+        assert!(app.settings_state.is_some());
+        app.handle_action(Action::ExitSettings);
+        assert_eq!(app.mode, InputMode::Normal);
+        assert!(app.settings_state.is_none());
+    }
+
+    #[test]
+    fn test_open_close_detail() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::OpenDetail);
+        assert_eq!(app.mode, InputMode::Detail);
+        assert!(app.detail_state.is_some());
+        app.handle_action(Action::CloseDetail);
+        assert_eq!(app.mode, InputMode::Normal);
+        assert!(app.detail_state.is_none());
+    }
+
+    // ── Toggles ──────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_toggle_braces() {
+        let (mut app, _tmp) = make_app();
+        let initial = app.show_braces;
+        app.handle_action(Action::ToggleBraces);
+        assert_eq!(app.show_braces, !initial);
+        assert!(app.status_message.is_some());
+    }
+
+    #[test]
+    fn test_toggle_latex() {
+        let (mut app, _tmp) = make_app();
+        let initial = app.render_latex;
+        app.handle_action(Action::ToggleLatex);
+        assert_eq!(app.render_latex, !initial);
+        assert!(app.status_message.is_some());
+    }
+
+    // ── Quit ─────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_quit_when_clean() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::Quit);
+        assert!(app.should_quit);
+    }
+
+    #[test]
+    fn test_quit_when_dirty_opens_dialog() {
+        let (mut app, _tmp) = make_app();
+        app.dirty = true;
+        app.handle_action(Action::Quit);
+        assert!(!app.should_quit);
+        assert!(app.dialog_state.is_some());
+        assert_eq!(app.mode, InputMode::Dialog);
+    }
+
+    // ── Search ────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_search_char_updates_query() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::EnterSearch);
+        app.handle_action(Action::SearchChar('s'));
+        app.handle_action(Action::SearchChar('m'));
+        assert_eq!(app.search_bar_state.query, "sm");
+    }
+
+    #[test]
+    fn test_search_backspace() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::EnterSearch);
+        app.handle_action(Action::SearchChar('s'));
+        app.handle_action(Action::SearchChar('m'));
+        app.handle_action(Action::SearchBackspace);
+        assert_eq!(app.search_bar_state.query, "s");
+    }
+
+    #[test]
+    fn test_search_filters_entries() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::EnterSearch);
+        app.handle_action(Action::SearchChar('S')); // "Smith2020"
+        app.handle_action(Action::SearchChar('m'));
+        app.handle_action(Action::SearchChar('i'));
+        app.handle_action(Action::SearchChar('t'));
+        app.handle_action(Action::SearchChar('h'));
+        // filtered_indices should now have 1 match
+        assert!(app.filtered_indices.is_some());
+        assert_eq!(app.filtered_indices.as_ref().unwrap().len(), 1);
+    }
+
+    // ── Command palette ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_command_char_updates_input() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::EnterCommand);
+        app.handle_action(Action::CommandChar('w'));
+        assert_eq!(app.command_palette_state.input, "w");
+    }
+
+    #[test]
+    fn test_command_backspace() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::EnterCommand);
+        app.handle_action(Action::CommandChar('w'));
+        app.handle_action(Action::CommandBackspace);
+        assert_eq!(app.command_palette_state.input, "");
+        assert_eq!(app.mode, InputMode::Normal);
+    }
+
+    #[test]
+    fn test_execute_command_sort() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::EnterCommand);
+        for c in "sort year".chars() {
+            app.handle_action(Action::CommandChar(c));
+        }
+        app.handle_action(Action::ExecuteCommand);
+        assert_eq!(app.config.display.default_sort.field, "year");
+        assert!(app.status_message.is_some());
+    }
+
+    #[test]
+    fn test_execute_command_sort_toggle_direction() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::EnterCommand);
+        for c in "sort year".chars() { app.handle_action(Action::CommandChar(c)); }
+        app.handle_action(Action::ExecuteCommand);
+        let asc = app.config.display.default_sort.ascending;
+        // Same field again: toggle direction
+        app.handle_action(Action::EnterCommand);
+        for c in "sort year".chars() { app.handle_action(Action::CommandChar(c)); }
+        app.handle_action(Action::ExecuteCommand);
+        assert_eq!(app.config.display.default_sort.ascending, !asc);
+    }
+
+    #[test]
+    fn test_execute_command_unknown() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::EnterCommand);
+        for c in "foobar".chars() { app.handle_action(Action::CommandChar(c)); }
+        app.handle_action(Action::ExecuteCommand);
+        let msg = app.status_message.as_deref().unwrap_or("");
+        assert!(msg.contains("Unknown command"));
+    }
+
+    #[test]
+    fn test_execute_command_quit_with_dirty() {
+        let (mut app, _tmp) = make_app();
+        app.dirty = true;
+        app.handle_action(Action::EnterCommand);
+        for c in "q".chars() { app.handle_action(Action::CommandChar(c)); }
+        app.handle_action(Action::ExecuteCommand);
+        assert!(!app.should_quit);
+        assert!(app.status_message.is_some());
+    }
+
+    #[test]
+    fn test_execute_command_force_quit() {
+        let (mut app, _tmp) = make_app();
+        app.dirty = true;
+        app.handle_action(Action::EnterCommand);
+        for c in "q!".chars() { app.handle_action(Action::CommandChar(c)); }
+        app.handle_action(Action::ExecuteCommand);
+        assert!(app.should_quit);
+    }
+
+    // ── Entry operations ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_add_entry_opens_type_picker() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::AddEntry);
+        assert!(app.dialog_state.is_some());
+        assert_eq!(app.mode, InputMode::Dialog);
+    }
+
+    #[test]
+    fn test_delete_entry_opens_confirm_dialog() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::DeleteEntry);
+        assert!(app.dialog_state.is_some());
+        assert_eq!(app.mode, InputMode::Dialog);
+    }
+
+    #[test]
+    fn test_duplicate_entry() {
+        let (mut app, _tmp) = make_app();
+        let initial_count = app.database.entries.len();
+        app.handle_action(Action::DuplicateEntry);
+        assert_eq!(app.database.entries.len(), initial_count + 1);
+        assert!(app.status_message.as_deref().unwrap().contains("duplicated"));
+    }
+
+    #[test]
+    fn test_add_entry_of_type() {
+        let (mut app, _tmp) = make_app();
+        let before = app.database.entries.len();
+        app.add_entry_of_type("Article");
+        assert_eq!(app.database.entries.len(), before + 1);
+        assert_eq!(app.mode, InputMode::Detail);
+    }
+
+    #[test]
+    fn test_delete_entry() {
+        let (mut app, _tmp) = make_app();
+        let key = app.sorted_keys[0].clone();
+        let before = app.database.entries.len();
+        app.delete_entry(&key);
+        assert_eq!(app.database.entries.len(), before - 1);
+        assert!(!app.database.entries.contains_key(&key));
+    }
+
+    // ── Undo ─────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_undo_empty_stack() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::Undo);
+        assert_eq!(app.status_message.as_deref(), Some("Nothing to undo"));
+    }
+
+    #[test]
+    fn test_undo_after_duplicate() {
+        let (mut app, _tmp) = make_app();
+        let before = app.database.entries.len();
+        app.handle_action(Action::DuplicateEntry);
+        assert_eq!(app.database.entries.len(), before + 1);
+        app.handle_action(Action::Undo);
+        assert_eq!(app.database.entries.len(), before);
+    }
+
+    #[test]
+    fn test_undo_after_delete() {
+        let (mut app, _tmp) = make_app();
+        let key = app.sorted_keys[0].clone();
+        let before = app.database.entries.len();
+        app.delete_entry(&key);
+        app.undo();
+        assert_eq!(app.database.entries.len(), before);
+        assert!(app.database.entries.contains_key(&key));
+    }
+
+    // ── Dialog ───────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_dialog_cancel_clears_state() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::DeleteEntry);
+        app.handle_action(Action::DialogCancel);
+        assert!(app.dialog_state.is_none());
+        assert_eq!(app.mode, InputMode::Normal);
+    }
+
+    #[test]
+    fn test_dialog_toggle() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::AddEntry); // opens type picker
+        // DialogToggle should not panic even on a type-picker dialog
+        app.handle_action(Action::DialogToggle);
+    }
+
+    // ── ShowHelp ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_show_help_sets_status() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::ShowHelp);
+        assert!(app.status_message.is_some());
+    }
+
+    // ── Close citation preview ────────────────────────────────────────────────
+
+    #[test]
+    fn test_close_citation_preview() {
+        let (mut app, _tmp) = make_app();
+        app.mode = InputMode::CitationPreview;
+        app.citation_preview_state = Some(CitationPreviewState {
+            citation: "cite".to_string(),
+            entry_key: "Smith2020".to_string(),
+            style_name: "ieeetran".to_string(),
+        });
+        app.handle_action(Action::CloseCitationPreview);
+        assert!(app.citation_preview_state.is_none());
+        assert_eq!(app.mode, InputMode::Normal);
+    }
+
+    // ── Field editor ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_edit_char_updates_editor() {
+        let (mut app, _tmp) = make_app();
+        app.field_editor_state = Some(FieldEditorState::new("title", "old"));
+        app.handle_action(Action::EditChar('X'));
+        let val = app.field_editor_state.as_ref().unwrap().value.clone();
+        assert!(val.contains('X'));
+    }
+
+    #[test]
+    fn test_edit_backspace() {
+        let (mut app, _tmp) = make_app();
+        app.field_editor_state = Some(FieldEditorState::new("title", "abc"));
+        app.handle_action(Action::EditBackspace);
+        let val = app.field_editor_state.as_ref().unwrap().value.clone();
+        assert_eq!(val, "ab");
+    }
+
+    #[test]
+    fn test_cancel_edit() {
+        let (mut app, _tmp) = make_app();
+        app.field_editor_state = Some(FieldEditorState::new("title", "abc"));
+        app.mode = InputMode::Editing;
+        app.handle_action(Action::CancelEdit);
+        assert!(app.field_editor_state.is_none());
+        assert_eq!(app.mode, InputMode::Normal);
+    }
+
+    // ── sort_entries (module-level fn) ────────────────────────────────────────
+
+    #[test]
+    fn test_sort_entries_ascending() {
+        let (app, _tmp) = make_app();
+        // Default config sorts by citation_key ascending → Doe2021, Smith2020
+        assert_eq!(app.sorted_keys[0], "Doe2021");
+        assert_eq!(app.sorted_keys[1], "Smith2020");
+    }
+
+    #[test]
+    fn test_sort_entries_descending() {
+        let (app, _tmp) = make_app();
+        let mut cfg = default_config();
+        cfg.display.default_sort.ascending = false;
+        let keys = sort_entries(&app.database.entries, &cfg);
+        assert_eq!(keys[0], "Smith2020");
+        assert_eq!(keys[1], "Doe2021");
+    }
+
+    #[test]
+    fn test_sort_by_year() {
+        let (app, _tmp) = make_app();
+        let mut cfg = default_config();
+        cfg.display.default_sort.field = "year".to_string();
+        let keys = sort_entries(&app.database.entries, &cfg);
+        // Smith2020 (2020) before Doe2021 (2021)
+        assert_eq!(keys[0], "Smith2020");
+        assert_eq!(keys[1], "Doe2021");
+    }
+
+    // ── get_sort_value ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_get_sort_value_citation_key() {
+        let (app, _tmp) = make_app();
+        let entry = app.database.entries.get("Smith2020").unwrap();
+        assert_eq!(get_sort_value(entry, "citation_key"), "Smith2020");
+        assert_eq!(get_sort_value(entry, "key"), "Smith2020");
+        assert_eq!(get_sort_value(entry, "citekey"), "Smith2020");
+    }
+
+    #[test]
+    fn test_get_sort_value_entrytype() {
+        let (app, _tmp) = make_app();
+        let entry = app.database.entries.get("Smith2020").unwrap();
+        assert_eq!(get_sort_value(entry, "entrytype"), "Article");
+        assert_eq!(get_sort_value(entry, "type"), "Article");
+    }
+
+    #[test]
+    fn test_get_sort_value_field() {
+        let (app, _tmp) = make_app();
+        let entry = app.database.entries.get("Smith2020").unwrap();
+        assert_eq!(get_sort_value(entry, "year"), "2020");
+    }
+
+    #[test]
+    fn test_get_sort_value_missing_field() {
+        let (app, _tmp) = make_app();
+        let entry = app.database.entries.get("Smith2020").unwrap();
+        assert_eq!(get_sort_value(entry, "nonexistent"), "");
+    }
+
+    // ── find_group_node ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_find_group_node_root() {
+        let (app, _tmp) = make_app();
+        let found = find_group_node(&app.database.groups.root, "All Entries");
+        assert!(found.is_some());
+    }
+
+    #[test]
+    fn test_find_group_node_missing() {
+        let (app, _tmp) = make_app();
+        let found = find_group_node(&app.database.groups.root, "NoSuchGroup");
+        assert!(found.is_none());
+    }
+
+    // ── collect_group_names ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_collect_group_names_excludes_all_entries() {
+        let (app, _tmp) = make_app();
+        let mut names = Vec::new();
+        collect_group_names(&app.database.groups.root, &mut names);
+        assert!(!names.contains(&"All Entries".to_string()));
+    }
+
+    // ── visible_entry_count ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_visible_entry_count_unfiltered() {
+        let (app, _tmp) = make_app();
+        assert_eq!(app.visible_entry_count(), 2);
+    }
+
+    #[test]
+    fn test_visible_entry_count_filtered() {
+        let (mut app, _tmp) = make_app();
+        app.filtered_indices = Some(vec![0]);
+        assert_eq!(app.visible_entry_count(), 1);
+    }
+
+    // ── dirty tracking ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_dirty_after_duplicate() {
+        let (mut app, _tmp) = make_app();
+        assert!(!app.dirty);
+        app.handle_action(Action::DuplicateEntry);
+        assert!(app.dirty);
+    }
+
+    #[test]
+    fn test_not_dirty_after_undo_to_clean_state() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::DuplicateEntry);
+        assert!(app.dirty);
+        app.handle_action(Action::Undo);
+        assert!(!app.dirty);
+    }
+}
