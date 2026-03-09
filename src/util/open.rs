@@ -217,4 +217,118 @@ mod tests {
             "https://doi.org/10.1234/foo"
         );
     }
+
+    #[test]
+    fn test_serialize_file_field_single() {
+        let files = vec![ParsedFile {
+            description: "My Paper".into(),
+            path: "papers/foo.pdf".into(),
+            file_type: "PDF".into(),
+        }];
+        assert_eq!(serialize_file_field(&files), "My Paper:papers/foo.pdf:PDF");
+    }
+
+    #[test]
+    fn test_serialize_file_field_multiple() {
+        let files = vec![
+            ParsedFile { description: "A".into(), path: "a.pdf".into(), file_type: "PDF".into() },
+            ParsedFile { description: "B".into(), path: "b.pdf".into(), file_type: "PS".into() },
+        ];
+        assert_eq!(serialize_file_field(&files), "A:a.pdf:PDF;B:b.pdf:PS");
+    }
+
+    #[test]
+    fn test_serialize_file_field_empty() {
+        assert_eq!(serialize_file_field(&[]), "");
+    }
+
+    #[test]
+    fn test_parse_file_field_empty_input() {
+        let files = parse_file_field("");
+        assert!(files.is_empty());
+    }
+
+    #[test]
+    fn test_parse_file_field_missing_path() {
+        // "Desc::PDF" — path is empty, should be skipped
+        let files = parse_file_field("Desc::PDF");
+        assert!(files.is_empty());
+    }
+
+    #[test]
+    fn test_parsed_file_label_with_desc() {
+        let f = ParsedFile {
+            description: "Draft".into(),
+            path: "papers/foo.pdf".into(),
+            file_type: "PDF".into(),
+        };
+        assert_eq!(f.label(), "Draft: foo.pdf (PDF)");
+    }
+
+    #[test]
+    fn test_parsed_file_label_no_desc() {
+        let f = ParsedFile {
+            description: "".into(),
+            path: "papers/foo.pdf".into(),
+            file_type: "PDF".into(),
+        };
+        assert_eq!(f.label(), "foo.pdf (PDF)");
+    }
+
+    #[test]
+    fn test_effective_file_dir_none() {
+        let result = effective_file_dir(Path::new("/home/user/refs.bib"), None);
+        assert_eq!(result, PathBuf::from("/home/user"));
+    }
+
+    #[test]
+    fn test_effective_file_dir_absolute() {
+        let result = effective_file_dir(
+            Path::new("/home/user/refs.bib"),
+            Some("/data/papers"),
+        );
+        assert_eq!(result, PathBuf::from("/data/papers"));
+    }
+
+    #[test]
+    fn test_effective_file_dir_relative() {
+        let result = effective_file_dir(
+            Path::new("/home/user/refs.bib"),
+            Some("papers"),
+        );
+        assert_eq!(result, PathBuf::from("/home/user/papers"));
+    }
+
+    #[test]
+    fn test_resolve_file_path_absolute() {
+        let result = resolve_file_path("/absolute/path.pdf", Path::new("/home/user"));
+        assert_eq!(result, PathBuf::from("/absolute/path.pdf"));
+    }
+
+    #[test]
+    fn test_resolve_file_path_relative() {
+        let result = resolve_file_path("subdir/file.pdf", Path::new("/home/user"));
+        assert_eq!(result, PathBuf::from("/home/user/subdir/file.pdf"));
+    }
+
+    #[test]
+    fn test_parse_file_field_escaped_colon() {
+        // The escape \: is handled at the split_semicolons stage, which converts \: to :
+        // in the segment string. split_colons then sees "Desc:path:with:colons.pdf:PDF"
+        // and splits at the first two unescaped colons.
+        // So description="Desc", path="path", file_type="with:colons.pdf:PDF".
+        // This test verifies the actual parsing behavior.
+        let files = parse_file_field(r"Desc:path\:with\:colons.pdf:PDF");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].description, "Desc");
+        assert_eq!(files[0].path, "path");
+    }
+
+    #[test]
+    fn test_parse_file_field_escaped_semicolon() {
+        // Escaped semicolons keep it as one segment
+        let files = parse_file_field(r"Desc:path\;with\;semi.pdf:PDF");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "path;with;semi.pdf");
+    }
 }

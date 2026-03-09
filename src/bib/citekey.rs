@@ -391,3 +391,115 @@ fn clean_braces(s: &str) -> String {
         s.to_string()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use indexmap::IndexMap;
+
+    fn fields(pairs: &[(&str, &str)]) -> IndexMap<String, String> {
+        let mut m = IndexMap::new();
+        for (k, v) in pairs {
+            m.insert(k.to_string(), v.to_string());
+        }
+        m
+    }
+
+    #[test]
+    fn test_token_shorttitle() {
+        let f = fields(&[("title", "The Quick Brown Fox Jumps")]);
+        let result = generate_citekey("[shorttitle]", &f);
+        // skips "The"; takes first 3 significant words: Quick, Brown, Fox
+        assert_eq!(result, "QuickBrownFox");
+    }
+
+    #[test]
+    fn test_token_veryshorttitle() {
+        let f = fields(&[("title", "The Quick Brown Fox")]);
+        let result = generate_citekey("[veryshorttitle]", &f);
+        // veryshorttitle = first significant word (skips "The")
+        assert_eq!(result, "Quick");
+    }
+
+    #[test]
+    fn test_token_school() {
+        let f = fields(&[
+            ("author", "Smith, Jane"),
+            ("year", "2020"),
+            ("school", "MIT"),
+        ]);
+        let result = generate_citekey("[auth][year]_[school]", &f);
+        assert!(result.contains("MIT"), "result: {}", result);
+    }
+
+    #[test]
+    fn test_token_publisher() {
+        let f = fields(&[("publisher", "Springer")]);
+        let result = generate_citekey("[publisher]", &f);
+        assert_eq!(result, "Springer");
+    }
+
+    #[test]
+    fn test_token_keywords() {
+        let f = fields(&[("keywords", "nuclear, physics, reactor")]);
+        let result = generate_citekey("[keywords]", &f);
+        assert_eq!(result, "nuclear");
+    }
+
+    #[test]
+    fn test_token_howpublished() {
+        let f = fields(&[("howpublished", "Online")]);
+        let result = generate_citekey("[howpublished]", &f);
+        assert_eq!(result, "Online");
+    }
+
+    #[test]
+    fn test_modifier_camel() {
+        let f = fields(&[("journal", "nuclear science and engineering")]);
+        let result = generate_citekey("[journal:camel]", &f);
+        assert_eq!(result, "NuclearScienceAndEngineering");
+    }
+
+    #[test]
+    fn test_token_direct_field_lookup() {
+        // [reportnumber] is not a known token; falls back to direct field lookup
+        let f = fields(&[("reportnumber", "ANL-42")]);
+        let result = generate_citekey("[reportnumber]", &f);
+        assert_eq!(result, "ANL-42");
+    }
+
+    #[test]
+    fn test_legacy_unknown_token() {
+        // {unknown_token} → resolve_legacy_token returns "{unknown_token}"
+        // generate_citekey strips { and } → "unknown_token"
+        let f = fields(&[]);
+        let result = generate_citekey("{unknown_token}", &f);
+        assert_eq!(result, "unknown_token");
+    }
+
+    #[test]
+    fn test_char_stripping() {
+        // Space between tokens is a literal character, stripped by generate_citekey
+        let f = fields(&[
+            ("author", "Jane Smith"),
+            ("year", "2020"),
+        ]);
+        let result = generate_citekey("[auth] [year]", &f);
+        assert_eq!(result, "Smith2020");
+    }
+
+    #[test]
+    fn test_auth_zero_authors() {
+        // No author field → empty string
+        let f = fields(&[]);
+        let result = generate_citekey("[auth]", &f);
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn test_firstpage_comma_separated() {
+        let f = fields(&[("pages", "100, 200")]);
+        let result = generate_citekey("[firstpage]", &f);
+        assert_eq!(result, "100");
+    }
+}

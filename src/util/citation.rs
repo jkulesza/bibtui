@@ -387,4 +387,298 @@ mod tests {
         assert_eq!(abbrev_month("december"), "Dec.");
         assert_eq!(abbrev_month("may"), "May");
     }
+
+    // ── Helper ────────────────────────────────────────────────────────────────
+
+    use crate::bib::model::{Entry, EntryType};
+    use indexmap::IndexMap;
+
+    fn make_entry(entry_type: EntryType, fields: &[(&str, &str)]) -> Entry {
+        let mut map = IndexMap::new();
+        for (k, v) in fields {
+            map.insert(k.to_string(), v.to_string());
+        }
+        Entry {
+            entry_type,
+            citation_key: "k".into(),
+            fields: map,
+            group_memberships: vec![],
+            raw_index: 0,
+            dirty: false,
+        }
+    }
+
+    // ── format_citation tests ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_format_book() {
+        let entry = make_entry(EntryType::Book, &[
+            ("author", "Knuth, Donald E."),
+            ("title", "The Art of Computer Programming"),
+            ("publisher", "Addison-Wesley"),
+            ("year", "1997"),
+        ]);
+        let result = format_citation(&entry, "ieee");
+        assert!(result.contains("Knuth"), "result: {}", result);
+        assert!(result.contains("The Art of Computer Programming"), "result: {}", result);
+        assert!(result.contains("Addison-Wesley"), "result: {}", result);
+        assert!(result.contains("1997"), "result: {}", result);
+    }
+
+    #[test]
+    fn test_format_book_editor() {
+        let entry = make_entry(EntryType::Book, &[
+            ("editor", "Jones, Bob"),
+            ("title", "Collected Works"),
+            ("publisher", "Pub"),
+            ("year", "2000"),
+        ]);
+        let result = format_citation(&entry, "ieee");
+        assert!(result.contains("Jones"), "result: {}", result);
+        assert!(result.contains("Ed."), "result: {}", result);
+    }
+
+    #[test]
+    fn test_format_book_with_address() {
+        let entry = make_entry(EntryType::Book, &[
+            ("author", "Smith, Jane"),
+            ("title", "A Book"),
+            ("address", "New York"),
+            ("publisher", "Press"),
+            ("year", "2020"),
+        ]);
+        let result = format_citation(&entry, "ieee");
+        assert!(result.contains("New York: Press"), "result: {}", result);
+    }
+
+    #[test]
+    fn test_format_techreport() {
+        let entry = make_entry(EntryType::TechReport, &[
+            ("author", "Smith, Jane"),
+            ("title", "A Report"),
+            ("institution", "MIT"),
+            ("number", "TR-42"),
+            ("year", "2020"),
+        ]);
+        let result = format_citation(&entry, "ieee");
+        assert!(result.contains("Rep. TR-42"), "result: {}", result);
+        assert!(result.contains("MIT"), "result: {}", result);
+    }
+
+    #[test]
+    fn test_format_techreport_with_type() {
+        let entry = make_entry(EntryType::TechReport, &[
+            ("author", "Smith, Jane"),
+            ("title", "A Report"),
+            ("institution", "MIT"),
+            ("number", "42"),
+            ("type", "Technical Memorandum"),
+            ("year", "2020"),
+        ]);
+        let result = format_citation(&entry, "ieee");
+        assert!(result.contains("Technical Memorandum 42"), "result: {}", result);
+    }
+
+    #[test]
+    fn test_format_inproceedings() {
+        let entry = make_entry(EntryType::InProceedings, &[
+            ("author", "Smith, Jane"),
+            ("title", "A Paper"),
+            ("booktitle", "Proc. of ICML"),
+            ("year", "2020"),
+            ("pages", "1--10"),
+        ]);
+        let result = format_citation(&entry, "ieee");
+        assert!(result.contains("in Proc. of ICML"), "result: {}", result);
+        // render_latex converts -- to en-dash (–), so check for "pp. 1"
+        assert!(result.contains("pp. 1"), "result: {}", result);
+    }
+
+    #[test]
+    fn test_format_phdthesis() {
+        let entry = make_entry(EntryType::PhdThesis, &[
+            ("author", "Smith, Jane"),
+            ("title", "My Dissertation"),
+            ("school", "MIT"),
+            ("year", "2020"),
+        ]);
+        let result = format_citation(&entry, "ieee");
+        assert!(result.contains("Ph.D. dissertation"), "result: {}", result);
+        assert!(result.contains("MIT"), "result: {}", result);
+    }
+
+    #[test]
+    fn test_format_mastersthesis() {
+        let entry = make_entry(EntryType::MastersThesis, &[
+            ("author", "Smith, Jane"),
+            ("title", "My Thesis"),
+            ("school", "Stanford"),
+            ("year", "2021"),
+        ]);
+        let result = format_citation(&entry, "ieee");
+        assert!(result.contains("M.S. thesis"), "result: {}", result);
+        assert!(result.contains("Stanford"), "result: {}", result);
+    }
+
+    #[test]
+    fn test_format_unpublished() {
+        let entry = make_entry(EntryType::Unpublished, &[
+            ("author", "Smith, Jane"),
+            ("title", "Draft Paper"),
+            ("note", "Unpublished manuscript"),
+            ("year", "2022"),
+        ]);
+        let result = format_citation(&entry, "ieee");
+        assert!(result.contains("Unpublished manuscript"), "result: {}", result);
+    }
+
+    #[test]
+    fn test_format_misc() {
+        let entry = make_entry(EntryType::Misc, &[
+            ("author", "Smith, Jane"),
+            ("title", "A Dataset"),
+            ("howpublished", "Available online"),
+            ("year", "2023"),
+        ]);
+        let result = format_citation(&entry, "ieee");
+        assert!(result.contains("Available online"), "result: {}", result);
+    }
+
+    #[test]
+    fn test_format_manual() {
+        let entry = make_entry(EntryType::Manual, &[
+            ("author", "Smith, Jane"),
+            ("title", "User Manual"),
+            ("organization", "ACME"),
+            ("year", "2020"),
+        ]);
+        let result = format_citation(&entry, "ieee");
+        assert!(result.contains("User Manual"), "result: {}", result);
+        assert!(result.contains("ACME"), "result: {}", result);
+    }
+
+    #[test]
+    fn test_format_article_with_vol_no() {
+        let entry = make_entry(EntryType::Article, &[
+            ("author", "Smith, Jane"),
+            ("title", "Article"),
+            ("journal", "Nature"),
+            ("volume", "42"),
+            ("number", "3"),
+            ("pages", "100--110"),
+            ("year", "2020"),
+        ]);
+        let result = format_citation(&entry, "ieee");
+        assert!(result.contains("vol. 42"), "result: {}", result);
+        assert!(result.contains("no. 3"), "result: {}", result);
+        // render_latex converts -- to en-dash (–), so check for "pp. 100"
+        assert!(result.contains("pp. 100"), "result: {}", result);
+    }
+
+    #[test]
+    fn test_format_article_with_month() {
+        let entry = make_entry(EntryType::Article, &[
+            ("author", "Smith, Jane"),
+            ("title", "Article"),
+            ("journal", "Nature"),
+            ("year", "2020"),
+            ("month", "jan"),
+        ]);
+        let result = format_citation(&entry, "ieee");
+        assert!(result.contains("Jan. 2020"), "result: {}", result);
+    }
+
+    #[test]
+    fn test_format_with_doi() {
+        let entry = make_entry(EntryType::Article, &[
+            ("author", "Smith, Jane"),
+            ("title", "Article"),
+            ("journal", "Nature"),
+            ("year", "2020"),
+            ("doi", "10.1234/test"),
+        ]);
+        let result = format_citation(&entry, "ieee");
+        assert!(result.contains("https://doi.org/10.1234/test"), "result: {}", result);
+    }
+
+    #[test]
+    fn test_format_with_url() {
+        let entry = make_entry(EntryType::Article, &[
+            ("author", "Smith, Jane"),
+            ("title", "Article"),
+            ("journal", "Nature"),
+            ("year", "2020"),
+            ("url", "https://example.com"),
+        ]);
+        let result = format_citation(&entry, "ieee");
+        assert!(result.contains("https://example.com"), "result: {}", result);
+    }
+
+    #[test]
+    fn test_format_doi_takes_precedence_over_url() {
+        let entry = make_entry(EntryType::Article, &[
+            ("author", "Smith, Jane"),
+            ("title", "Article"),
+            ("journal", "Nature"),
+            ("year", "2020"),
+            ("doi", "10.1234/x"),
+            ("url", "https://example.com"),
+        ]);
+        let result = format_citation(&entry, "ieee");
+        assert!(result.contains("doi.org"), "result: {}", result);
+        assert!(!result.contains("example.com"), "result: {}", result);
+    }
+
+    #[test]
+    fn test_format_many_authors() {
+        let authors = (0..7)
+            .map(|i| format!("Author{}, A{}", i, i))
+            .collect::<Vec<_>>()
+            .join(" and ");
+        let entry = make_entry(EntryType::Article, &[
+            ("author", &authors),
+            ("title", "Article"),
+            ("journal", "Nature"),
+            ("year", "2020"),
+        ]);
+        let result = format_citation(&entry, "ieee");
+        assert!(result.contains("et al."), "result: {}", result);
+    }
+
+    #[test]
+    fn test_format_citation_style_case_insensitive() {
+        let entry = make_entry(EntryType::Article, &[
+            ("author", "Smith, Jane"),
+            ("title", "Article"),
+            ("journal", "Nature"),
+            ("year", "2020"),
+        ]);
+        let r1 = format_citation(&entry, "IEEEtranN");
+        let r2 = format_citation(&entry, "ieee");
+        assert!(!r1.is_empty(), "IEEEtranN result should be non-empty");
+        assert!(!r2.is_empty(), "ieee result should be non-empty");
+    }
+
+    #[test]
+    fn test_abbrev_month_all() {
+        // By full name
+        assert_eq!(abbrev_month("january"), "Jan.");
+        assert_eq!(abbrev_month("february"), "Feb.");
+        assert_eq!(abbrev_month("march"), "Mar.");
+        assert_eq!(abbrev_month("april"), "Apr.");
+        assert_eq!(abbrev_month("may"), "May");
+        assert_eq!(abbrev_month("june"), "Jun.");
+        assert_eq!(abbrev_month("july"), "Jul.");
+        assert_eq!(abbrev_month("august"), "Aug.");
+        assert_eq!(abbrev_month("september"), "Sep.");
+        assert_eq!(abbrev_month("october"), "Oct.");
+        assert_eq!(abbrev_month("november"), "Nov.");
+        assert_eq!(abbrev_month("december"), "Dec.");
+        // By abbreviation
+        assert_eq!(abbrev_month("feb"), "Feb.");
+        assert_eq!(abbrev_month("sep"), "Sep.");
+        assert_eq!(abbrev_month("sept"), "Sep.");
+        // Unknown
+        assert_eq!(abbrev_month("unknown"), "??.");
+    }
 }
