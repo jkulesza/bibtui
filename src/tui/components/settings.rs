@@ -544,6 +544,231 @@ impl SettingsState {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::defaults::default_config;
+
+    // ── SettingValue ──
+
+    #[test]
+    fn test_bool_display() {
+        assert_eq!(SettingValue::Bool(true).display(), "true");
+        assert_eq!(SettingValue::Bool(false).display(), "false");
+    }
+
+    #[test]
+    fn test_str_display() {
+        assert_eq!(SettingValue::Str("hello".into()).display(), "hello");
+    }
+
+    #[test]
+    fn test_choice_display() {
+        let v = SettingValue::Choice { options: &["a", "b", "c"], index: 1 };
+        assert_eq!(v.display(), "b");
+    }
+
+    #[test]
+    fn test_bool_toggle() {
+        let mut v = SettingValue::Bool(false);
+        v.toggle();
+        assert_eq!(v, SettingValue::Bool(true));
+        v.toggle();
+        assert_eq!(v, SettingValue::Bool(false));
+    }
+
+    #[test]
+    fn test_choice_toggle_cycles() {
+        let mut v = SettingValue::Choice { options: &["x", "y", "z"], index: 0 };
+        v.toggle();
+        assert_eq!(v, SettingValue::Choice { options: &["x", "y", "z"], index: 1 });
+        v.toggle();
+        assert_eq!(v, SettingValue::Choice { options: &["x", "y", "z"], index: 2 });
+        v.toggle(); // wraps
+        assert_eq!(v, SettingValue::Choice { options: &["x", "y", "z"], index: 0 });
+    }
+
+    #[test]
+    fn test_str_toggle_is_noop() {
+        let mut v = SettingValue::Str("hello".into());
+        v.toggle();
+        assert_eq!(v, SettingValue::Str("hello".into()));
+    }
+
+    #[test]
+    fn test_is_cyclic() {
+        assert!(SettingValue::Bool(true).is_cyclic());
+        assert!(SettingValue::Choice { options: &["a"], index: 0 }.is_cyclic());
+        assert!(!SettingValue::Str("x".into()).is_cyclic());
+    }
+
+    // ── SettingsState ──
+
+    #[test]
+    fn test_new_creates_items() {
+        let cfg = default_config();
+        let state = SettingsState::new(&cfg);
+        assert!(!state.items.is_empty());
+        assert!(!state.rows.is_empty());
+    }
+
+    #[test]
+    fn test_cursor_starts_on_item() {
+        let cfg = default_config();
+        let state = SettingsState::new(&cfg);
+        assert!(matches!(state.rows[state.cursor], SettingRow::Item(_)));
+    }
+
+    #[test]
+    fn test_move_down_skips_sections() {
+        let cfg = default_config();
+        let mut state = SettingsState::new(&cfg);
+        let start = state.cursor;
+        state.move_down();
+        assert!(state.cursor > start);
+        assert!(matches!(state.rows[state.cursor], SettingRow::Item(_)));
+    }
+
+    #[test]
+    fn test_move_up_skips_sections() {
+        let cfg = default_config();
+        let mut state = SettingsState::new(&cfg);
+        state.move_down();
+        state.move_down();
+        let after_down = state.cursor;
+        state.move_up();
+        assert!(state.cursor < after_down);
+        assert!(matches!(state.rows[state.cursor], SettingRow::Item(_)));
+    }
+
+    #[test]
+    fn test_move_up_at_top_is_noop() {
+        let cfg = default_config();
+        let mut state = SettingsState::new(&cfg);
+        // cursor starts on the first Item row (which has a Section above it, not an Item)
+        let top = state.cursor;
+        state.move_up(); // no item row above — should be a no-op
+        assert_eq!(state.cursor, top);
+    }
+
+    #[test]
+    fn test_selected_item() {
+        let cfg = default_config();
+        let state = SettingsState::new(&cfg);
+        assert!(state.selected_item().is_some());
+    }
+
+    #[test]
+    fn test_selected_id() {
+        let cfg = default_config();
+        let state = SettingsState::new(&cfg);
+        assert!(state.selected_id().is_some());
+    }
+
+    #[test]
+    fn test_toggle_selected_bool() {
+        let cfg = default_config();
+        let mut state = SettingsState::new(&cfg);
+        // Find a bool item
+        while !matches!(state.selected_item().map(|i| &i.value), Some(SettingValue::Bool(_))) {
+            state.move_down();
+        }
+        let before = match state.selected_item().unwrap().value.clone() {
+            SettingValue::Bool(b) => b,
+            _ => panic!(),
+        };
+        state.toggle_selected();
+        let after = match state.selected_item().unwrap().value.clone() {
+            SettingValue::Bool(b) => b,
+            _ => panic!(),
+        };
+        assert_eq!(after, !before);
+    }
+
+    #[test]
+    fn test_set_value() {
+        let cfg = default_config();
+        let mut state = SettingsState::new(&cfg);
+        let found = state.set_value("general.editor", SettingValue::Str("vim".into()));
+        assert!(found);
+        let item = state.items.iter().find(|i| i.id == "general.editor").unwrap();
+        assert_eq!(item.value, SettingValue::Str("vim".into()));
+    }
+
+    #[test]
+    fn test_set_value_unknown_id() {
+        let cfg = default_config();
+        let mut state = SettingsState::new(&cfg);
+        assert!(!state.set_value("does.not.exist", SettingValue::Bool(true)));
+    }
+
+    #[test]
+    fn test_selected_is_citekey_template() {
+        let cfg = default_config();
+        let mut state = SettingsState::new(&cfg);
+        // Navigate to a citekey template row
+        while !state.selected_is_citekey_template() {
+            let before = state.cursor;
+            state.move_down();
+            if state.cursor == before { break; } // no more items
+        }
+        assert!(state.selected_is_citekey_template());
+    }
+
+    #[test]
+    fn test_apply_to_config_bool() {
+        let cfg = default_config();
+        let mut state = SettingsState::new(&cfg);
+        state.set_value("general.backup_on_save", SettingValue::Bool(false));
+        let mut new_cfg = cfg.clone();
+        state.apply_to_config(&mut new_cfg);
+        assert!(!new_cfg.general.backup_on_save);
+    }
+
+    #[test]
+    fn test_apply_to_config_choice() {
+        let cfg = default_config();
+        let mut state = SettingsState::new(&cfg);
+        state.set_value("save.field_order", SettingValue::Choice {
+            options: &["jabref", "alphabetical"],
+            index: 1,
+        });
+        let mut new_cfg = cfg.clone();
+        state.apply_to_config(&mut new_cfg);
+        assert_eq!(new_cfg.save.field_order, "alphabetical");
+    }
+
+    #[test]
+    fn test_apply_to_config_str() {
+        let cfg = default_config();
+        let mut state = SettingsState::new(&cfg);
+        state.set_value("general.editor", SettingValue::Str("nano".into()));
+        let mut new_cfg = cfg.clone();
+        state.apply_to_config(&mut new_cfg);
+        assert_eq!(new_cfg.general.editor, "nano");
+    }
+
+    #[test]
+    fn test_ensure_visible_scrolls_down() {
+        let cfg = default_config();
+        let mut state = SettingsState::new(&cfg);
+        state.cursor = 20;
+        state.scroll_offset = 0;
+        state.ensure_visible(10);
+        assert!(state.scroll_offset > 0);
+    }
+
+    #[test]
+    fn test_ensure_visible_scrolls_up() {
+        let cfg = default_config();
+        let mut state = SettingsState::new(&cfg);
+        state.cursor = 2;
+        state.scroll_offset = 10;
+        state.ensure_visible(10);
+        assert_eq!(state.scroll_offset, 2);
+    }
+}
+
 // ── Render ────────────────────────────────────────────────────────────────────
 
 const LABEL_W: usize = 26;

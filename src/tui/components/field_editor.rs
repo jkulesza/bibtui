@@ -170,6 +170,158 @@ impl FieldEditorState {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_new_existing_field() {
+        let e = FieldEditorState::new("title", "hello");
+        assert_eq!(e.field_name, "title");
+        assert_eq!(e.value, "hello");
+        assert_eq!(e.cursor, 5);
+        assert!(!e.is_new);
+        assert!(!e.editing_name);
+    }
+
+    #[test]
+    fn test_for_input() {
+        let e = FieldEditorState::for_input("Group name");
+        assert_eq!(e.field_name, "Group name");
+        assert_eq!(e.value, "");
+        assert!(!e.is_new);
+    }
+
+    #[test]
+    fn test_new_field() {
+        let e = FieldEditorState::new_field();
+        assert!(e.is_new);
+        assert!(e.editing_name);
+        assert_eq!(e.field_name, "");
+        assert_eq!(e.value, "");
+    }
+
+    #[test]
+    fn test_advance_phase_transitions() {
+        let mut e = FieldEditorState::new_field();
+        assert!(e.advance_phase()); // name → value
+        assert!(!e.editing_name);
+        assert!(!e.advance_phase()); // already on value
+    }
+
+    #[test]
+    fn test_push_char_value() {
+        let mut e = FieldEditorState::new("title", "ab");
+        e.push_char('c');
+        assert_eq!(e.value, "abc");
+        assert_eq!(e.cursor, 3);
+    }
+
+    #[test]
+    fn test_push_char_name_editing() {
+        let mut e = FieldEditorState::new_field();
+        e.push_char('x');
+        assert_eq!(e.field_name, "x");
+        assert_eq!(e.name_cursor, 1);
+    }
+
+    #[test]
+    fn test_backspace_value() {
+        let mut e = FieldEditorState::new("title", "abc");
+        e.backspace();
+        assert_eq!(e.value, "ab");
+        assert_eq!(e.cursor, 2);
+    }
+
+    #[test]
+    fn test_backspace_at_start_is_noop() {
+        let mut e = FieldEditorState::new("title", "");
+        e.backspace();
+        assert_eq!(e.value, "");
+        assert_eq!(e.cursor, 0);
+    }
+
+    #[test]
+    fn test_backspace_name() {
+        let mut e = FieldEditorState::new_field();
+        e.push_char('a');
+        e.push_char('b');
+        e.backspace();
+        assert_eq!(e.field_name, "a");
+    }
+
+    #[test]
+    fn test_delete_value() {
+        let mut e = FieldEditorState::new("title", "abc");
+        e.cursor = 0;
+        e.delete();
+        assert_eq!(e.value, "bc");
+        assert_eq!(e.cursor, 0);
+    }
+
+    #[test]
+    fn test_delete_at_end_is_noop() {
+        let mut e = FieldEditorState::new("title", "abc");
+        e.delete(); // cursor at end
+        assert_eq!(e.value, "abc");
+    }
+
+    #[test]
+    fn test_cursor_left_right() {
+        let mut e = FieldEditorState::new("title", "abc");
+        assert_eq!(e.cursor, 3);
+        e.cursor_left();
+        assert_eq!(e.cursor, 2);
+        e.cursor_right();
+        assert_eq!(e.cursor, 3);
+    }
+
+    #[test]
+    fn test_cursor_left_clamps() {
+        let mut e = FieldEditorState::new("title", "abc");
+        e.cursor = 0;
+        e.cursor_left();
+        assert_eq!(e.cursor, 0);
+    }
+
+    #[test]
+    fn test_cursor_right_clamps() {
+        let mut e = FieldEditorState::new("title", "abc");
+        e.cursor_right(); // already at end
+        assert_eq!(e.cursor, 3);
+    }
+
+    #[test]
+    fn test_cursor_home_end() {
+        let mut e = FieldEditorState::new("title", "abc");
+        e.cursor_home();
+        assert_eq!(e.cursor, 0);
+        e.cursor_end();
+        assert_eq!(e.cursor, 3);
+    }
+
+    #[test]
+    fn test_cursor_home_end_name() {
+        let mut e = FieldEditorState::new_field();
+        e.push_char('a');
+        e.push_char('b');
+        e.cursor_home();
+        assert_eq!(e.name_cursor, 0);
+        e.cursor_end();
+        assert_eq!(e.name_cursor, 2);
+    }
+
+    #[test]
+    fn test_delete_name_editing() {
+        let mut e = FieldEditorState::new_field();
+        e.push_char('a');
+        e.push_char('b');
+        e.name_cursor = 0;
+        e.delete();
+        assert_eq!(e.field_name, "b");
+    }
+}
+
 pub fn render_field_editor(
     f: &mut Frame,
     area: Rect,

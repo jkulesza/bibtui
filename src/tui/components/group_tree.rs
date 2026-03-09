@@ -105,6 +105,122 @@ fn flatten_node(
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::bib::model::{Group, GroupNode, GroupType, GroupTree};
+
+    fn make_tree_with_child() -> GroupTree {
+        GroupTree {
+            root: GroupNode {
+                group: Group { name: "All Entries".to_string(), group_type: GroupType::AllEntries },
+                children: vec![
+                    GroupNode {
+                        group: Group { name: "Physics".to_string(), group_type: GroupType::Static },
+                        children: vec![
+                            GroupNode {
+                                group: Group { name: "Nuclear".to_string(), group_type: GroupType::Static },
+                                children: vec![],
+                                expanded: true,
+                            }
+                        ],
+                        expanded: true,
+                    }
+                ],
+                expanded: true,
+            },
+        }
+    }
+
+    #[test]
+    fn test_new_default_tree() {
+        let tree = GroupTree::default();
+        let state = GroupTreeState::new(&tree);
+        assert_eq!(state.flat_items.len(), 1); // just "All Entries"
+        assert_eq!(state.flat_items[0].name, "All Entries");
+        assert_eq!(state.selected(), 0);
+    }
+
+    #[test]
+    fn test_new_with_children() {
+        let tree = make_tree_with_child();
+        let state = GroupTreeState::new(&tree);
+        assert_eq!(state.flat_items.len(), 3); // All Entries, Physics, Nuclear
+        assert_eq!(state.flat_items[0].name, "All Entries");
+        assert_eq!(state.flat_items[1].name, "Physics");
+        assert_eq!(state.flat_items[2].name, "Nuclear");
+    }
+
+    #[test]
+    fn test_depth_is_correct() {
+        let tree = make_tree_with_child();
+        let state = GroupTreeState::new(&tree);
+        assert_eq!(state.flat_items[0].depth, 0);
+        assert_eq!(state.flat_items[1].depth, 1);
+        assert_eq!(state.flat_items[2].depth, 2);
+    }
+
+    #[test]
+    fn test_has_children_flag() {
+        let tree = make_tree_with_child();
+        let state = GroupTreeState::new(&tree);
+        assert!(state.flat_items[0].has_children);
+        assert!(state.flat_items[1].has_children);
+        assert!(!state.flat_items[2].has_children);
+    }
+
+    #[test]
+    fn test_select() {
+        let tree = make_tree_with_child();
+        let mut state = GroupTreeState::new(&tree);
+        state.select(2);
+        assert_eq!(state.selected(), 2);
+    }
+
+    #[test]
+    fn test_select_out_of_bounds_is_noop() {
+        let tree = GroupTree::default();
+        let mut state = GroupTreeState::new(&tree);
+        state.select(99);
+        assert_eq!(state.selected(), 0); // unchanged
+    }
+
+    #[test]
+    fn test_selected_item() {
+        let tree = make_tree_with_child();
+        let mut state = GroupTreeState::new(&tree);
+        state.select(1);
+        let item = state.selected_item().unwrap();
+        assert_eq!(item.name, "Physics");
+    }
+
+    #[test]
+    fn test_refresh() {
+        let tree = GroupTree::default();
+        let mut state = GroupTreeState::new(&tree);
+        let tree2 = make_tree_with_child();
+        state.refresh(&tree2);
+        assert_eq!(state.flat_items.len(), 3);
+    }
+
+    #[test]
+    fn test_set_entry_count() {
+        let tree = make_tree_with_child();
+        let mut state = GroupTreeState::new(&tree);
+        state.set_entry_count("Physics", 42);
+        let item = state.flat_items.iter().find(|i| i.name == "Physics").unwrap();
+        assert_eq!(item.entry_count, Some(42));
+    }
+
+    #[test]
+    fn test_collapsed_node_hides_children() {
+        let mut tree = make_tree_with_child();
+        tree.root.children[0].expanded = false; // collapse Physics
+        let state = GroupTreeState::new(&tree);
+        assert_eq!(state.flat_items.len(), 2); // All Entries + Physics only
+    }
+}
+
 pub fn render_group_tree(
     f: &mut Frame,
     area: Rect,

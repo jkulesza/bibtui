@@ -34,6 +34,109 @@ impl EntryListState {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::bib::model::{Entry, EntryType};
+    use indexmap::IndexMap;
+
+    fn make_entry(key: &str, dirty: bool, fields: &[(&str, &str)]) -> Entry {
+        let mut f = IndexMap::new();
+        for (k, v) in fields { f.insert(k.to_string(), v.to_string()); }
+        Entry {
+            entry_type: EntryType::Article,
+            citation_key: key.to_string(),
+            fields: f,
+            group_memberships: vec![],
+            raw_index: 0,
+            dirty,
+        }
+    }
+
+    #[test]
+    fn test_new_starts_at_zero() {
+        let s = EntryListState::new();
+        assert_eq!(s.selected(), 0);
+    }
+
+    #[test]
+    fn test_select() {
+        let mut s = EntryListState::new();
+        s.select(5);
+        assert_eq!(s.selected(), 5);
+    }
+
+    #[test]
+    fn test_get_field_value_dirty() {
+        let e = make_entry("k", true, &[]);
+        assert_eq!(get_field_value(&e, "dirty", false), "●");
+        let e2 = make_entry("k", false, &[]);
+        assert_eq!(get_field_value(&e2, "dirty", false), " ");
+    }
+
+    #[test]
+    fn test_get_field_value_entrytype() {
+        let e = make_entry("k", false, &[]);
+        assert_eq!(get_field_value(&e, "entrytype", false), "Article");
+        assert_eq!(get_field_value(&e, "type", false), "Article");
+    }
+
+    #[test]
+    fn test_get_field_value_citation_key() {
+        let e = make_entry("Smith2020", false, &[]);
+        assert_eq!(get_field_value(&e, "citation_key", false), "Smith2020");
+        assert_eq!(get_field_value(&e, "key", false), "Smith2020");
+        assert_eq!(get_field_value(&e, "citekey", false), "Smith2020");
+    }
+
+    #[test]
+    fn test_get_field_value_web_indicator() {
+        let e = make_entry("k", false, &[("doi", "10.1234/x")]);
+        assert!(get_field_value(&e, "web_indicator", false) != " ");
+        let e2 = make_entry("k", false, &[]);
+        assert_eq!(get_field_value(&e2, "web_indicator", false), " ");
+    }
+
+    #[test]
+    fn test_get_field_value_author_abbreviated() {
+        let e = make_entry("k", false, &[("author", "Smith, J. and Doe, J. and Brown, K.")]);
+        let abbr = get_field_value(&e, "author", true);
+        assert!(abbr.contains("et al"));
+    }
+
+    #[test]
+    fn test_get_field_value_author_not_abbreviated() {
+        let e = make_entry("k", false, &[("author", "Smith, J.")]);
+        let full = get_field_value(&e, "author", false);
+        assert_eq!(full, "Smith, J.");
+    }
+
+    #[test]
+    fn test_get_field_value_arbitrary() {
+        let e = make_entry("k", false, &[("note", "important")]);
+        assert_eq!(get_field_value(&e, "note", false), "important");
+        assert_eq!(get_field_value(&e, "missing", false), "");
+    }
+
+    #[test]
+    fn test_apply_display_pipeline_strip_braces() {
+        let s = apply_display_pipeline("{Hello} {World}", false, false);
+        assert_eq!(s, "Hello World");
+    }
+
+    #[test]
+    fn test_apply_display_pipeline_show_braces() {
+        let s = apply_display_pipeline("{Hello}", true, false);
+        assert_eq!(s, "{Hello}");
+    }
+
+    #[test]
+    fn test_apply_display_pipeline_latex() {
+        let s = apply_display_pipeline("caf{\\'e}", false, true);
+        assert!(s.contains('é') || s == "café" || !s.contains('{'));
+    }
+}
+
 pub fn render_entry_list(
     f: &mut Frame,
     area: Rect,

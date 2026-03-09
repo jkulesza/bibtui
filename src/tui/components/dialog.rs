@@ -91,6 +91,83 @@ impl DialogState {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_confirm_option_count() {
+        let d = DialogState::confirm("Title", "Are you sure?");
+        assert_eq!(d.option_count(), 2);
+        assert_eq!(d.selected(), 0);
+    }
+
+    #[test]
+    fn test_type_picker_option_count() {
+        let d = DialogState::type_picker(vec!["Article".into(), "Book".into(), "Misc".into()]);
+        assert_eq!(d.option_count(), 3);
+        assert_eq!(d.selected(), 0);
+    }
+
+    #[test]
+    fn test_type_picker_titled() {
+        let d = DialogState::type_picker_titled("Pick Type", vec!["A".into(), "B".into()]);
+        assert_eq!(d.option_count(), 2);
+        if let DialogKind::TypePicker { title, .. } = &d.kind {
+            assert_eq!(title, "Pick Type");
+        } else {
+            panic!("wrong kind");
+        }
+    }
+
+    #[test]
+    fn test_group_assign_option_count() {
+        let groups = vec![
+            ("Physics".into(), false),
+            ("Chemistry".into(), true),
+        ];
+        let d = DialogState::group_assign(groups);
+        assert_eq!(d.option_count(), 2);
+        assert_eq!(d.selected(), 0);
+    }
+
+    #[test]
+    fn test_group_assign_empty() {
+        let d = DialogState::group_assign(vec![]);
+        assert_eq!(d.option_count(), 0);
+    }
+
+    #[test]
+    fn test_select() {
+        let mut d = DialogState::type_picker(vec!["A".into(), "B".into(), "C".into()]);
+        d.select(2);
+        assert_eq!(d.selected(), 2);
+    }
+
+    #[test]
+    fn test_toggle_selected_group_assign() {
+        let groups = vec![("Physics".into(), false), ("Chemistry".into(), false)];
+        let mut d = DialogState::group_assign(groups);
+        d.toggle_selected();
+        if let DialogKind::GroupAssign { groups } = &d.kind {
+            assert!(groups[0].1); // first toggled to true
+            assert!(!groups[1].1);
+        }
+    }
+
+    #[test]
+    fn test_toggle_selected_confirm_is_noop() {
+        let mut d = DialogState::confirm("T", "M");
+        d.toggle_selected(); // should not panic
+    }
+
+    #[test]
+    fn test_toggle_selected_type_picker_is_noop() {
+        let mut d = DialogState::type_picker(vec!["A".into()]);
+        d.toggle_selected(); // should not panic
+    }
+}
+
 pub fn render_dialog(f: &mut Frame, area: Rect, state: &mut DialogState, theme: &Theme) {
     let dialog_width = match &state.kind {
         DialogKind::GroupAssign { .. } => 50u16.min(area.width.saturating_sub(4)),

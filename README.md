@@ -246,7 +246,7 @@ See `bibtui.yaml.example` for all options including columns, citekey templates, 
 cargo test
 ```
 
-All 126 tests should pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation).
+All 298 tests should pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, and TUI component state machines).
 
 Coverage analysis runs automatically in CI via `cargo-llvm-cov`. To run locally:
 
