@@ -41,10 +41,10 @@ fn map_normal_key(key: KeyEvent, last_key: Option<char>) -> Option<Action> {
                 None // Wait for second 'g'
             }
         }
-        KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+        KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             Some(Action::PageDown)
         }
-        KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+        KeyCode::Char('b') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             Some(Action::PageUp)
         }
         KeyCode::Char('u') => Some(Action::Undo),
@@ -138,10 +138,10 @@ fn map_dialog_key(key: KeyEvent) -> Option<Action> {
         KeyCode::Char('j') | KeyCode::Down => Some(Action::MoveDown),
         KeyCode::Char('k') | KeyCode::Up => Some(Action::MoveUp),
         KeyCode::Char(' ') => Some(Action::DialogToggle),
-        KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+        KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             Some(Action::PageDown)
         }
-        KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+        KeyCode::Char('b') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             Some(Action::PageUp)
         }
         KeyCode::Char('g') => Some(Action::MoveToTop),
