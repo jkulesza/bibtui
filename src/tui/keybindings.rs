@@ -172,3 +172,176 @@ fn map_settings_key(key: KeyEvent) -> Option<Action> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    fn ctrl(c: char) -> KeyEvent {
+        KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)
+    }
+
+    // ── Normal mode ──
+
+    #[test]
+    fn test_normal_move() {
+        assert_eq!(map_key(key(KeyCode::Char('j')), &InputMode::Normal, None), Some(Action::MoveDown));
+        assert_eq!(map_key(key(KeyCode::Down), &InputMode::Normal, None), Some(Action::MoveDown));
+        assert_eq!(map_key(key(KeyCode::Char('k')), &InputMode::Normal, None), Some(Action::MoveUp));
+        assert_eq!(map_key(key(KeyCode::Up), &InputMode::Normal, None), Some(Action::MoveUp));
+        assert_eq!(map_key(key(KeyCode::Char('G')), &InputMode::Normal, None), Some(Action::MoveToBottom));
+    }
+
+    #[test]
+    fn test_normal_gg() {
+        // First 'g' returns None
+        assert_eq!(map_key(key(KeyCode::Char('g')), &InputMode::Normal, None), None);
+        // Second 'g' returns MoveToTop
+        assert_eq!(map_key(key(KeyCode::Char('g')), &InputMode::Normal, Some('g')), Some(Action::MoveToTop));
+    }
+
+    #[test]
+    fn test_normal_page_nav() {
+        assert_eq!(map_key(ctrl('f'), &InputMode::Normal, None), Some(Action::PageDown));
+        assert_eq!(map_key(ctrl('b'), &InputMode::Normal, None), Some(Action::PageUp));
+    }
+
+    #[test]
+    fn test_normal_misc() {
+        assert_eq!(map_key(key(KeyCode::Char('q')), &InputMode::Normal, None), Some(Action::Quit));
+        assert_eq!(map_key(key(KeyCode::Char('u')), &InputMode::Normal, None), Some(Action::Undo));
+        assert_eq!(map_key(key(KeyCode::Char('/')), &InputMode::Normal, None), Some(Action::EnterSearch));
+        assert_eq!(map_key(key(KeyCode::Enter), &InputMode::Normal, None), Some(Action::OpenDetail));
+        assert_eq!(map_key(key(KeyCode::Char('a')), &InputMode::Normal, None), Some(Action::AddEntry));
+        assert_eq!(map_key(key(KeyCode::Char('D')), &InputMode::Normal, None), Some(Action::DuplicateEntry));
+        assert_eq!(map_key(key(KeyCode::Tab), &InputMode::Normal, None), Some(Action::ToggleGroups));
+        assert_eq!(map_key(key(KeyCode::Char('B')), &InputMode::Normal, None), Some(Action::ToggleBraces));
+        assert_eq!(map_key(key(KeyCode::Char('L')), &InputMode::Normal, None), Some(Action::ToggleLatex));
+        assert_eq!(map_key(key(KeyCode::Char('S')), &InputMode::Normal, None), Some(Action::EnterSettings));
+        assert_eq!(map_key(key(KeyCode::Char('?')), &InputMode::Normal, None), Some(Action::ShowHelp));
+        assert_eq!(map_key(key(KeyCode::Char(':')), &InputMode::Normal, None), Some(Action::EnterCommand));
+    }
+
+    #[test]
+    fn test_normal_dd() {
+        assert_eq!(map_key(key(KeyCode::Char('d')), &InputMode::Normal, None), None);
+        assert_eq!(map_key(key(KeyCode::Char('d')), &InputMode::Normal, Some('d')), Some(Action::DeleteEntry));
+    }
+
+    #[test]
+    fn test_normal_yy() {
+        assert_eq!(map_key(key(KeyCode::Char('y')), &InputMode::Normal, None), None);
+        assert_eq!(map_key(key(KeyCode::Char('y')), &InputMode::Normal, Some('y')), Some(Action::YankCitekey));
+    }
+
+    #[test]
+    fn test_normal_focus() {
+        assert_eq!(map_key(key(KeyCode::Char('h')), &InputMode::Normal, None), Some(Action::FocusGroups));
+        assert_eq!(map_key(key(KeyCode::Left), &InputMode::Normal, None), Some(Action::FocusGroups));
+        assert_eq!(map_key(key(KeyCode::Char('l')), &InputMode::Normal, None), Some(Action::FocusList));
+        assert_eq!(map_key(key(KeyCode::Right), &InputMode::Normal, None), Some(Action::FocusList));
+    }
+
+    // ── Search mode ──
+
+    #[test]
+    fn test_search_mode() {
+        assert_eq!(map_key(key(KeyCode::Esc), &InputMode::Search, None), Some(Action::ExitSearch));
+        assert_eq!(map_key(key(KeyCode::Enter), &InputMode::Search, None), Some(Action::ConfirmSearch));
+        assert_eq!(map_key(key(KeyCode::Backspace), &InputMode::Search, None), Some(Action::SearchBackspace));
+        assert_eq!(map_key(key(KeyCode::Char('x')), &InputMode::Search, None), Some(Action::SearchChar('x')));
+    }
+
+    // ── Detail mode ──
+
+    #[test]
+    fn test_detail_mode() {
+        assert_eq!(map_key(key(KeyCode::Esc), &InputMode::Detail, None), Some(Action::CloseDetail));
+        assert_eq!(map_key(key(KeyCode::Char('q')), &InputMode::Detail, None), Some(Action::CloseDetail));
+        assert_eq!(map_key(key(KeyCode::Char('e')), &InputMode::Detail, None), Some(Action::EditField));
+        assert_eq!(map_key(key(KeyCode::Enter), &InputMode::Detail, None), Some(Action::EditField));
+        assert_eq!(map_key(key(KeyCode::Char('a')), &InputMode::Detail, None), Some(Action::AddField));
+        assert_eq!(map_key(key(KeyCode::Char('d')), &InputMode::Detail, None), Some(Action::DeleteField));
+        assert_eq!(map_key(key(KeyCode::Char('T')), &InputMode::Detail, None), Some(Action::TitlecaseField));
+        assert_eq!(map_key(key(KeyCode::Char('N')), &InputMode::Detail, None), Some(Action::NormalizeAuthor));
+        assert_eq!(map_key(key(KeyCode::Char('c')), &InputMode::Detail, None), Some(Action::RegenCitekey));
+        assert_eq!(map_key(key(KeyCode::Char('u')), &InputMode::Detail, None), Some(Action::Undo));
+    }
+
+    // ── Editing mode ──
+
+    #[test]
+    fn test_editing_mode() {
+        assert_eq!(map_key(key(KeyCode::Esc), &InputMode::Editing, None), Some(Action::CancelEdit));
+        assert_eq!(map_key(key(KeyCode::Enter), &InputMode::Editing, None), Some(Action::ConfirmEdit));
+        assert_eq!(map_key(key(KeyCode::Backspace), &InputMode::Editing, None), Some(Action::EditBackspace));
+        assert_eq!(map_key(key(KeyCode::Left), &InputMode::Editing, None), Some(Action::EditCursorLeft));
+        assert_eq!(map_key(key(KeyCode::Right), &InputMode::Editing, None), Some(Action::EditCursorRight));
+        assert_eq!(map_key(key(KeyCode::Delete), &InputMode::Editing, None), Some(Action::EditDelete));
+        assert_eq!(map_key(ctrl('a'), &InputMode::Editing, None), Some(Action::EditCursorHome));
+        assert_eq!(map_key(ctrl('e'), &InputMode::Editing, None), Some(Action::EditCursorEnd));
+        assert_eq!(map_key(key(KeyCode::Char('z')), &InputMode::Editing, None), Some(Action::EditChar('z')));
+    }
+
+    // ── Dialog mode ──
+
+    #[test]
+    fn test_dialog_mode() {
+        assert_eq!(map_key(key(KeyCode::Esc), &InputMode::Dialog, None), Some(Action::DialogCancel));
+        assert_eq!(map_key(key(KeyCode::Char('n')), &InputMode::Dialog, None), Some(Action::DialogCancel));
+        assert_eq!(map_key(key(KeyCode::Enter), &InputMode::Dialog, None), Some(Action::DialogConfirm));
+        assert_eq!(map_key(key(KeyCode::Char('y')), &InputMode::Dialog, None), Some(Action::DialogConfirm));
+        assert_eq!(map_key(key(KeyCode::Char('j')), &InputMode::Dialog, None), Some(Action::MoveDown));
+        assert_eq!(map_key(key(KeyCode::Char('k')), &InputMode::Dialog, None), Some(Action::MoveUp));
+        assert_eq!(map_key(key(KeyCode::Char(' ')), &InputMode::Dialog, None), Some(Action::DialogToggle));
+        assert_eq!(map_key(ctrl('f'), &InputMode::Dialog, None), Some(Action::PageDown));
+        assert_eq!(map_key(ctrl('b'), &InputMode::Dialog, None), Some(Action::PageUp));
+        assert_eq!(map_key(key(KeyCode::Char('g')), &InputMode::Dialog, None), Some(Action::MoveToTop));
+        assert_eq!(map_key(key(KeyCode::Char('G')), &InputMode::Dialog, None), Some(Action::MoveToBottom));
+    }
+
+    // ── Command mode ──
+
+    #[test]
+    fn test_command_mode() {
+        assert_eq!(map_key(key(KeyCode::Esc), &InputMode::Command, None), Some(Action::ExitCommand));
+        assert_eq!(map_key(key(KeyCode::Enter), &InputMode::Command, None), Some(Action::ExecuteCommand));
+        assert_eq!(map_key(key(KeyCode::Backspace), &InputMode::Command, None), Some(Action::CommandBackspace));
+        assert_eq!(map_key(key(KeyCode::Char('w')), &InputMode::Command, None), Some(Action::CommandChar('w')));
+    }
+
+    // ── Settings mode ──
+
+    #[test]
+    fn test_settings_mode() {
+        assert_eq!(map_key(key(KeyCode::Esc), &InputMode::Settings, None), Some(Action::ExitSettings));
+        assert_eq!(map_key(key(KeyCode::Char('q')), &InputMode::Settings, None), Some(Action::ExitSettings));
+        assert_eq!(map_key(key(KeyCode::Char('j')), &InputMode::Settings, None), Some(Action::SettingsMoveDown));
+        assert_eq!(map_key(key(KeyCode::Down), &InputMode::Settings, None), Some(Action::SettingsMoveDown));
+        assert_eq!(map_key(key(KeyCode::Char('k')), &InputMode::Settings, None), Some(Action::SettingsMoveUp));
+        assert_eq!(map_key(key(KeyCode::Enter), &InputMode::Settings, None), Some(Action::SettingsToggle));
+        assert_eq!(map_key(key(KeyCode::Char(' ')), &InputMode::Settings, None), Some(Action::SettingsToggle));
+        assert_eq!(map_key(key(KeyCode::Char('e')), &InputMode::Settings, None), Some(Action::SettingsEdit));
+        assert_eq!(map_key(key(KeyCode::Char('E')), &InputMode::Settings, None), Some(Action::SettingsExport));
+        assert_eq!(map_key(key(KeyCode::Char('I')), &InputMode::Settings, None), Some(Action::SettingsImport));
+    }
+
+    // ── CitationPreview mode ──
+
+    #[test]
+    fn test_citation_preview_mode() {
+        assert_eq!(
+            map_key(key(KeyCode::Esc), &InputMode::CitationPreview, None),
+            Some(Action::CloseCitationPreview)
+        );
+        assert_eq!(
+            map_key(key(KeyCode::Char('q')), &InputMode::CitationPreview, None),
+            Some(Action::CloseCitationPreview)
+        );
+    }
+}

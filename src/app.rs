@@ -32,7 +32,7 @@ use crate::tui::screens::settings_screen::render_settings_screen;
 use crate::tui::theme::Theme;
 use crate::tui::Term;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Action {
     Quit,
     MoveDown,

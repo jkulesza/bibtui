@@ -89,3 +89,92 @@ fn build_search_string(entry: &Entry, field_filter: Option<&str>) -> String {
     }
     parts.join(" ")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::bib::model::{Entry, EntryType};
+    use indexmap::IndexMap;
+
+    fn make_entry(key: &str, fields: &[(&str, &str)]) -> Entry {
+        let mut f = IndexMap::new();
+        for (k, v) in fields {
+            f.insert(k.to_string(), v.to_string());
+        }
+        Entry {
+            entry_type: EntryType::Article,
+            citation_key: key.to_string(),
+            fields: f,
+            group_memberships: vec![],
+            raw_index: 0,
+            dirty: false,
+        }
+    }
+
+    #[test]
+    fn test_empty_query_returns_all() {
+        let e1 = make_entry("Smith2020", &[]);
+        let e2 = make_entry("Doe2021", &[]);
+        let entries = vec![&e1, &e2];
+        let mut engine = SearchEngine::new();
+        let results = engine.search(&entries, "");
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_query_no_colon() {
+        assert_eq!(parse_query("smith"), (None, "smith"));
+    }
+
+    #[test]
+    fn test_parse_query_with_field() {
+        assert_eq!(parse_query("author:smith"), (Some("author"), "smith"));
+    }
+
+    #[test]
+    fn test_parse_query_empty_field() {
+        // colon at start — not a valid field filter
+        assert_eq!(parse_query(":smith"), (None, ":smith"));
+    }
+
+    #[test]
+    fn test_build_search_string_no_filter() {
+        let e = make_entry("Smith2020", &[("author", "Smith, J."), ("year", "2020")]);
+        let s = build_search_string(&e, None);
+        assert!(s.contains("Smith2020"));
+        assert!(s.contains("Smith, J."));
+        assert!(s.contains("2020"));
+    }
+
+    #[test]
+    fn test_build_search_string_field_filter() {
+        let e = make_entry("Smith2020", &[("author", "Smith, J."), ("year", "2020")]);
+        let s = build_search_string(&e, Some("author"));
+        assert_eq!(s, "Smith, J.");
+    }
+
+    #[test]
+    fn test_build_search_string_citekey_filter() {
+        let e = make_entry("Smith2020", &[("author", "Smith, J.")]);
+        let s = build_search_string(&e, Some("citation_key"));
+        assert_eq!(s, "Smith2020");
+    }
+
+    #[test]
+    fn test_build_search_string_type_filter() {
+        let e = make_entry("Smith2020", &[]);
+        let s = build_search_string(&e, Some("entrytype"));
+        assert_eq!(s, "Article");
+    }
+
+    #[test]
+    fn test_search_field_specific() {
+        let e1 = make_entry("Smith2020", &[("author", "Smith, John")]);
+        let e2 = make_entry("Doe2021", &[("author", "Doe, Jane")]);
+        let entries = vec![&e1, &e2];
+        let mut engine = SearchEngine::new();
+        let results = engine.search(&entries, "author:Smith");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0, 0);
+    }
+}

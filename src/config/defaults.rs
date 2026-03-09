@@ -119,3 +119,44 @@ pub fn default_citekey_templates() -> IndexMap<String, String> {
     );
     m
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_field_groups_has_identifiers() {
+        let groups = default_field_groups();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].name, "Identifiers");
+        assert!(groups[0].fields.contains(&"isbn".to_string()));
+        assert!(groups[0].fields.contains(&"eprint".to_string()));
+    }
+
+    #[test]
+    fn test_default_columns_has_expected_fields() {
+        let cols = default_columns();
+        let fields: Vec<&str> = cols.iter().map(|c| c.field.as_str()).collect();
+        assert!(fields.contains(&"author"));
+        assert!(fields.contains(&"title"));
+        assert!(fields.contains(&"year"));
+        assert!(fields.contains(&"entrytype"));
+    }
+
+    #[test]
+    fn test_default_citekey_templates_has_article() {
+        let templates = default_citekey_templates();
+        assert!(templates.contains_key("article"));
+        assert!(templates.contains_key("book"));
+        assert!(templates.contains_key("techreport"));
+        assert!(templates.contains_key("phdthesis"));
+    }
+
+    #[test]
+    fn test_default_config_is_valid() {
+        let config = default_config();
+        // Should not panic and have expected defaults
+        assert!(!config.field_groups.is_empty());
+        assert!(!config.display.columns.is_empty());
+    }
+}

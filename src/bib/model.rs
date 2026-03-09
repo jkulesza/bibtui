@@ -242,3 +242,135 @@ pub struct JabRefMeta {
     /// Preserve unknown metadata keys for round-trip
     pub unknown_meta: IndexMap<String, String>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_entry(fields: &[(&str, &str)]) -> Entry {
+        let mut f = IndexMap::new();
+        for (k, v) in fields {
+            f.insert(k.to_string(), v.to_string());
+        }
+        Entry {
+            entry_type: EntryType::Article,
+            citation_key: "Key2020".to_string(),
+            fields: f,
+            group_memberships: vec![],
+            raw_index: 0,
+            dirty: false,
+        }
+    }
+
+    #[test]
+    fn test_entry_type_from_str_all() {
+        assert_eq!(EntryType::from_str("article"), EntryType::Article);
+        assert_eq!(EntryType::from_str("book"), EntryType::Book);
+        assert_eq!(EntryType::from_str("booklet"), EntryType::Booklet);
+        assert_eq!(EntryType::from_str("inbook"), EntryType::InBook);
+        assert_eq!(EntryType::from_str("incollection"), EntryType::InCollection);
+        assert_eq!(EntryType::from_str("inproceedings"), EntryType::InProceedings);
+        assert_eq!(EntryType::from_str("conference"), EntryType::InProceedings);
+        assert_eq!(EntryType::from_str("manual"), EntryType::Manual);
+        assert_eq!(EntryType::from_str("mastersthesis"), EntryType::MastersThesis);
+        assert_eq!(EntryType::from_str("misc"), EntryType::Misc);
+        assert_eq!(EntryType::from_str("phdthesis"), EntryType::PhdThesis);
+        assert_eq!(EntryType::from_str("proceedings"), EntryType::Proceedings);
+        assert_eq!(EntryType::from_str("techreport"), EntryType::TechReport);
+        assert_eq!(EntryType::from_str("unpublished"), EntryType::Unpublished);
+    }
+
+    #[test]
+    fn test_entry_type_from_str_case_insensitive() {
+        assert_eq!(EntryType::from_str("Article"), EntryType::Article);
+        assert_eq!(EntryType::from_str("TECHREPORT"), EntryType::TechReport);
+    }
+
+    #[test]
+    fn test_entry_type_from_str_unknown() {
+        assert_eq!(
+            EntryType::from_str("IEEEtranBSTCTL"),
+            EntryType::Other("IEEEtranBSTCTL".to_string())
+        );
+    }
+
+    #[test]
+    fn test_entry_type_display_name() {
+        assert_eq!(EntryType::Article.display_name(), "Article");
+        assert_eq!(EntryType::TechReport.display_name(), "TechReport");
+        assert_eq!(EntryType::Other("Foo".to_string()).display_name(), "Foo");
+    }
+
+    #[test]
+    fn test_entry_type_display_trait() {
+        assert_eq!(format!("{}", EntryType::Book), "Book");
+    }
+
+    #[test]
+    fn test_entry_author_display() {
+        let e = make_entry(&[("author", "Smith, John")]);
+        assert_eq!(e.author_display(), "Smith, John");
+    }
+
+    #[test]
+    fn test_entry_author_display_missing() {
+        let e = make_entry(&[]);
+        assert_eq!(e.author_display(), "");
+    }
+
+    #[test]
+    fn test_entry_title_display() {
+        let e = make_entry(&[("title", "My Paper")]);
+        assert_eq!(e.title_display(), "My Paper");
+    }
+
+    #[test]
+    fn test_entry_year_display() {
+        let e = make_entry(&[("year", "2024")]);
+        assert_eq!(e.year_display(), "2024");
+    }
+
+    #[test]
+    fn test_entry_journal_display_journal() {
+        let e = make_entry(&[("journal", "Nature")]);
+        assert_eq!(e.journal_display(), "Nature");
+    }
+
+    #[test]
+    fn test_entry_journal_display_booktitle_fallback() {
+        let e = make_entry(&[("booktitle", "ICML 2024")]);
+        assert_eq!(e.journal_display(), "ICML 2024");
+    }
+
+    #[test]
+    fn test_raw_field_value_braced() {
+        assert_eq!(RawFieldValue::Braced("hello".to_string()).to_string_value(), "hello");
+    }
+
+    #[test]
+    fn test_raw_field_value_quoted() {
+        assert_eq!(RawFieldValue::Quoted("world".to_string()).to_string_value(), "world");
+    }
+
+    #[test]
+    fn test_raw_field_value_bare() {
+        assert_eq!(RawFieldValue::Bare("2024".to_string()).to_string_value(), "2024");
+    }
+
+    #[test]
+    fn test_raw_field_value_concat() {
+        let v = RawFieldValue::Concat(vec![
+            RawFieldValue::Braced("foo".to_string()),
+            RawFieldValue::Bare("bar".to_string()),
+        ]);
+        assert_eq!(v.to_string_value(), "foo bar");
+    }
+
+    #[test]
+    fn test_group_tree_default() {
+        let tree = GroupTree::default();
+        assert_eq!(tree.root.group.name, "All Entries");
+        assert!(tree.root.children.is_empty());
+        assert!(tree.root.expanded);
+    }
+}
