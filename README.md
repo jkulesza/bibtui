@@ -67,7 +67,7 @@ bibtui --config ~/dotfiles/bibtui.yaml references.bib
 | `k` / `↑` | Move up |
 | `gg` | Jump to top |
 | `G` | Jump to bottom |
-| `Ctrl-D` / `Ctrl-U` | Page down / up |
+| `Ctrl-F` / `Ctrl-B` | Page down / up |
 | `Enter` | Open entry detail |
 | `a` | Add new entry |
 | `dd` | Delete selected entry |
@@ -243,4 +243,10 @@ See `bibtui.yaml.example` for all options including columns, citekey templates, 
 cargo test
 ```
 
-All 80 tests should pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation).
+All 126 tests should pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation).
+
+Coverage analysis runs automatically in CI via `cargo-llvm-cov`. To run locally:
+
+```sh
+cargo llvm-cov --workspace --summary-only
+```
