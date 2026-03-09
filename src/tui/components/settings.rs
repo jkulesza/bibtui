@@ -9,7 +9,7 @@ use ratatui::{
 use crate::config::schema::Config;
 use crate::tui::theme::Theme;
 
-// ── Setting value ────────────────────────────────────────────────────────────
+// ── Setting value ─────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SettingValue {
@@ -31,9 +31,7 @@ impl SettingValue {
     pub fn toggle(&mut self) {
         match self {
             SettingValue::Bool(b) => *b = !*b,
-            SettingValue::Choice { options, index } => {
-                *index = (*index + 1) % options.len();
-            }
+            SettingValue::Choice { options, index } => *index = (*index + 1) % options.len(),
             SettingValue::Str(_) => {}
         }
     }
@@ -44,12 +42,12 @@ impl SettingValue {
     }
 }
 
-// ── Setting item ─────────────────────────────────────────────────────────────
+// ── Setting item ──────────────────────────────────────────────────────────────
 
 pub struct SettingItem {
-    pub id: &'static str,
-    pub label: &'static str,
-    pub description: &'static str,
+    pub id: String,
+    pub label: String,
+    pub description: String,
     pub value: SettingValue,
     pub default: SettingValue,
 }
@@ -61,7 +59,7 @@ pub enum SettingRow {
     Item(usize), // index into SettingsState.items
 }
 
-// ── State ────────────────────────────────────────────────────────────────────
+// ── State ─────────────────────────────────────────────────────────────────────
 
 pub struct SettingsState {
     pub items: Vec<SettingItem>,
@@ -71,23 +69,40 @@ pub struct SettingsState {
     pub scroll_offset: usize,
 }
 
+/// Standard BibTeX entry types shown in the Citekey Templates section.
+const CITEKEY_TYPES: &[&str] = &[
+    "article",
+    "book",
+    "booklet",
+    "inbook",
+    "incollection",
+    "inproceedings",
+    "manual",
+    "mastersthesis",
+    "misc",
+    "phdthesis",
+    "proceedings",
+    "techreport",
+    "unpublished",
+];
+
 impl SettingsState {
     pub fn new(config: &Config) -> Self {
         let defaults = Config::default();
 
-        let items: Vec<SettingItem> = vec![
+        let mut items: Vec<SettingItem> = vec![
             // ── General ──
             SettingItem {
-                id: "general.backup_on_save",
-                label: "backup_on_save",
-                description: "Create a .bib.bak backup file before each save.",
+                id: "general.backup_on_save".into(),
+                label: "backup_on_save".into(),
+                description: "Create a .bib.bak backup file before each save.".into(),
                 value: SettingValue::Bool(config.general.backup_on_save),
                 default: SettingValue::Bool(defaults.general.backup_on_save),
             },
             SettingItem {
-                id: "general.yank_format",
-                label: "yank_format",
-                description: "What 'yy' copies: citation_key | bibtex | formatted | prompt (prompt opens a picker each time).",
+                id: "general.yank_format".into(),
+                label: "yank_format".into(),
+                description: "What 'yy' copies: citation_key | bibtex | formatted | prompt (prompt opens a picker each time).".into(),
                 value: {
                     const OPTS: &[&str] = &["citation_key", "bibtex", "formatted", "prompt"];
                     let idx = OPTS.iter().position(|&o| o == config.general.yank_format.as_str()).unwrap_or(3);
@@ -100,53 +115,53 @@ impl SettingsState {
                 },
             },
             SettingItem {
-                id: "general.editor",
-                label: "editor",
-                description: "External editor command used when opening the .bib file directly.",
+                id: "general.editor".into(),
+                label: "editor".into(),
+                description: "External editor command used when opening the .bib file directly.".into(),
                 value: SettingValue::Str(config.general.editor.clone()),
                 default: SettingValue::Str(defaults.general.editor.clone()),
             },
             // ── Display ──
             SettingItem {
-                id: "display.show_groups",
-                label: "show_groups",
-                description: "Show the JabRef group sidebar on startup.",
+                id: "display.show_groups".into(),
+                label: "show_groups".into(),
+                description: "Show the JabRef group sidebar on startup.".into(),
                 value: SettingValue::Bool(config.display.show_groups),
                 default: SettingValue::Bool(defaults.display.show_groups),
             },
             SettingItem {
-                id: "display.render_latex",
-                label: "render_latex",
-                description: "Render LaTeX markup (accents, math, dashes) to Unicode for display. Toggle at runtime with L.",
+                id: "display.render_latex".into(),
+                label: "render_latex".into(),
+                description: "Render LaTeX markup (accents, math, dashes) to Unicode for display. Toggle at runtime with L.".into(),
                 value: SettingValue::Bool(config.display.render_latex),
                 default: SettingValue::Bool(defaults.display.render_latex),
             },
             SettingItem {
-                id: "display.show_braces",
-                label: "show_braces",
-                description: "Show BibTeX case-protecting braces (e.g. {MCNP}) in field values. Toggle at runtime with B.",
+                id: "display.show_braces".into(),
+                label: "show_braces".into(),
+                description: "Show BibTeX case-protecting braces (e.g. {MCNP}) in field values. Toggle at runtime with B.".into(),
                 value: SettingValue::Bool(config.display.show_braces),
                 default: SettingValue::Bool(defaults.display.show_braces),
             },
             SettingItem {
-                id: "display.abbreviate_authors",
-                label: "abbreviate_authors",
-                description: "Abbreviate author lists in the entry list (3+ authors shown as 'Last et al.').",
+                id: "display.abbreviate_authors".into(),
+                label: "abbreviate_authors".into(),
+                description: "Abbreviate author lists in the entry list (3+ authors shown as 'Last et al.').".into(),
                 value: SettingValue::Bool(config.display.abbreviate_authors),
                 default: SettingValue::Bool(defaults.display.abbreviate_authors),
             },
             // ── Save ──
             SettingItem {
-                id: "save.align_fields",
-                label: "align_fields",
-                description: "Align field values to a common column when serialising modified entries.",
+                id: "save.align_fields".into(),
+                label: "align_fields".into(),
+                description: "Align field values to a common column when serialising modified entries.".into(),
                 value: SettingValue::Bool(config.save.align_fields),
                 default: SettingValue::Bool(defaults.save.align_fields),
             },
             SettingItem {
-                id: "save.field_order",
-                label: "field_order",
-                description: "Field ordering strategy on save: 'jabref' (JabRef default order) or 'alphabetical'.",
+                id: "save.field_order".into(),
+                label: "field_order".into(),
+                description: "Field ordering strategy on save: 'jabref' (JabRef default order) or 'alphabetical'.".into(),
                 value: {
                     const OPTS: &[&str] = &["jabref", "alphabetical"];
                     let idx = OPTS.iter().position(|&o| o == config.save.field_order.as_str()).unwrap_or(0);
@@ -159,17 +174,17 @@ impl SettingsState {
                 },
             },
             SettingItem {
-                id: "save.sync_filenames",
-                label: "sync_filenames",
-                description: "Rename attached files to match the citation key on save (single: key.ext; multiple: key_1.ext…).",
+                id: "save.sync_filenames".into(),
+                label: "sync_filenames".into(),
+                description: "Rename attached files to match the citation key on save (single: key.ext; multiple: key_1.ext…).".into(),
                 value: SettingValue::Bool(config.save.sync_filenames),
                 default: SettingValue::Bool(defaults.save.sync_filenames),
             },
             // ── Citation ──
             SettingItem {
-                id: "citation.style",
-                label: "style",
-                description: "Citation preview format style shown when pressing Space on an entry. Currently supported: IEEEtranN.",
+                id: "citation.style".into(),
+                label: "style".into(),
+                description: "Citation preview format style shown when pressing Space on an entry. Currently supported: IEEEtranN.".into(),
                 value: {
                     const OPTS: &[&str] = &["IEEEtranN"];
                     let idx = OPTS.iter().position(|&o| o == config.citation.style.as_str()).unwrap_or(0);
@@ -183,11 +198,31 @@ impl SettingsState {
             },
         ];
 
-        let rows: Vec<SettingRow> = vec![
+        // ── Citekey Templates (one item per standard entry type) ──
+        let base = items.len(); // 11
+        for type_name in CITEKEY_TYPES {
+            let current = config.citekey.templates.get(*type_name).cloned().unwrap_or_default();
+            let default_val = defaults.citekey.templates.get(*type_name).cloned().unwrap_or_default();
+            items.push(SettingItem {
+                id: format!("citekey.template.{}", type_name),
+                label: type_name.to_string(),
+                description: format!(
+                    "Citation key template for @{} entries. \
+                     Tokens: [auth], [year], [title], [journal:abbr], [authors], \
+                     [firstpage], [number], [institution:abbr], [booktitle:abbr]. \
+                     Modifiers: :upper, :lower, :abbr, :camel, :(n), :regex(pat,repl).",
+                    type_name
+                ),
+                value: SettingValue::Str(current),
+                default: SettingValue::Str(default_val),
+            });
+        }
+
+        let mut rows: Vec<SettingRow> = vec![
             SettingRow::Section("General"),
-            SettingRow::Item(0),  // yank_format
-            SettingRow::Item(1),  // backup_on_save
-            SettingRow::Item(2),  // editor
+            SettingRow::Item(0),
+            SettingRow::Item(1),
+            SettingRow::Item(2),
             SettingRow::Section("Display"),
             SettingRow::Item(3),
             SettingRow::Item(4),
@@ -199,7 +234,11 @@ impl SettingsState {
             SettingRow::Item(9),
             SettingRow::Section("Citation"),
             SettingRow::Item(10),
+            SettingRow::Section("Citekey Templates"),
         ];
+        for i in 0..CITEKEY_TYPES.len() {
+            rows.push(SettingRow::Item(base + i));
+        }
 
         let cursor = rows
             .iter()
@@ -258,16 +297,23 @@ impl SettingsState {
         }
     }
 
-    /// Toggle the selected bool setting; no-op for strings.
+    /// Toggle the selected bool/choice setting; no-op for strings.
     pub fn toggle_selected(&mut self) {
         if let Some(item) = self.selected_item_mut() {
             item.value.toggle();
         }
     }
 
-    /// Dotted ID of the currently selected setting, or `None` on a section header.
-    pub fn selected_id(&self) -> Option<&'static str> {
-        self.selected_item().map(|i| i.id)
+    /// ID string of the currently selected setting, or `None` on a section header.
+    pub fn selected_id(&self) -> Option<&str> {
+        self.selected_item().map(|i| i.id.as_str())
+    }
+
+    /// True when the currently selected item is a citekey template.
+    pub fn selected_is_citekey_template(&self) -> bool {
+        self.selected_id()
+            .map(|id| id.starts_with("citekey.template."))
+            .unwrap_or(false)
     }
 
     /// Current display string of the selected value (seed for the field editor).
@@ -288,39 +334,51 @@ impl SettingsState {
     /// Apply all current values to a `Config` in place.
     pub fn apply_to_config(&self, config: &mut Config) {
         for item in &self.items {
-            match (item.id, &item.value) {
-                ("general.yank_format", SettingValue::Choice { options, index }) => {
-                    config.general.yank_format = options[*index].to_string();
+            match item.id.as_str() {
+                "general.backup_on_save" => {
+                    if let SettingValue::Bool(v) = item.value { config.general.backup_on_save = v; }
                 }
-                ("general.backup_on_save", SettingValue::Bool(v)) => {
-                    config.general.backup_on_save = *v;
+                "general.yank_format" => {
+                    if let SettingValue::Choice { options, index } = &item.value {
+                        config.general.yank_format = options[*index].to_string();
+                    }
                 }
-                ("general.editor", SettingValue::Str(v)) => {
-                    config.general.editor = v.clone();
+                "general.editor" => {
+                    if let SettingValue::Str(v) = &item.value { config.general.editor = v.clone(); }
                 }
-                ("display.show_groups", SettingValue::Bool(v)) => {
-                    config.display.show_groups = *v;
+                "display.show_groups" => {
+                    if let SettingValue::Bool(v) = item.value { config.display.show_groups = v; }
                 }
-                ("display.render_latex", SettingValue::Bool(v)) => {
-                    config.display.render_latex = *v;
+                "display.render_latex" => {
+                    if let SettingValue::Bool(v) = item.value { config.display.render_latex = v; }
                 }
-                ("display.show_braces", SettingValue::Bool(v)) => {
-                    config.display.show_braces = *v;
+                "display.show_braces" => {
+                    if let SettingValue::Bool(v) = item.value { config.display.show_braces = v; }
                 }
-                ("display.abbreviate_authors", SettingValue::Bool(v)) => {
-                    config.display.abbreviate_authors = *v;
+                "display.abbreviate_authors" => {
+                    if let SettingValue::Bool(v) = item.value { config.display.abbreviate_authors = v; }
                 }
-                ("save.align_fields", SettingValue::Bool(v)) => {
-                    config.save.align_fields = *v;
+                "save.align_fields" => {
+                    if let SettingValue::Bool(v) = item.value { config.save.align_fields = v; }
                 }
-                ("save.field_order", SettingValue::Choice { options, index }) => {
-                    config.save.field_order = options[*index].to_string();
+                "save.field_order" => {
+                    if let SettingValue::Choice { options, index } = &item.value {
+                        config.save.field_order = options[*index].to_string();
+                    }
                 }
-                ("save.sync_filenames", SettingValue::Bool(v)) => {
-                    config.save.sync_filenames = *v;
+                "save.sync_filenames" => {
+                    if let SettingValue::Bool(v) = item.value { config.save.sync_filenames = v; }
                 }
-                ("citation.style", SettingValue::Choice { options, index }) => {
-                    config.citation.style = options[*index].to_string();
+                "citation.style" => {
+                    if let SettingValue::Choice { options, index } = &item.value {
+                        config.citation.style = options[*index].to_string();
+                    }
+                }
+                id if id.starts_with("citekey.template.") => {
+                    if let SettingValue::Str(v) = &item.value {
+                        let type_name = &id["citekey.template.".len()..];
+                        config.citekey.templates.insert(type_name.to_string(), v.clone());
+                    }
                 }
                 _ => {}
             }
@@ -340,7 +398,7 @@ impl SettingsState {
     }
 }
 
-// ── Render ───────────────────────────────────────────────────────────────────
+// ── Render ────────────────────────────────────────────────────────────────────
 
 const LABEL_W: usize = 26;
 const VAL_W: usize = 18;
@@ -408,7 +466,6 @@ pub fn render_settings(f: &mut Frame, area: Rect, state: &mut SettingsState, the
 
                 let label = format!(" {:<w$}", item.label, w = LABEL_W);
                 let val_str = item.value.display();
-                // Truncate value display to VAL_W
                 let val_trunc: String = val_str.chars().take(VAL_W).collect();
                 let val_padded = format!("{:<w$}", val_trunc, w = VAL_W);
 
@@ -453,7 +510,7 @@ pub fn render_settings(f: &mut Frame, area: Rect, state: &mut SettingsState, the
 
     let desc_text = state
         .selected_item()
-        .map(|i| i.description)
+        .map(|i| i.description.as_str())
         .unwrap_or("");
     f.render_widget(
         Paragraph::new(Line::from(Span::styled(

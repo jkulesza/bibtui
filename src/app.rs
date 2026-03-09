@@ -184,7 +184,7 @@ enum PendingAction {
     AddGroup { parent_path: Vec<usize> },
     DeleteGroup { path: Vec<usize> },
     AssignGroups { entry_key: String },
-    EditSetting { setting_id: &'static str },
+    EditSetting { setting_id: String },
     ExportSettings,
     ImportSettings,
     YankPrompt { entry_key: String },
@@ -526,11 +526,12 @@ impl App {
                             .unwrap_or(false);
                         if is_str {
                             let current = s.selected_value_str();
-                            let label = s.selected_item().map(|i| i.label).unwrap_or(id);
+                            let label = s.selected_item().map(|i| i.label.clone()).unwrap_or_else(|| id.to_string());
+                            let setting_id = id.to_string();
                             self.field_editor_state =
-                                Some(FieldEditorState::new(label, &current));
+                                Some(FieldEditorState::new(&label, &current));
                             self.pending_action =
-                                Some(PendingAction::EditSetting { setting_id: id });
+                                Some(PendingAction::EditSetting { setting_id });
                             self.mode = InputMode::Editing;
                         }
                     }
@@ -748,17 +749,16 @@ impl App {
         }
 
         // Edit a string setting ───────────────────────────────────────────────
-        if let Some(PendingAction::EditSetting { setting_id }) = self.pending_action {
+        if let Some(PendingAction::EditSetting { setting_id }) = self.pending_action.take() {
             let new_val = self
                 .field_editor_state
                 .as_ref()
                 .map(|e| e.value.clone())
                 .unwrap_or_default();
             self.field_editor_state = None;
-            self.pending_action = None;
             self.mode = InputMode::Settings;
             if let Some(ref mut s) = self.settings_state {
-                s.set_value(setting_id, SettingValue::Str(new_val));
+                s.set_value(&setting_id, SettingValue::Str(new_val));
                 s.apply_to_config(&mut self.config);
             }
             return;

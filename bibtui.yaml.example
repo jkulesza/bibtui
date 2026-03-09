@@ -71,18 +71,60 @@ citation:
   style: IEEEtranN
 
 citekey:
-  # Citation-key templates.  Available tokens:
-  #   {year}              – year field
-  #   {author_last}       – last name of first author
-  #   {authors}           – up to 3 last names joined by "_"
-  #   {title_camel}       – first significant word of title, CamelCase
-  #   {journal_abbrev}    – first letters of each journal-name word
-  #   {booktitle_abbrev}  – same for booktitle
-  #   {institution_abbrev}– same for institution
-  #   {number}            – number / report-number field
-  #   {pages}             – pages field (first page only)
-  #   {howpublished_camel}– howpublished, CamelCase
-  #   {category}          – keywords field first token (used for books)
+  # Citation-key templates, one per BibTeX entry type.
+  # Two syntaxes are supported and may be freely mixed in one template:
+  #
+  # New [token] / [token:mod1:mod2] syntax (JabRef-compatible):
+  #
+  #   Tokens:
+  #     [auth]           – last name of first author
+  #     [authN]          – last names of first N authors concatenated (e.g. [auth3])
+  #     [authors]        – all authors (≤2 joined, 3+ → "Last1Last2EtAl")
+  #     [year]           – year field
+  #     [shortyear]      – last two digits of year
+  #     [title]          – first significant word of title
+  #     [shorttitle]     – first three significant words of title
+  #     [journal]        – journal field
+  #     [booktitle]      – booktitle field
+  #     [volume]         – volume field
+  #     [number]         – number / report-number field
+  #     [firstpage]      – first page number from pages field
+  #     [institution]    – institution field
+  #     [school]         – school field
+  #     [publisher]      – publisher field
+  #     [keywords]       – first keyword
+  #     [howpublished]   – howpublished field
+  #     [<fieldname>]    – any other BibTeX field by name
+  #
+  #   Modifiers (chained with ':', applied left to right):
+  #     :upper           – convert to uppercase
+  #     :lower           – convert to lowercase
+  #     :abbr            – first letter of each significant word
+  #     :camel           – capitalise first letter of each word
+  #     :(n)             – truncate to first n characters
+  #     :regex(pat,repl) – regex find-and-replace (repeatable)
+  #
+  #   Examples:
+  #     [auth][year]                       → Smith2020
+  #     [auth:upper][year]                 → SMITH2020
+  #     [auth][year]_[journal:abbr]        → Smith2020_NSE
+  #     [auth3][year]                      → SmithJonesWilliams2020
+  #     [auth][year]_[title:lower:(8)]     → Smith2020_toward_e
+  #     [auth][year:regex(^\d\d,,)]        → Smith24  (strips first 2 year digits)
+  #
+  # Legacy {token} syntax (preserved for backward compatibility):
+  #   {year}               – year field
+  #   {author_last}        – last name of first author
+  #   {authors}            – up to 3 last names (EtAl for 3+)
+  #   {title_camel}        – first significant word of title, CamelCase
+  #   {journal_abbrev}     – first letters of each journal-name word
+  #   {booktitle_abbrev}   – same for booktitle
+  #   {institution_abbrev} – same for institution
+  #   {number}             – number / report-number field
+  #   {pages}              – pages field
+  #   {howpublished_camel} – howpublished, CamelCase
+  #   {category}           – first keyword (used for books)
+  #
   templates:
     article:       "Article_{year}_{journal_abbrev}_{authors}_{pages}"
     book:          "Book_{category}_{year}_{author_last}_{title_camel}"

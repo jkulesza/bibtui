@@ -1,6 +1,6 @@
 [package]
 name = "bibtui"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2021"
 
 [dependencies]
@@ -14,6 +14,7 @@ thiserror = "1"
 indexmap = { version = "2", features = ["serde"] }
 nucleo-matcher = "0.3"
 unicode-width = "0.2"
+regex = "1"
 dirs = "6"
 
 [dev-dependencies]
