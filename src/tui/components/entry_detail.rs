@@ -127,11 +127,13 @@ fn build_display_items(entry: &Entry, field_groups: &[CustomFieldGroup]) -> Vec<
         .filter_map(|f| entry.fields.get(*f).map(|v| (f.to_string(), v.clone())))
         .collect();
 
-    // Build set of fields already claimed by required/optional
+    // Build set of fields already claimed by required/optional.
+    // "groups" is displayed separately in the header area, not as a field row.
     let claimed: std::collections::HashSet<String> = required
         .iter()
         .chain(optional.iter())
         .map(|s| s.to_lowercase())
+        .chain(std::iter::once("groups".to_string()))
         .collect();
 
     // Remaining entry fields not in required/optional
@@ -360,11 +362,22 @@ pub fn render_entry_detail(
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    // Type line at top
+    // Type + groups lines at top
     let type_line = Line::from(vec![
-        Span::styled("  Type: ", theme.label),
+        Span::styled("  Type:   ", theme.label),
         Span::styled(entry.entry_type.display_name(), theme.value),
     ]);
+    let groups_line = if entry.group_memberships.is_empty() {
+        Line::from(vec![
+            Span::styled("  Groups: ", theme.label),
+            Span::styled("(none)", theme.label),
+        ])
+    } else {
+        Line::from(vec![
+            Span::styled("  Groups: ", theme.label),
+            Span::styled(entry.group_memberships.join(", "), theme.value),
+        ])
+    };
 
     // Determine max field name length for alignment
     let max_name_len = state
@@ -420,7 +433,7 @@ pub fn render_entry_detail(
     ])
     .split(inner);
 
-    let type_para = Paragraph::new(vec![type_line, Line::from("")]);
+    let type_para = Paragraph::new(vec![type_line, groups_line]);
     f.render_widget(type_para, chunks[0]);
 
     let list = List::new(items).highlight_style(theme.selected);
