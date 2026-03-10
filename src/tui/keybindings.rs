@@ -126,6 +126,7 @@ fn map_editing_key(key: KeyEvent) -> Option<Action> {
             Some(Action::EditCursorEnd)
         }
         KeyCode::Delete => Some(Action::EditDelete),
+        KeyCode::Tab => Some(Action::EditTabComplete),
         KeyCode::Char(c) => Some(Action::EditChar(c)),
         _ => None,
     }

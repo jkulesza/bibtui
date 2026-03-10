@@ -15,6 +15,8 @@ pub struct FieldEditorState {
     pub is_new: bool,
     /// When is_new, true means we're editing the name; false means editing the value
     pub editing_name: bool,
+    /// If true, Tab key triggers filesystem path completion
+    pub is_path: bool,
 }
 
 impl FieldEditorState {
@@ -28,6 +30,7 @@ impl FieldEditorState {
             cursor,
             is_new: false,
             editing_name: false,
+            is_path: false,
         }
     }
 
@@ -40,6 +43,21 @@ impl FieldEditorState {
             cursor: 0,
             is_new: false,
             editing_name: false,
+            is_path: false,
+        }
+    }
+
+    /// Create an editor for a filesystem path (enables Tab completion hint).
+    pub fn for_path(label: &str, default: &str) -> Self {
+        let cursor = default.len();
+        FieldEditorState {
+            field_name: label.to_string(),
+            name_cursor: label.len(),
+            value: default.to_string(),
+            cursor,
+            is_new: false,
+            editing_name: false,
+            is_path: true,
         }
     }
 
@@ -52,6 +70,7 @@ impl FieldEditorState {
             cursor: 0,
             is_new: true,
             editing_name: true,
+            is_path: false,
         }
     }
 
@@ -422,6 +441,8 @@ pub fn render_field_editor(
 
     let hint = if state.is_new && state.editing_name {
         Line::from(Span::styled(" Enter: next  Esc: cancel", theme.label))
+    } else if state.is_path {
+        Line::from(Span::styled(" Tab: complete  Enter: save  Esc: cancel", theme.label))
     } else {
         Line::from(Span::styled(" Enter: save  Esc: cancel", theme.label))
     };

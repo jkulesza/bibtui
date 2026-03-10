@@ -62,6 +62,7 @@ pub enum Action {
     EditCursorRight,
     EditCursorHome,
     EditCursorEnd,
+    EditTabComplete,
     AddEntry,
     DeleteEntry,
     DuplicateEntry,
@@ -164,6 +165,9 @@ pub struct App {
 
     // Pending action context
     pending_action: Option<PendingAction>,
+    /// Tab-completion candidates for path editors (cycles on repeated Tab)
+    path_completions: Vec<String>,
+    path_completion_idx: usize,
     /// Raw indices of entries deleted this session (for sync on save)
     deleted_raw_indices: Vec<usize>,
 
@@ -235,6 +239,8 @@ impl App {
             filtered_indices: None,
             sorted_keys,
             pending_action: None,
+            path_completions: Vec::new(),
+            path_completion_idx: 0,
             deleted_raw_indices: Vec::new(),
             undo_stack: Vec::new(),
             save_generation: Some(0),
@@ -537,16 +543,19 @@ impl App {
             Action::SettingsExport => {
                 // Prompt for export path, defaulting to ./bibtui.yaml
                 self.field_editor_state =
-                    Some(FieldEditorState::new("Export path", "bibtui.yaml"));
+                    Some(FieldEditorState::for_path("Export path", "bibtui.yaml"));
+                self.path_completions.clear();
                 self.pending_action = Some(PendingAction::ExportSettings);
                 self.mode = InputMode::Editing;
             }
             Action::SettingsImport => {
                 self.field_editor_state =
-                    Some(FieldEditorState::new("Import path", ""));
+                    Some(FieldEditorState::for_path("Import path", ""));
+                self.path_completions.clear();
                 self.pending_action = Some(PendingAction::ImportSettings);
                 self.mode = InputMode::Editing;
             }
+            Action::EditTabComplete => self.do_path_tab_complete(),
         }
     }
 
@@ -1421,6 +1430,67 @@ impl App {
 
     // ── Save ──
 
+    // ── Tab completion for path editors ──
+
+    fn do_path_tab_complete(&mut self) {
+        // Only active for path-editing pending actions.
+        let is_path_edit = matches!(
+            self.pending_action,
+            Some(PendingAction::ExportSettings) | Some(PendingAction::ImportSettings)
+        );
+        if !is_path_edit {
+            return;
+        }
+        let editor = match self.field_editor_state.as_mut() {
+            Some(e) => e,
+            None => return,
+        };
+
+        // If we already have completions and the current value matches the
+        // last-inserted candidate, cycle to the next one.
+        if !self.path_completions.is_empty()
+            && self.path_completion_idx < self.path_completions.len()
+            && editor.value == self.path_completions[self.path_completion_idx]
+        {
+            self.path_completion_idx =
+                (self.path_completion_idx + 1) % self.path_completions.len();
+            let next = self.path_completions[self.path_completion_idx].clone();
+            editor.value = next;
+            editor.cursor = editor.value.len();
+            return;
+        }
+
+        // Compute fresh completions from the current value.
+        self.path_completions = path_completions(&editor.value);
+        self.path_completion_idx = 0;
+
+        match self.path_completions.len() {
+            0 => {
+                self.status_message = Some("No completions".to_string());
+            }
+            1 => {
+                editor.value = self.path_completions[0].clone();
+                editor.cursor = editor.value.len();
+            }
+            _ => {
+                // Complete to the longest common prefix.
+                let common = longest_common_prefix(&self.path_completions);
+                if common != editor.value {
+                    // Advance to the common prefix without cycling yet.
+                    editor.value = common;
+                    editor.cursor = editor.value.len();
+                    // Reset completions so the next Tab starts cycling.
+                    self.path_completion_idx = 0;
+                } else {
+                    // Already at the common prefix — start cycling.
+                    let first = self.path_completions[0].clone();
+                    editor.value = first;
+                    editor.cursor = editor.value.len();
+                }
+            }
+        }
+    }
+
     // ── Settings import / export ──
 
     fn export_settings(&mut self, path: &str) {
@@ -2027,6 +2097,113 @@ fn collect_group_names(node: &GroupNode, names: &mut Vec<String>) {
     for child in &node.children {
         collect_group_names(child, names);
     }
+}
+
+/// Return sorted filesystem completions for `prefix`.
+///
+/// The prefix is split into a directory part and a name stem.  All entries
+/// in that directory whose names start with the stem are returned.
+/// Directory entries are returned with a trailing `/`.
+/// Expand a leading `~` to the user's home directory (Unix/macOS).
+/// Returns the input unchanged if `~` cannot be resolved or is not present.
+fn expand_tilde(s: &str) -> String {
+    if s == "~" || s.starts_with("~/") {
+        if let Some(home) = std::env::var_os("HOME") {
+            let home = home.to_string_lossy();
+            return format!("{}{}", home, &s[1..]);
+        }
+    }
+    s.to_string()
+}
+
+/// Contract an absolute path back to a `~`-prefixed form when the path falls
+/// under the user's home directory.  Returns the input unchanged otherwise.
+fn contract_tilde(s: &str) -> String {
+    if let Some(home) = std::env::var_os("HOME") {
+        let home = home.to_string_lossy();
+        let home_slash = format!("{}/", home);
+        if s == home.as_ref() {
+            return "~".to_string();
+        }
+        if let Some(rest) = s.strip_prefix(home_slash.as_str()) {
+            return format!("~/{}", rest);
+        }
+    }
+    s.to_string()
+}
+
+fn path_completions(prefix: &str) -> Vec<String> {
+    use std::path::Path;
+
+    let tilde = prefix.starts_with('~');
+    // Work with the expanded form for all filesystem operations.
+    let expanded = expand_tilde(prefix);
+    let expanded = expanded.as_str();
+
+    let path = Path::new(expanded);
+    let (dir, stem) = if expanded.ends_with('/') || expanded.ends_with(std::path::MAIN_SEPARATOR) {
+        (path, "")
+    } else {
+        let stem = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+        let parent = path.parent().unwrap_or(Path::new("."));
+        let parent = if parent == Path::new("") { Path::new(".") } else { parent };
+        (parent, stem)
+    };
+
+    let mut matches = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name_str = name.to_string_lossy();
+            if !name_str.starts_with(stem) {
+                continue;
+            }
+            let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+            let candidate = if dir == std::path::Path::new(".") && !expanded.contains('/') {
+                if is_dir {
+                    format!("{}/", name_str)
+                } else {
+                    name_str.to_string()
+                }
+            } else {
+                let base = dir.display().to_string();
+                let sep = if base.ends_with('/') { "" } else { "/" };
+                if is_dir {
+                    format!("{}{}{}/", base, sep, name_str)
+                } else {
+                    format!("{}{}{}", base, sep, name_str)
+                }
+            };
+            // Re-apply `~` contraction so the editor shows the tilde form.
+            let candidate = if tilde { contract_tilde(&candidate) } else { candidate };
+            matches.push(candidate);
+        }
+    }
+    matches.sort();
+    matches
+}
+
+/// Return the longest common byte prefix shared by all strings in `items`.
+fn longest_common_prefix(items: &[String]) -> String {
+    if items.is_empty() {
+        return String::new();
+    }
+    let first = items[0].as_bytes();
+    let mut len = first.len();
+    for s in &items[1..] {
+        let s = s.as_bytes();
+        len = len.min(s.len());
+        for i in 0..len {
+            if first[i] != s[i] {
+                len = i;
+                break;
+            }
+        }
+    }
+    // Truncate to a valid UTF-8 boundary.
+    let s = &items[0][..len];
+    let boundary = s.char_indices().map(|(i, _)| i).take_while(|&i| i <= len).last().unwrap_or(0);
+    items[0][..boundary].to_string()
 }
 
 #[cfg(test)]
