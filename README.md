@@ -20,7 +20,7 @@ A terminal UI BibTeX manager written in Rust. Designed as a lightweight, keyboar
 - LaTeX markup rendered to Unicode for display (`L` to toggle)
 - Assigned groups shown in the entry detail header alongside the entry type
 - Configurable columns, sort, theme, and citekey templates via YAML
-- In-TUI settings editor (`S`) with live config import/export and `Tab`-completion path dialogs
+- In-TUI settings editor (`S`) with live config import/export, `Tab`-completion path dialogs, and field group management
 - Scrollable filename-sync preview dialog confirms file renames before they are applied
 
 ## Requirements
@@ -39,6 +39,14 @@ Optionally copy it to somewhere on your `$PATH`:
 
 ```sh
 cp target/release/bibtui ~/.local/bin/
+```
+
+Pre-built binaries for Linux (static musl and RPM), macOS (Apple Silicon and Intel), and Windows are attached to each [GitHub release](https://github.com/jkulesza/bibtui/releases).
+
+**Linux RPM** (Fedora / RHEL / openSUSE):
+
+```sh
+sudo rpm -i bibtui-<version>-linux-x86_64.rpm
 ```
 
 ## Usage
@@ -153,7 +161,10 @@ Opens a full-screen view of all configuration options. Changes apply immediately
 |-----|--------|
 | `j` / `k` | Navigate settings |
 | `Enter` / `Space` | Toggle boolean setting |
-| `e` | Edit string setting |
+| `e` | Edit string setting / edit fields of selected field group |
+| `r` | Rename selected field group |
+| `a` | Add new field group |
+| `x` | Delete selected field group |
 | `E` | Export current config to a YAML file (path dialog with `Tab` completion) |
 | `I` | Import config from a YAML file (path dialog with `Tab` completion) |
 | `Esc` / `q` | Close settings |
@@ -263,7 +274,7 @@ See `bibtui.yaml.example` for all options including columns, citekey templates, 
 cargo test
 ```
 
-All 358 tests should pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, TUI component state machines, and config loading).
+All 372 tests should pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, TUI component state machines, and config loading).
 
 Coverage analysis runs automatically in CI via `cargo-llvm-cov`. To run locally:
 
