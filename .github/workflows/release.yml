@@ -109,13 +109,52 @@ jobs:
           path: ${{ env.PACKAGE_NAME }}-${{ github.ref_name }}-${{ matrix.platform }}.*
           if-no-files-found: error
 
+  # ── RPM ───────────────────────────────────────────────────────────────────────
+  # Builds an RPM package for Fedora / RHEL / openSUSE using cargo-generate-rpm.
+
+  rpm:
+    name: RPM Package
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: rpm
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Strip binary
+        run: strip target/release/bibtui
+
+      - name: Install cargo-generate-rpm
+        run: cargo install cargo-generate-rpm --locked
+
+      - name: Generate RPM
+        run: cargo generate-rpm
+
+      - name: Rename RPM
+        run: |
+          RPM=$(ls target/generate-rpm/*.rpm | head -1)
+          cp "$RPM" ${{ env.PACKAGE_NAME }}-${{ github.ref_name }}-linux-x86_64.rpm
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PACKAGE_NAME }}-${{ github.ref_name }}-linux-x86_64-rpm
+          path: ${{ env.PACKAGE_NAME }}-${{ github.ref_name }}-linux-x86_64.rpm
+          if-no-files-found: error
+
   # ── Release ───────────────────────────────────────────────────────────────────
   # Downloads all build artifacts, then creates a GitHub release with them
   # attached.
 
   release:
     name: Release
-    needs: build
+    needs: [build, rpm]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -148,6 +187,7 @@ jobs:
           | Platform               | Archive                                          |
           |------------------------|--------------------------------------------------|
           | Linux x86-64 (static)  | \`bibtui-${TAG}-linux-x86_64.tar.gz\`            |
+          | Linux x86-64 (RPM)     | \`bibtui-${TAG}-linux-x86_64.rpm\`               |
           | macOS Apple Silicon    | \`bibtui-${TAG}-macos-aarch64.tar.gz\`           |
           | macOS Intel            | \`bibtui-${TAG}-macos-x86_64.tar.gz\`            |
           | Windows x86-64         | \`bibtui-${TAG}-windows-x86_64.zip\`             |
@@ -156,6 +196,11 @@ jobs:
           \`\`\`
           tar -xzf bibtui-<platform>.tar.gz
           mv bibtui ~/.local/bin/
+          \`\`\`
+
+          **Linux (RPM)** — install with your package manager:
+          \`\`\`
+          sudo rpm -i bibtui-<version>-linux-x86_64.rpm
           \`\`\`
 
           **Windows** — extract \`bibtui.exe\` from the zip and place it in a directory on your \`%PATH%\`.

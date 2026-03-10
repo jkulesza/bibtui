@@ -2,6 +2,7 @@
 name = "bibtui"
 version = "0.12.0"
 edition = "2021"
+license = "BSD-3-Clause"
 
 [dependencies]
 ratatui = "0.29"
@@ -20,3 +21,8 @@ dirs = "6"
 [dev-dependencies]
 pretty_assertions = "1"
 tempfile = "3"
+
+[package.metadata.generate-rpm]
+assets = [
+  { source = "target/release/bibtui", dest = "/usr/bin/bibtui", mode = "755" },
+]

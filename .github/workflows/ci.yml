@@ -70,3 +70,28 @@ jobs:
 
       - name: Build
         run: cargo build --release --target x86_64-unknown-linux-musl
+
+  rpm:
+    name: RPM Package
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: rpm
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Strip binary
+        run: strip target/release/bibtui
+
+      - name: Install cargo-generate-rpm
+        run: cargo install cargo-generate-rpm --locked
+
+      - name: Generate RPM
+        run: cargo generate-rpm
