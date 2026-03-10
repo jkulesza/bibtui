@@ -97,6 +97,9 @@ pub enum Action {
     SettingsEdit,
     SettingsExport,
     SettingsImport,
+    SettingsAddFieldGroup,
+    SettingsDeleteFieldGroup,
+    SettingsRenameFieldGroup,
 }
 
 /// A single reversible operation stored on the undo stack.
@@ -194,6 +197,9 @@ enum PendingAction {
     YankPrompt { entry_key: String },
     Save,
     SaveAndQuit,
+    AddFieldGroup,
+    EditFieldGroupFields { index: usize },
+    RenameFieldGroup { index: usize },
 }
 
 impl App {
@@ -524,7 +530,17 @@ impl App {
             }
             Action::SettingsEdit => {
                 if let Some(ref s) = self.settings_state {
-                    if let Some(id) = s.selected_id() {
+                    if s.selected_is_field_group() {
+                        if let Some(idx) = s.selected_field_group_index() {
+                            let fields_csv = s.field_groups.get(idx)
+                                .map(|(_, f)| f.clone()).unwrap_or_default();
+                            self.field_editor_state =
+                                Some(FieldEditorState::new("Fields (comma-separated)", &fields_csv));
+                            self.pending_action =
+                                Some(PendingAction::EditFieldGroupFields { index: idx });
+                            self.mode = InputMode::Editing;
+                        }
+                    } else if let Some(id) = s.selected_id() {
                         // Only open the text editor for free-form string settings.
                         let is_str = s.selected_item()
                             .map(|i| matches!(i.value, SettingValue::Str(_)))
@@ -539,6 +555,35 @@ impl App {
                                 Some(PendingAction::EditSetting { setting_id });
                             self.mode = InputMode::Editing;
                         }
+                    }
+                }
+            }
+            Action::SettingsAddFieldGroup => {
+                if self.settings_state.is_some() {
+                    self.field_editor_state =
+                        Some(FieldEditorState::new("New field group name", ""));
+                    self.pending_action = Some(PendingAction::AddFieldGroup);
+                    self.mode = InputMode::Editing;
+                }
+            }
+            Action::SettingsDeleteFieldGroup => {
+                if let Some(ref mut s) = self.settings_state {
+                    if s.delete_selected_field_group() {
+                        s.apply_to_config(&mut self.config);
+                        self.sync_runtime_from_config();
+                    }
+                }
+            }
+            Action::SettingsRenameFieldGroup => {
+                if let Some(ref s) = self.settings_state {
+                    if let Some(idx) = s.selected_field_group_index() {
+                        let name = s.field_groups.get(idx)
+                            .map(|(n, _)| n.clone()).unwrap_or_default();
+                        self.field_editor_state =
+                            Some(FieldEditorState::new("Group name", &name));
+                        self.pending_action =
+                            Some(PendingAction::RenameFieldGroup { index: idx });
+                        self.mode = InputMode::Editing;
                     }
                 }
             }
@@ -757,7 +802,11 @@ impl App {
         }
 
         // Edit a string setting ───────────────────────────────────────────────
-        if let Some(PendingAction::EditSetting { setting_id }) = self.pending_action.take() {
+        if matches!(self.pending_action, Some(PendingAction::EditSetting { .. })) {
+            let setting_id = match self.pending_action.take() {
+                Some(PendingAction::EditSetting { setting_id }) => setting_id,
+                _ => return,
+            };
             let new_val = self
                 .field_editor_state
                 .as_ref()
@@ -768,6 +817,53 @@ impl App {
             if let Some(ref mut s) = self.settings_state {
                 s.set_value(&setting_id, SettingValue::Str(new_val));
                 s.apply_to_config(&mut self.config);
+                self.sync_runtime_from_config();
+            }
+            return;
+        }
+
+        // Add a new field group ───────────────────────────────────────────────
+        if matches!(self.pending_action, Some(PendingAction::AddFieldGroup)) {
+            let name = self.field_editor_state.as_ref()
+                .map(|e| e.value.trim().to_string()).unwrap_or_default();
+            self.pending_action = None;
+            self.field_editor_state = None;
+            self.mode = InputMode::Settings;
+            if !name.is_empty() {
+                if let Some(ref mut s) = self.settings_state {
+                    s.add_field_group(name);
+                    s.apply_to_config(&mut self.config);
+                }
+                self.sync_runtime_from_config();
+            }
+            return;
+        }
+
+        // Edit field group fields ─────────────────────────────────────────────
+        if let Some(PendingAction::EditFieldGroupFields { index }) = self.pending_action.take() {
+            let fields_csv = self.field_editor_state.as_ref()
+                .map(|e| e.value.clone()).unwrap_or_default();
+            self.field_editor_state = None;
+            self.mode = InputMode::Settings;
+            if let Some(ref mut s) = self.settings_state {
+                s.set_field_group_fields(index, fields_csv);
+                s.apply_to_config(&mut self.config);
+            }
+            self.sync_runtime_from_config();
+            return;
+        }
+
+        // Rename a field group ────────────────────────────────────────────────
+        if let Some(PendingAction::RenameFieldGroup { index }) = self.pending_action.take() {
+            let name = self.field_editor_state.as_ref()
+                .map(|e| e.value.trim().to_string()).unwrap_or_default();
+            self.field_editor_state = None;
+            self.mode = InputMode::Settings;
+            if !name.is_empty() {
+                if let Some(ref mut s) = self.settings_state {
+                    s.set_field_group_name(index, name);
+                    s.apply_to_config(&mut self.config);
+                }
                 self.sync_runtime_from_config();
             }
             return;
@@ -1426,7 +1522,10 @@ impl App {
             Some(PendingAction::AddGroup { .. })
             | Some(PendingAction::EditSetting { .. })
             | Some(PendingAction::ExportSettings)
-            | Some(PendingAction::ImportSettings) => {
+            | Some(PendingAction::ImportSettings)
+            | Some(PendingAction::AddFieldGroup)
+            | Some(PendingAction::EditFieldGroupFields { .. })
+            | Some(PendingAction::RenameFieldGroup { .. }) => {
                 // These are confirmed through confirm_edit(), not this path
             }
             None => {
@@ -1525,6 +1624,16 @@ impl App {
         self.show_braces  = self.config.display.show_braces;
         self.show_groups  = self.config.display.show_groups;
         self.theme        = Theme::from_config(&self.config.theme);
+        // If the detail view is open, rebuild display items with current field groups.
+        if let Some(key) = self.detail_entry_key.clone() {
+            if let Some(entry) = self.database.entries.get(&key) {
+                let entry_clone = entry.clone();
+                let groups = self.config.field_groups.clone();
+                if let Some(ref mut detail) = self.detail_state {
+                    detail.refresh_with_groups(&entry_clone, groups);
+                }
+            }
+        }
     }
 
     fn import_settings(&mut self, path: &str) {

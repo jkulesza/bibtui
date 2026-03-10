@@ -170,6 +170,9 @@ fn map_settings_key(key: KeyEvent) -> Option<Action> {
         KeyCode::Char('e') => Some(Action::SettingsEdit),
         KeyCode::Char('E') => Some(Action::SettingsExport),
         KeyCode::Char('I') => Some(Action::SettingsImport),
+        KeyCode::Char('a') => Some(Action::SettingsAddFieldGroup),
+        KeyCode::Char('x') => Some(Action::SettingsDeleteFieldGroup),
+        KeyCode::Char('r') => Some(Action::SettingsRenameFieldGroup),
         _ => None,
     }
 }

@@ -6,7 +6,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::config::schema::Config;
+use crate::config::schema::{Config, CustomFieldGroup};
 use crate::tui::theme::Theme;
 
 // ── Setting value ─────────────────────────────────────────────────────────────
@@ -56,7 +56,8 @@ pub struct SettingItem {
 
 pub enum SettingRow {
     Section(&'static str),
-    Item(usize), // index into SettingsState.items
+    Item(usize),       // index into SettingsState.items
+    FieldGroup(usize), // index into SettingsState.field_groups
 }
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -64,9 +65,11 @@ pub enum SettingRow {
 pub struct SettingsState {
     pub items: Vec<SettingItem>,
     pub rows: Vec<SettingRow>,
-    /// Index into `rows`; always points at a `SettingRow::Item`.
+    /// Index into `rows`; always points at a selectable row.
     pub cursor: usize,
     pub scroll_offset: usize,
+    /// Custom field groups: (name, comma-separated field list).
+    pub field_groups: Vec<(String, String)>,
 }
 
 /// Standard BibTeX entry types shown in the Citekey Templates section.
@@ -351,22 +354,33 @@ impl SettingsState {
             rows.push(SettingRow::Item(base + i));
         }
 
+        // ── Field Groups (one row per group) ──
+        rows.push(SettingRow::Section("Field Groups"));
+        let fg_rows_start = rows.len();
+        let _ = fg_rows_start; // used only to document intent
+        let field_groups: Vec<(String, String)> = config.field_groups.iter()
+            .map(|fg| (fg.name.clone(), fg.fields.join(", ")))
+            .collect();
+        for i in 0..field_groups.len() {
+            rows.push(SettingRow::FieldGroup(i));
+        }
+
         let cursor = rows
             .iter()
-            .position(|r| matches!(r, SettingRow::Item(_)))
+            .position(|r| matches!(r, SettingRow::Item(_) | SettingRow::FieldGroup(_)))
             .unwrap_or(0);
 
-        SettingsState { items, rows, cursor, scroll_offset: 0 }
+        SettingsState { items, rows, cursor, scroll_offset: 0, field_groups }
     }
 
-    fn is_item_row(&self, idx: usize) -> bool {
-        matches!(self.rows.get(idx), Some(SettingRow::Item(_)))
+    fn is_selectable_row(&self, idx: usize) -> bool {
+        matches!(self.rows.get(idx), Some(SettingRow::Item(_)) | Some(SettingRow::FieldGroup(_)))
     }
 
     pub fn move_down(&mut self) {
         let mut i = self.cursor + 1;
         while i < self.rows.len() {
-            if self.is_item_row(i) {
+            if self.is_selectable_row(i) {
                 self.cursor = i;
                 return;
             }
@@ -380,7 +394,7 @@ impl SettingsState {
         }
         let mut i = self.cursor - 1;
         loop {
-            if self.is_item_row(i) {
+            if self.is_selectable_row(i) {
                 self.cursor = i;
                 return;
             }
@@ -408,14 +422,83 @@ impl SettingsState {
         }
     }
 
-    /// Toggle the selected bool/choice setting; no-op for strings.
+    /// True when the currently selected row is a field group.
+    pub fn selected_is_field_group(&self) -> bool {
+        matches!(self.rows.get(self.cursor), Some(SettingRow::FieldGroup(_)))
+    }
+
+    /// Index into `field_groups` for the selected row, if it is a field group.
+    pub fn selected_field_group_index(&self) -> Option<usize> {
+        match self.rows.get(self.cursor) {
+            Some(SettingRow::FieldGroup(i)) => Some(*i),
+            _ => None,
+        }
+    }
+
+    /// Add a new (empty-fields) field group with the given name and move cursor to it.
+    pub fn add_field_group(&mut self, name: String) {
+        let idx = self.field_groups.len();
+        self.field_groups.push((name, String::new()));
+        // Insert after the last existing FieldGroup row (or after the "Field Groups" section header).
+        let insert_at = self.rows.iter().rposition(|r| matches!(r, SettingRow::FieldGroup(_)))
+            .map(|i| i + 1)
+            .unwrap_or_else(|| {
+                self.rows.iter().rposition(|r| matches!(r, SettingRow::Section("Field Groups")))
+                    .map(|i| i + 1)
+                    .unwrap_or(self.rows.len())
+            });
+        self.rows.insert(insert_at, SettingRow::FieldGroup(idx));
+        self.cursor = insert_at;
+    }
+
+    /// Delete the currently selected field group. Returns true if one was deleted.
+    pub fn delete_selected_field_group(&mut self) -> bool {
+        let idx = match self.rows.get(self.cursor) {
+            Some(SettingRow::FieldGroup(i)) => *i,
+            _ => return false,
+        };
+        self.field_groups.remove(idx);
+        self.rows.remove(self.cursor);
+        // Re-number FieldGroup indices that came after the removed one.
+        for row in &mut self.rows {
+            if let SettingRow::FieldGroup(i) = row {
+                if *i > idx {
+                    *i -= 1;
+                }
+            }
+        }
+        // Adjust cursor to stay on a selectable row.
+        if self.cursor >= self.rows.len() {
+            self.cursor = self.cursor.saturating_sub(1);
+        }
+        while self.cursor > 0 && !self.is_selectable_row(self.cursor) {
+            self.cursor -= 1;
+        }
+        true
+    }
+
+    /// Update the name of a field group by index.
+    pub fn set_field_group_name(&mut self, index: usize, name: String) {
+        if let Some(fg) = self.field_groups.get_mut(index) {
+            fg.0 = name;
+        }
+    }
+
+    /// Update the fields CSV of a field group by index.
+    pub fn set_field_group_fields(&mut self, index: usize, fields_csv: String) {
+        if let Some(fg) = self.field_groups.get_mut(index) {
+            fg.1 = fields_csv;
+        }
+    }
+
+    /// Toggle the selected bool/choice setting; no-op for strings and field groups.
     pub fn toggle_selected(&mut self) {
         if let Some(item) = self.selected_item_mut() {
             item.value.toggle();
         }
     }
 
-    /// ID string of the currently selected setting, or `None` on a section header.
+    /// ID string of the currently selected setting, or `None` on a section header or field group.
     pub fn selected_id(&self) -> Option<&str> {
         self.selected_item().map(|i| i.id.as_str())
     }
@@ -529,6 +612,17 @@ impl SettingsState {
                 _ => {}
             }
         }
+        // Apply field groups
+        config.field_groups = self.field_groups.iter()
+            .filter(|(name, _)| !name.trim().is_empty())
+            .map(|(name, fields_csv)| CustomFieldGroup {
+                name: name.clone(),
+                fields: fields_csv.split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect(),
+            })
+            .collect();
     }
 
     /// Adjust scroll so the cursor row is visible within `viewport_height` lines.
@@ -767,6 +861,162 @@ mod tests {
         state.ensure_visible(10);
         assert_eq!(state.scroll_offset, 2);
     }
+
+    // ── Field Groups ──
+
+    #[test]
+    fn test_new_loads_field_groups_from_config() {
+        let cfg = default_config();
+        let state = SettingsState::new(&cfg);
+        // Default config has one field group ("Identifiers")
+        assert!(!state.field_groups.is_empty());
+        let (name, _) = &state.field_groups[0];
+        assert_eq!(name, "Identifiers");
+    }
+
+    #[test]
+    fn test_field_groups_have_rows() {
+        let cfg = default_config();
+        let state = SettingsState::new(&cfg);
+        let fg_rows = state.rows.iter().filter(|r| matches!(r, SettingRow::FieldGroup(_))).count();
+        assert_eq!(fg_rows, cfg.field_groups.len());
+    }
+
+    #[test]
+    fn test_add_field_group_appends_and_moves_cursor() {
+        let cfg = default_config();
+        let mut state = SettingsState::new(&cfg);
+        let before_count = state.field_groups.len();
+        state.add_field_group("My Group".to_string());
+        assert_eq!(state.field_groups.len(), before_count + 1);
+        assert_eq!(state.field_groups.last().unwrap().0, "My Group");
+        assert_eq!(state.field_groups.last().unwrap().1, "");
+        // cursor should be on the new FieldGroup row
+        assert!(matches!(state.rows[state.cursor], SettingRow::FieldGroup(_)));
+    }
+
+    #[test]
+    fn test_delete_field_group_removes_it() {
+        let cfg = default_config();
+        let mut state = SettingsState::new(&cfg);
+        // Navigate to a field group row
+        while !state.selected_is_field_group() {
+            let before = state.cursor;
+            state.move_down();
+            if state.cursor == before { break; }
+        }
+        assert!(state.selected_is_field_group());
+        let before_count = state.field_groups.len();
+        let deleted = state.delete_selected_field_group();
+        assert!(deleted);
+        assert_eq!(state.field_groups.len(), before_count - 1);
+        // cursor should be on a selectable row after deletion
+        assert!(state.is_selectable_row(state.cursor));
+    }
+
+    #[test]
+    fn test_delete_non_field_group_returns_false() {
+        let cfg = default_config();
+        let mut state = SettingsState::new(&cfg);
+        // cursor starts on an Item row
+        assert!(!state.selected_is_field_group());
+        assert!(!state.delete_selected_field_group());
+    }
+
+    #[test]
+    fn test_set_field_group_name() {
+        let cfg = default_config();
+        let mut state = SettingsState::new(&cfg);
+        state.set_field_group_name(0, "Renamed".to_string());
+        assert_eq!(state.field_groups[0].0, "Renamed");
+    }
+
+    #[test]
+    fn test_set_field_group_fields() {
+        let cfg = default_config();
+        let mut state = SettingsState::new(&cfg);
+        state.set_field_group_fields(0, "doi, url".to_string());
+        assert_eq!(state.field_groups[0].1, "doi, url");
+    }
+
+    #[test]
+    fn test_selected_field_group_index() {
+        let cfg = default_config();
+        let mut state = SettingsState::new(&cfg);
+        while !state.selected_is_field_group() {
+            let before = state.cursor;
+            state.move_down();
+            if state.cursor == before { break; }
+        }
+        assert!(state.selected_field_group_index().is_some());
+    }
+
+    #[test]
+    fn test_apply_to_config_field_groups() {
+        let cfg = default_config();
+        let mut state = SettingsState::new(&cfg);
+        state.field_groups = vec![
+            ("Physics".to_string(), "doi, url".to_string()),
+        ];
+        let mut new_cfg = cfg.clone();
+        state.apply_to_config(&mut new_cfg);
+        assert_eq!(new_cfg.field_groups.len(), 1);
+        assert_eq!(new_cfg.field_groups[0].name, "Physics");
+        assert_eq!(new_cfg.field_groups[0].fields, vec!["doi", "url"]);
+    }
+
+    #[test]
+    fn test_apply_to_config_skips_empty_group_names() {
+        let cfg = default_config();
+        let mut state = SettingsState::new(&cfg);
+        state.field_groups = vec![
+            ("".to_string(), "doi".to_string()),
+            ("Identifiers".to_string(), "isbn".to_string()),
+        ];
+        let mut new_cfg = cfg.clone();
+        state.apply_to_config(&mut new_cfg);
+        assert_eq!(new_cfg.field_groups.len(), 1);
+        assert_eq!(new_cfg.field_groups[0].name, "Identifiers");
+    }
+
+    #[test]
+    fn test_delete_and_renumber_field_groups() {
+        let cfg = default_config();
+        let mut state = SettingsState::new(&cfg);
+        // Add a second group so we have two
+        state.add_field_group("Second".to_string());
+        assert_eq!(state.field_groups.len(), 2);
+        // Place cursor on the first FieldGroup row (index 0)
+        let first_fg_row = state.rows.iter().position(|r| matches!(r, SettingRow::FieldGroup(0))).unwrap();
+        state.cursor = first_fg_row;
+        assert_eq!(state.selected_field_group_index(), Some(0));
+        state.delete_selected_field_group();
+        // Remaining group should now be at index 0
+        assert_eq!(state.field_groups.len(), 1);
+        // All FieldGroup rows should reference valid indices
+        for row in &state.rows {
+            if let SettingRow::FieldGroup(i) = row {
+                assert!(*i < state.field_groups.len(), "stale FieldGroup index {}", i);
+            }
+        }
+    }
+
+    #[test]
+    fn test_move_down_reaches_field_group_rows() {
+        let cfg = default_config();
+        let mut state = SettingsState::new(&cfg);
+        let mut found = false;
+        for _ in 0..state.rows.len() {
+            if state.selected_is_field_group() {
+                found = true;
+                break;
+            }
+            let before = state.cursor;
+            state.move_down();
+            if state.cursor == before { break; }
+        }
+        assert!(found, "move_down should reach the Field Groups section");
+    }
 }
 
 // ── Render ────────────────────────────────────────────────────────────────────
@@ -802,6 +1052,10 @@ pub fn render_settings(f: &mut Frame, area: Rect, state: &mut SettingsState, the
         .fg(Color::Yellow)
         .add_modifier(Modifier::BOLD);
     let section_sep_style = theme.border;
+
+    let default_field_groups: Vec<(String, String)> = Config::default().field_groups.iter()
+        .map(|fg| (fg.name.clone(), fg.fields.join(", ")))
+        .collect();
 
     let lines: Vec<Line> = state
         .rows
@@ -866,6 +1120,37 @@ pub fn render_settings(f: &mut Frame, area: Rect, state: &mut SettingsState, the
                     Span::styled(default_hint, hint_style),
                 ])
             }
+            SettingRow::FieldGroup(fg_idx) => {
+                let (name, fields_csv) = match state.field_groups.get(*fg_idx) {
+                    Some(fg) => fg,
+                    None => return Line::from(""),
+                };
+                let is_selected = row_idx == state.cursor;
+                let is_modified = !default_field_groups.iter()
+                    .any(|(dn, df)| dn == name && df == fields_csv);
+
+                let base_style = if is_selected { theme.selected } else { Style::default() };
+                let cursor_ch = if is_selected { "▶" } else { " " };
+
+                let label = format!(" {:<w$}", name, w = LABEL_W);
+                let val_trunc: String = fields_csv.chars().take(VAL_W).collect();
+                let val_padded = format!("{:<w$}", val_trunc, w = VAL_W);
+                let mod_marker = if is_modified { "● " } else { "  " };
+                let val_style = if is_modified { modified_style } else { base_style };
+                let mod_style = if is_modified {
+                    Style::default().fg(Color::Yellow)
+                } else {
+                    base_style
+                };
+
+                Line::from(vec![
+                    Span::styled(format!(" {} [G] ", cursor_ch), base_style),
+                    Span::styled(label, base_style),
+                    Span::styled(val_padded, val_style),
+                    Span::styled(mod_marker, mod_style),
+                    Span::styled("fields (comma-separated)", theme.label),
+                ])
+            }
         })
         .collect();
 
@@ -893,13 +1178,17 @@ pub fn render_settings(f: &mut Frame, area: Rect, state: &mut SettingsState, the
     );
 
     // ── Hint bar ────────────────────────────────────────────────────────────
-    let action_hint = match state.selected_item().map(|i| &i.value) {
-        Some(SettingValue::Bool(_)) => "Enter/Space: toggle",
-        Some(SettingValue::Choice { .. }) => "Enter/Space: cycle",
-        _ => "e: edit value",
+    let action_hint = if state.selected_is_field_group() {
+        "e: edit fields  r: rename  a: add group  x: delete group"
+    } else {
+        match state.selected_item().map(|i| &i.value) {
+            Some(SettingValue::Bool(_)) => "Enter/Space: toggle  a: add field group",
+            Some(SettingValue::Choice { .. }) => "Enter/Space: cycle  a: add field group",
+            _ => "e: edit value  a: add field group",
+        }
     };
     let hint = format!(
-        " j/k: navigate  {}  E: export config  I: import config  Esc: close",
+        " j/k: navigate  {}  E: export  I: import  Esc: close",
         action_hint
     );
     f.render_widget(

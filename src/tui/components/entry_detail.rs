@@ -110,11 +110,29 @@ impl EntryDetailState {
         // Ensure we land on a field, not a header
         self.move_selection(0); // no-op but triggers header-skip
     }
+
+    /// Update stored field groups and rebuild display items.
+    pub fn refresh_with_groups(&mut self, entry: &Entry, field_groups: Vec<CustomFieldGroup>) {
+        self.field_groups = field_groups;
+        self.refresh(entry);
+    }
 }
 
 fn build_display_items(entry: &Entry, field_groups: &[CustomFieldGroup]) -> Vec<DisplayItem> {
     let (required, optional) = fields_for_type(&entry.entry_type);
     let mut result = Vec::new();
+
+    // Build the set of fields claimed by all custom groups so they can
+    // take priority over the Optional section.
+    let custom_group_fields: std::collections::HashSet<String> = field_groups
+        .iter()
+        .flat_map(|g| g.fields.iter())
+        .map(|f| f.to_lowercase())
+        .collect();
+
+    // Required fields — always shown (empty string if absent from entry).
+    let required_set: std::collections::HashSet<String> =
+        required.iter().map(|s| s.to_lowercase()).collect();
 
     let required_fields: Vec<(String, String)> = required
         .iter()
@@ -124,21 +142,31 @@ fn build_display_items(entry: &Entry, field_groups: &[CustomFieldGroup]) -> Vec<
         })
         .collect();
 
+    // Optional fields — shown only when present in the entry AND not claimed
+    // by a custom field group (custom groups take priority).
     let optional_fields: Vec<(String, String)> = optional
         .iter()
+        .filter(|f| !custom_group_fields.contains(&f.to_lowercase()))
         .filter_map(|f| entry.fields.get(*f).map(|v| (f.to_string(), v.clone())))
         .collect();
 
-    // Build set of fields already claimed by required/optional.
-    // "groups" is displayed separately in the header area, not as a field row.
-    let claimed: std::collections::HashSet<String> = required
+    // "groups" is displayed in the header, not as a field row.
+    // Build the full claimed set: required + optional (minus custom-group fields) + "groups".
+    // Fields that belong to a custom group are NOT pre-claimed here so they
+    // can be pulled out of all entry fields below.
+    let claimed: std::collections::HashSet<String> = required_set
         .iter()
-        .chain(optional.iter())
-        .map(|s| s.to_lowercase())
+        .cloned()
+        .chain(
+            optional
+                .iter()
+                .filter(|f| !custom_group_fields.contains(&f.to_lowercase()))
+                .map(|s| s.to_lowercase()),
+        )
         .chain(std::iter::once("groups".to_string()))
         .collect();
 
-    // Remaining entry fields not in required/optional
+    // All entry fields not handled by required/optional sections above.
     let remaining: Vec<(String, String)> = entry
         .fields
         .iter()
@@ -146,21 +174,27 @@ fn build_display_items(entry: &Entry, field_groups: &[CustomFieldGroup]) -> Vec<
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
 
-    // Partition remaining into custom groups and a leftover "Other" bucket.
-    // Each field is assigned to the FIRST custom group whose `fields` list
-    // contains it (case-insensitive). The field is not duplicated.
+    // Build custom group sections. Each group always shows all of its configured
+    // fields (empty string when absent from the entry), like Required fields.
+    // Fields present in the entry are also removed from `remaining` so they
+    // don't appear again in Other.
     let mut assigned: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut custom_sections: Vec<(String, Vec<(String, String)>)> = Vec::new();
     for group in field_groups {
         let mut members: Vec<(String, String)> = Vec::new();
-        for (name, value) in &remaining {
-            let key = name.to_lowercase();
-            if !assigned.contains(&key)
-                && group.fields.iter().any(|gf| gf.to_lowercase() == key)
-            {
-                assigned.insert(key);
-                members.push((name.clone(), value.clone()));
+        for gf in &group.fields {
+            let key = gf.to_lowercase();
+            if assigned.contains(&key) {
+                continue; // already claimed by an earlier group
             }
+            // Use the value from remaining (entry data) if present, else empty.
+            let value = remaining
+                .iter()
+                .find(|(n, _)| n.to_lowercase() == key)
+                .map(|(_, v)| v.clone())
+                .unwrap_or_default();
+            assigned.insert(key);
+            members.push((gf.clone(), value));
         }
         custom_sections.push((group.name.clone(), members));
     }
@@ -192,7 +226,7 @@ fn build_display_items(entry: &Entry, field_groups: &[CustomFieldGroup]) -> Vec<
         }
     }
 
-    // Custom group sections (only rendered if non-empty)
+    // Custom group sections — always rendered (fields shown even when empty).
     for (group_name, fields) in custom_sections.drain(..) {
         if !fields.is_empty() {
             result.push(DisplayItem::Header(format!("{}:", group_name)));
@@ -330,6 +364,79 @@ mod tests {
             matches!(item, DisplayItem::Header(h) if h.contains("Identifiers"))
         });
         assert!(has_id_header);
+    }
+
+    #[test]
+    fn test_custom_field_group_shows_empty_fields() {
+        // Fields configured in a custom group should always appear, even when
+        // the entry does not have a value for them.
+        use crate::config::schema::CustomFieldGroup;
+        let e = make_entry(EntryType::Article, &[
+            ("author", "Smith"), ("title", "P"), ("year", "2020"), ("journal", "N"),
+            // isbn present, issn absent
+            ("isbn", "123"),
+        ]);
+        let groups = vec![CustomFieldGroup {
+            name: "Identifiers".to_string(),
+            fields: vec!["isbn".to_string(), "issn".to_string(), "eprint".to_string()],
+        }];
+        let state = EntryDetailState::new(&e, groups);
+
+        // Header always shown
+        assert!(state.display_fields.iter().any(|i| {
+            matches!(i, DisplayItem::Header(h) if h.contains("Identifiers"))
+        }));
+        // isbn present → non-empty value
+        let isbn = state.display_fields.iter().find_map(|i| match i {
+            DisplayItem::Field { name, value, .. } if name == "isbn" => Some(value.clone()),
+            _ => None,
+        });
+        assert_eq!(isbn.as_deref(), Some("123"));
+        // issn absent from entry → shown with empty value
+        let issn = state.display_fields.iter().find_map(|i| match i {
+            DisplayItem::Field { name, value, .. } if name == "issn" => Some(value.clone()),
+            _ => None,
+        });
+        assert_eq!(issn.as_deref(), Some(""), "issn should be shown with empty value");
+        // eprint absent → shown with empty value
+        let eprint = state.display_fields.iter().find_map(|i| match i {
+            DisplayItem::Field { name, value, .. } if name == "eprint" => Some(value.clone()),
+            _ => None,
+        });
+        assert_eq!(eprint.as_deref(), Some(""), "eprint should be shown with empty value");
+    }
+
+    #[test]
+    fn test_custom_field_group_takes_priority_over_optional() {
+        // isbn is in Book's standard optional list, but a custom group should
+        // claim it so it appears under the group rather than under Optional.
+        use crate::config::schema::CustomFieldGroup;
+        let e = make_entry(EntryType::Book, &[
+            ("author", "Smith"), ("title", "T"), ("year", "2020"),
+            ("publisher", "P"), ("isbn", "978-0-00-000000-0"),
+        ]);
+        let groups = vec![CustomFieldGroup {
+            name: "Identifiers".to_string(),
+            fields: vec!["isbn".to_string(), "issn".to_string()],
+        }];
+        let state = EntryDetailState::new(&e, groups);
+
+        // isbn must appear under Identifiers
+        let has_identifiers_header = state.display_fields.iter().any(|item| {
+            matches!(item, DisplayItem::Header(h) if h.contains("Identifiers"))
+        });
+        assert!(has_identifiers_header, "Identifiers section should be present");
+
+        let isbn_in_identifiers = state.display_fields.iter().any(|item| {
+            matches!(item, DisplayItem::Field { name, category: FieldCategory::Custom(_), .. } if name == "isbn")
+        });
+        assert!(isbn_in_identifiers, "isbn should be in the Identifiers group");
+
+        // isbn must NOT also appear in Optional
+        let isbn_in_optional = state.display_fields.iter().any(|item| {
+            matches!(item, DisplayItem::Field { name, category: FieldCategory::Optional, .. } if name == "isbn")
+        });
+        assert!(!isbn_in_optional, "isbn should not appear in Optional when claimed by a custom group");
     }
 
     #[test]
