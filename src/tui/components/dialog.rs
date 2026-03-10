@@ -18,6 +18,11 @@ pub enum DialogKind {
     GroupAssign {
         groups: Vec<(String, bool)>,
     },
+    /// Scrollable preview of filename renames that sync_filenames will perform.
+    /// Each entry is (old_filename, new_filename).
+    FileSyncPreview {
+        renames: Vec<(String, String)>,
+    },
 }
 
 pub struct DialogState {
@@ -54,6 +59,17 @@ impl DialogState {
         }
     }
 
+    pub fn file_sync_preview(renames: Vec<(String, String)>) -> Self {
+        let mut state = ListState::default();
+        if !renames.is_empty() {
+            state.select(Some(0));
+        }
+        DialogState {
+            kind: DialogKind::FileSyncPreview { renames },
+            list_state: state,
+        }
+    }
+
     pub fn group_assign(groups: Vec<(String, bool)>) -> Self {
         let mut state = ListState::default();
         if !groups.is_empty() {
@@ -78,6 +94,7 @@ impl DialogState {
             DialogKind::Confirm { .. } => 2,
             DialogKind::TypePicker { options, .. } => options.len(),
             DialogKind::GroupAssign { groups } => groups.len(),
+            DialogKind::FileSyncPreview { renames } => renames.len(),
         }
     }
 
@@ -168,8 +185,48 @@ mod tests {
     }
 }
 
+/// Truncate a string to at most `max` display columns, appending `…` when cut.
+fn truncate_to(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
+    if max == 0 {
+        return String::new();
+    }
+    let truncated: String = s.chars().take(max.saturating_sub(1)).collect();
+    format!("{}\u{2026}", truncated) // …
+}
+
+/// Fit (old, new) filename strings into `budget` total display columns.
+/// Each name gets up to half the budget; if one is shorter the other gets
+/// the remainder.
+fn fit_rename(old: &str, new: &str, budget: usize) -> (String, String) {
+    let old_len = old.chars().count();
+    let new_len = new.chars().count();
+    if old_len + new_len <= budget {
+        return (old.to_string(), new.to_string());
+    }
+    let half = budget / 2;
+    // Allocate: old gets up to half, new takes the rest.
+    let old_alloc = half.min(old_len);
+    let new_alloc = budget.saturating_sub(old_alloc).min(new_len);
+    // If new is short, give unused space back to old.
+    let old_alloc = budget.saturating_sub(new_alloc).min(old_len);
+    (truncate_to(old, old_alloc), truncate_to(new, new_alloc))
+}
+
 pub fn render_dialog(f: &mut Frame, area: Rect, state: &mut DialogState, theme: &Theme) {
     let dialog_width = match &state.kind {
+        DialogKind::FileSyncPreview { renames } => {
+            // Grow to fit the widest "  old → new" line, then cap at terminal width.
+            // "  " (2) + old + " → " (3) + new + 2 borders = content + 7
+            let widest = renames
+                .iter()
+                .map(|(old, new)| old.chars().count() + new.chars().count() + 7)
+                .max()
+                .unwrap_or(30);
+            (widest as u16).max(44).min(area.width.saturating_sub(4))
+        }
         DialogKind::GroupAssign { .. } => 50u16.min(area.width.saturating_sub(4)),
         _ => 40u16.min(area.width.saturating_sub(4)),
     };
@@ -180,6 +237,9 @@ pub fn render_dialog(f: &mut Frame, area: Rect, state: &mut DialogState, theme: 
         }
         DialogKind::GroupAssign { groups } => {
             (groups.len() as u16 + 5).min(area.height.saturating_sub(4))
+        }
+        DialogKind::FileSyncPreview { renames } => {
+            (renames.len() as u16 + 4).min(area.height.saturating_sub(4))
         }
     };
 
@@ -243,6 +303,38 @@ pub fn render_dialog(f: &mut Frame, area: Rect, state: &mut DialogState, theme: 
                 .map(|(name, checked)| {
                     let mark = if *checked { "[x]" } else { "[ ]" };
                     ListItem::new(Line::from(format!("  {} {}", mark, name)))
+                })
+                .collect();
+
+            let list = List::new(items)
+                .block(block)
+                .highlight_style(theme.selected);
+
+            f.render_stateful_widget(list, dialog_area, &mut state.list_state);
+        }
+        DialogKind::FileSyncPreview { renames } => {
+            let block = Block::default()
+                .borders(Borders::ALL)
+                .border_style(theme.border)
+                .title(" Filename Sync — files to be renamed ")
+                .title_bottom(Line::from(vec![
+                    Span::raw(" "),
+                    Span::styled("[y]es", theme.search_match),
+                    Span::raw(" — proceed  "),
+                    Span::styled("[n]o", theme.label),
+                    Span::raw(" — cancel "),
+                ]));
+
+            // inner_w = dialog width minus the two border columns.
+            // Each line is "  old → new"; overhead = 2 spaces + " → " = 5 chars.
+            let inner_w = dialog_area.width.saturating_sub(2) as usize;
+            let name_budget = inner_w.saturating_sub(5);
+
+            let items: Vec<ListItem> = renames
+                .iter()
+                .map(|(old, new)| {
+                    let (old_s, new_s) = fit_rename(old, new, name_budget);
+                    ListItem::new(Line::from(format!("  {} \u{2192} {}", old_s, new_s)))
                 })
                 .collect();
 

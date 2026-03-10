@@ -192,6 +192,8 @@ enum PendingAction {
     ExportSettings,
     ImportSettings,
     YankPrompt { entry_key: String },
+    Save,
+    SaveAndQuit,
 }
 
 impl App {
@@ -1298,7 +1300,7 @@ impl App {
         self.mode = InputMode::Normal;
 
         match cmd.as_str() {
-            "w" | "write" | "save" => self.save(),
+            "w" | "write" | "save" => self.request_save(false),
             "q" | "quit" => {
                 if self.dirty {
                     self.status_message = Some("Unsaved changes. Use :q! to force quit".to_string());
@@ -1310,8 +1312,7 @@ impl App {
                 self.should_quit = true;
             }
             "wq" => {
-                self.save();
-                self.should_quit = true;
+                self.request_save(true);
             }
             _ if cmd.starts_with("sort ") || cmd == "sort" => {
                 let field = cmd.trim_start_matches("sort").trim().to_string();
@@ -1414,6 +1415,13 @@ impl App {
                     _ => "formatted",
                 };
                 self.do_yank(&entry_key.clone(), format);
+            }
+            Some(PendingAction::Save) => {
+                self.save();
+            }
+            Some(PendingAction::SaveAndQuit) => {
+                self.save();
+                self.should_quit = true;
             }
             Some(PendingAction::AddGroup { .. })
             | Some(PendingAction::EditSetting { .. })
@@ -1643,6 +1651,90 @@ impl App {
 
         if !rename_msgs.is_empty() {
             self.status_message = Some(format!("File rename errors: {}", rename_msgs.join("; ")));
+        }
+    }
+
+    /// Compute the (old_filename, new_filename) pairs that `sync_filenames`
+    /// would rename, without touching the filesystem.  Returns an empty vec
+    /// when sync is disabled or nothing would change.
+    fn compute_sync_renames(&self) -> Vec<(String, String)> {
+        if !self.config.save.sync_filenames {
+            return Vec::new();
+        }
+
+        let file_dir = effective_file_dir(
+            &self.bib_path,
+            self.database.jabref_meta.file_directory.as_deref(),
+        );
+
+        let mut renames = Vec::new();
+
+        for (_, entry) in &self.database.entries {
+            if !entry.dirty {
+                continue;
+            }
+            let file_val = match entry.fields.get("file") {
+                Some(v) => v,
+                None => continue,
+            };
+            let citekey = &entry.citation_key;
+            let parsed = parse_file_field(file_val);
+            if parsed.is_empty() {
+                continue;
+            }
+            let multi = parsed.len() > 1;
+            for (i, pf) in parsed.iter().enumerate() {
+                let old_rel = PathBuf::from(&pf.path);
+                let ext = old_rel
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("pdf")
+                    .to_string();
+                let new_filename = if multi {
+                    format!("{}_{}.{}", citekey, i + 1, ext)
+                } else {
+                    format!("{}.{}", citekey, ext)
+                };
+                if old_rel.file_name().and_then(|n| n.to_str()) == Some(&new_filename) {
+                    continue; // Already correctly named.
+                }
+                let old_display = old_rel
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(&pf.path)
+                    .to_string();
+                // Show the directory-relative context for absolute paths.
+                let old_display = if old_rel.is_absolute() {
+                    let rel = old_rel.strip_prefix(&file_dir).unwrap_or(&old_rel);
+                    rel.to_string_lossy().into_owned()
+                } else {
+                    old_display
+                };
+                renames.push((old_display, new_filename));
+            }
+        }
+
+        renames.sort();
+        renames
+    }
+
+    /// Begin a save, showing a filename-sync preview dialog first if any files
+    /// would be renamed.  `and_quit` causes the app to exit after saving.
+    fn request_save(&mut self, and_quit: bool) {
+        let renames = self.compute_sync_renames();
+        if renames.is_empty() {
+            self.save();
+            if and_quit {
+                self.should_quit = true;
+            }
+        } else {
+            self.dialog_state = Some(DialogState::file_sync_preview(renames));
+            self.pending_action = Some(if and_quit {
+                PendingAction::SaveAndQuit
+            } else {
+                PendingAction::Save
+            });
+            self.mode = InputMode::Dialog;
         }
     }
 
