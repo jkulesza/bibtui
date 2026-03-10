@@ -18,8 +18,10 @@ A terminal UI BibTeX manager written in Rust. Designed as a lightweight, keyboar
 - Open attached files (`o`) or DOI/URL links (`w`) with OS default applications
 - Citation preview popup (`Space`) with DOI/URL link, formatted in IEEEtranN style
 - LaTeX markup rendered to Unicode for display (`L` to toggle)
+- Assigned groups shown in the entry detail header alongside the entry type
 - Configurable columns, sort, theme, and citekey templates via YAML
-- In-TUI settings editor (`S`) with live config import and export
+- In-TUI settings editor (`S`) with live config import/export and `Tab`-completion path dialogs
+- Scrollable filename-sync preview dialog confirms file renames before they are applied
 
 ## Requirements
 
@@ -77,7 +79,7 @@ bibtui --config ~/dotfiles/bibtui.yaml references.bib
 | `D` | Duplicate selected entry |
 | `yy` | Yank to clipboard (see `general.yank_format`) |
 | `/` | Start fuzzy search |
-| `h` / `←` | Focus group sidebar |
+| `h` / `←` | Focus group sidebar (reveals it if hidden) |
 | `l` / `→` | Focus entry list |
 | `Tab` | Toggle group sidebar |
 | `Space` | Citation preview popup (list focus) / select group (sidebar focus) |
@@ -105,6 +107,8 @@ Search syntax:
 
 ### Entry Detail view
 
+The detail header shows the entry type and its currently assigned groups.
+
 | Key | Action |
 |-----|--------|
 | `j` / `k` | Move field selection |
@@ -115,7 +119,7 @@ Search syntax:
 | `N` | Normalize author names to "Last, First" form |
 | `o` | Open attached file(s) in OS default viewer |
 | `w` | Open DOI / URL in default browser |
-| `g` | Edit entry's groups |
+| `g` | Edit entry's group assignments |
 | `c` | Regenerate citation key from template |
 | `B` | Toggle case-protecting brace display |
 | `L` | Toggle LaTeX rendering |
@@ -131,10 +135,15 @@ Search syntax:
 | `Ctrl-A` / `Home` | Jump to start |
 | `Ctrl-E` / `End` | Jump to end |
 | `Backspace` / `Delete` | Delete character |
+| `Tab` | Filesystem path completion (in path dialogs only) |
 | `Enter` | Confirm edit |
 | `Esc` | Cancel edit |
 
 Long values scroll horizontally; `<` and `>` at the edges indicate hidden text.
+
+Path dialogs (settings export/import) support `Tab` completion: the first press fills
+the longest common prefix of all matches; subsequent presses cycle through candidates.
+Leading `~` is expanded to the home directory.
 
 ### Settings editor (`S`)
 
@@ -145,8 +154,8 @@ Opens a full-screen view of all configuration options. Changes apply immediately
 | `j` / `k` | Navigate settings |
 | `Enter` / `Space` | Toggle boolean setting |
 | `e` | Edit string setting |
-| `E` | Export current config to a YAML file |
-| `I` | Import config from a YAML file |
+| `E` | Export current config to a YAML file (path dialog with `Tab` completion) |
+| `I` | Import config from a YAML file (path dialog with `Tab` completion) |
 | `Esc` / `q` | Close settings |
 
 Settings marked with `●` differ from their default value.
@@ -168,6 +177,10 @@ Open with `:` from the entry list.
 
 Example: `:sort year`, `:sort author`, `:sort title`, `:sort citation_key`
 
+When `save.sync_filenames` is enabled, saving with `:w` or `:wq` shows a scrollable
+preview of any file renames that will be performed, with `[y]es` / `[n]o` to proceed
+or cancel.
+
 ### Group tree
 
 | Key | Action |
@@ -175,6 +188,9 @@ Example: `:sort year`, `:sort author`, `:sort title`, `:sort citation_key`
 | `j` / `k` | Move selection |
 | `Space` | Apply selected group filter |
 | `h` / `l` | Switch focus between groups and entry list |
+
+The group sidebar can be hidden with `Tab` and revealed again with `Tab` or `h` / `←`.
+The `display.show_groups` config option controls whether it is visible on startup.
 
 ## Configuration
 
@@ -205,7 +221,7 @@ general:
                                           #   prompt       — picker dialog each time
 
 display:
-  show_groups: true
+  show_groups: true                       # show group sidebar on startup
   group_sidebar_width: 30
   show_braces: false                      # show/hide case-protecting {braces}; toggle with B
   render_latex: true                      # render LaTeX → Unicode for display; toggle with L
@@ -218,6 +234,7 @@ save:
   align_fields: true                      # align field values to a column on save
   field_order: jabref                     # jabref | alphabetical
   sync_filenames: false                   # rename attached files to match citation key on save
+                                          # (preview dialog shown before applying)
 
 titlecase:
   ignore_words: [MCNP, OpenMC]           # words kept verbatim by the T title-case command
@@ -246,7 +263,7 @@ See `bibtui.yaml.example` for all options including columns, citekey templates, 
 cargo test
 ```
 
-All 298 tests should pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, and TUI component state machines).
+All 358 tests should pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, TUI component state machines, and config loading).
 
 Coverage analysis runs automatically in CI via `cargo-llvm-cov`. To run locally:
 

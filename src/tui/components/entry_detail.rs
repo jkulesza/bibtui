@@ -79,7 +79,9 @@ impl EntryDetailState {
             }
             let candidate = new as i32 + direction;
             if candidate < 0 || candidate >= count as i32 {
-                break; // Can't skip further — stay
+                // All positions in this direction are headers; stay on the current field.
+                new = current as usize;
+                break;
             }
             new = candidate as usize;
         }
@@ -338,6 +340,84 @@ mod tests {
     #[test]
     fn test_apply_display_pipeline_show_braces() {
         assert_eq!(apply_display_pipeline("{Hello}", true, false), "{Hello}");
+    }
+
+    #[test]
+    fn test_groups_field_excluded_from_display_items() {
+        // "groups" should never appear as a selectable Field row even when present
+        // in entry.fields (it is shown in the header area instead).
+        let mut e = make_entry(EntryType::Article, &[
+            ("author", "Smith"), ("title", "P"), ("year", "2020"),
+            ("journal", "N"), ("groups", "Physics,Chemistry"),
+        ]);
+        e.group_memberships = vec!["Physics".to_string(), "Chemistry".to_string()];
+        let state = EntryDetailState::new(&e, vec![]);
+        let has_groups_field = state.display_fields.iter().any(|item| {
+            matches!(item, DisplayItem::Field { name, .. } if name == "groups")
+        });
+        assert!(!has_groups_field, "'groups' should not appear as a field row");
+    }
+
+    #[test]
+    fn test_misc_has_no_required_header() {
+        let e = make_entry(EntryType::Misc, &[]);
+        let state = EntryDetailState::new(&e, vec![]);
+        let has_required = state.display_fields.iter().any(|item| {
+            matches!(item, DisplayItem::Header(h) if h == "Required:")
+        });
+        assert!(!has_required, "Misc should not have a Required: header");
+    }
+
+    #[test]
+    fn test_other_section_contains_unknown_fields() {
+        let e = make_entry(EntryType::Article, &[
+            ("author", "S"), ("title", "T"), ("year", "2020"), ("journal", "J"),
+            ("custom_xyz", "value"),
+        ]);
+        let state = EntryDetailState::new(&e, vec![]);
+        let has_other = state.display_fields.iter().any(|item| {
+            matches!(item, DisplayItem::Header(h) if h == "Other:")
+        });
+        let has_field = state.display_fields.iter().any(|item| {
+            matches!(item, DisplayItem::Field { name, .. } if name == "custom_xyz")
+        });
+        assert!(has_other, "should have Other: section");
+        assert!(has_field, "custom_xyz should appear under Other");
+    }
+
+    #[test]
+    fn test_optional_header_only_when_optional_fields_present() {
+        // Article with no optional fields in the entry should not show Optional: header.
+        let e = make_entry(EntryType::Article, &[
+            ("author", "S"), ("title", "T"), ("year", "2020"), ("journal", "J"),
+        ]);
+        let state = EntryDetailState::new(&e, vec![]);
+        let has_optional = state.display_fields.iter().any(|item| {
+            matches!(item, DisplayItem::Header(h) if h == "Optional:")
+        });
+        assert!(!has_optional, "no optional fields present → no Optional: header");
+    }
+
+    #[test]
+    fn test_move_selection_clamps_at_top() {
+        let e = make_entry(EntryType::Article, &[
+            ("author", "Smith"), ("title", "Paper"), ("year", "2020"), ("journal", "N"),
+        ]);
+        let mut state = EntryDetailState::new(&e, vec![]);
+        // Select first field, then try to move up further.
+        let first = state.selected();
+        state.move_selection(-10);
+        let after = state.selected();
+        assert!(matches!(state.display_fields[after], DisplayItem::Field { .. }));
+        assert!(after <= first);
+    }
+
+    #[test]
+    fn test_selected_field_none_when_empty() {
+        let e = make_entry(EntryType::Other("Custom".to_string()), &[]);
+        let state = EntryDetailState::new(&e, vec![]);
+        // Other type with no fields has nothing selectable.
+        assert!(state.selected_field().is_none());
     }
 }
 

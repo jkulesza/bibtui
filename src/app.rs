@@ -2292,9 +2292,14 @@ fn longest_common_prefix(items: &[String]) -> String {
             }
         }
     }
-    // Truncate to a valid UTF-8 boundary.
-    let s = &items[0][..len];
-    let boundary = s.char_indices().map(|(i, _)| i).take_while(|&i| i <= len).last().unwrap_or(0);
+    // Walk the first string's chars to find the largest valid UTF-8 boundary <= len.
+    let mut boundary = 0;
+    for (i, c) in items[0].char_indices() {
+        if i >= len {
+            break;
+        }
+        boundary = i + c.len_utf8();
+    }
     items[0][..boundary].to_string()
 }
 
@@ -2903,5 +2908,159 @@ mod tests {
         assert!(app.dirty);
         app.handle_action(Action::Undo);
         assert!(!app.dirty);
+    }
+
+    // ── longest_common_prefix ────────────────────────────────────────────────
+
+    #[test]
+    fn test_lcp_empty() {
+        assert_eq!(longest_common_prefix(&[]), "");
+    }
+
+    #[test]
+    fn test_lcp_single() {
+        assert_eq!(longest_common_prefix(&["bibtui.yaml".to_string()]), "bibtui.yaml");
+    }
+
+    #[test]
+    fn test_lcp_shared_prefix() {
+        let items = vec!["bibtui.yaml".to_string(), "bibtui.yml".to_string()];
+        assert_eq!(longest_common_prefix(&items), "bibtui.y");
+    }
+
+    #[test]
+    fn test_lcp_no_common() {
+        let items = vec!["abc".to_string(), "xyz".to_string()];
+        assert_eq!(longest_common_prefix(&items), "");
+    }
+
+    #[test]
+    fn test_lcp_identical() {
+        let items = vec!["foo.yaml".to_string(), "foo.yaml".to_string()];
+        assert_eq!(longest_common_prefix(&items), "foo.yaml");
+    }
+
+    #[test]
+    fn test_lcp_one_is_prefix_of_other() {
+        let items = vec!["foo".to_string(), "foobar".to_string()];
+        assert_eq!(longest_common_prefix(&items), "foo");
+    }
+
+    // ── expand_tilde / contract_tilde ────────────────────────────────────────
+
+    #[test]
+    fn test_expand_tilde_non_tilde_path_unchanged() {
+        assert_eq!(expand_tilde("/tmp/foo.yaml"), "/tmp/foo.yaml");
+        assert_eq!(expand_tilde("relative/path"), "relative/path");
+    }
+
+    #[test]
+    fn test_contract_tilde_non_home_path_unchanged() {
+        assert_eq!(contract_tilde("/tmp/foo.yaml"), "/tmp/foo.yaml");
+    }
+
+    #[test]
+    fn test_expand_contract_roundtrip() {
+        if let Ok(home) = std::env::var("HOME") {
+            let abs = format!("{}/documents/file.yaml", home);
+            let contracted = contract_tilde(&abs);
+            assert!(contracted.starts_with("~/"));
+            let re_expanded = expand_tilde(&contracted);
+            assert_eq!(re_expanded, abs);
+        }
+    }
+
+    #[test]
+    fn test_contract_tilde_exact_home() {
+        if let Ok(home) = std::env::var("HOME") {
+            assert_eq!(contract_tilde(&home), "~");
+        }
+    }
+
+    // ── compute_sync_renames ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_compute_sync_renames_disabled_returns_empty() {
+        let (mut app, _tmp) = make_app();
+        app.config.save.sync_filenames = false;
+        assert!(app.compute_sync_renames().is_empty());
+    }
+
+    #[test]
+    fn test_compute_sync_renames_no_dirty_entries_returns_empty() {
+        let (mut app, _tmp) = make_app();
+        app.config.save.sync_filenames = true;
+        // Fresh app has no dirty entries.
+        assert!(app.compute_sync_renames().is_empty());
+    }
+
+    // ── FocusGroups reveals panel ────────────────────────────────────────────
+
+    #[test]
+    fn test_focus_groups_shows_hidden_panel() {
+        let (mut app, _tmp) = make_app();
+        app.show_groups = false;
+        app.handle_action(Action::FocusGroups);
+        assert!(app.show_groups, "FocusGroups should reveal the panel when hidden");
+        assert_eq!(app.focus, Focus::Groups);
+    }
+
+    #[test]
+    fn test_focus_list_after_focus_groups() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::FocusGroups);
+        app.handle_action(Action::FocusList);
+        assert_eq!(app.focus, Focus::List);
+    }
+
+    // ── Settings path editors ────────────────────────────────────────────────
+
+    #[test]
+    fn test_settings_export_enters_path_editing() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::EnterSettings);
+        app.handle_action(Action::SettingsExport);
+        assert_eq!(app.mode, InputMode::Editing);
+        let editor = app.field_editor_state.as_ref().expect("editor should be set");
+        assert!(editor.is_path);
+        assert_eq!(editor.value, "bibtui.yaml");
+        assert!(matches!(app.pending_action, Some(PendingAction::ExportSettings)));
+    }
+
+    #[test]
+    fn test_settings_import_enters_path_editing() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::EnterSettings);
+        app.handle_action(Action::SettingsImport);
+        assert_eq!(app.mode, InputMode::Editing);
+        let editor = app.field_editor_state.as_ref().expect("editor should be set");
+        assert!(editor.is_path);
+        assert!(matches!(app.pending_action, Some(PendingAction::ImportSettings)));
+    }
+
+    #[test]
+    fn test_cancel_edit_from_settings_returns_to_settings_mode() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::EnterSettings);
+        app.handle_action(Action::SettingsExport);
+        assert_eq!(app.mode, InputMode::Editing);
+        app.handle_action(Action::CancelEdit);
+        assert_eq!(app.mode, InputMode::Settings);
+        assert!(app.field_editor_state.is_none());
+        assert!(app.pending_action.is_none());
+    }
+
+    // ── Toggle / show_groups init ────────────────────────────────────────────
+
+    #[test]
+    fn test_show_groups_respects_config() {
+        let mut tmp = NamedTempFile::new().unwrap();
+        write!(tmp, "{}", TEST_BIB).unwrap();
+        tmp.flush().unwrap();
+        let path = tmp.path().to_path_buf();
+        let mut cfg = default_config();
+        cfg.display.show_groups = false;
+        let app = App::new(path, cfg).unwrap();
+        assert!(!app.show_groups, "App::new should honour config.display.show_groups");
     }
 }

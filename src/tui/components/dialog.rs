@@ -183,6 +183,95 @@ mod tests {
         let mut d = DialogState::type_picker(vec!["A".into()]);
         d.toggle_selected(); // should not panic
     }
+
+    // ── file_sync_preview ──
+
+    #[test]
+    fn test_file_sync_preview_option_count() {
+        let d = DialogState::file_sync_preview(vec![
+            ("old.pdf".to_string(), "Smith2020.pdf".to_string()),
+            ("fig.png".to_string(), "Smith2020_2.png".to_string()),
+        ]);
+        assert_eq!(d.option_count(), 2);
+        assert_eq!(d.selected(), 0);
+        assert!(matches!(d.kind, DialogKind::FileSyncPreview { .. }));
+    }
+
+    #[test]
+    fn test_file_sync_preview_empty() {
+        let d = DialogState::file_sync_preview(vec![]);
+        assert_eq!(d.option_count(), 0);
+    }
+
+    #[test]
+    fn test_file_sync_preview_toggle_is_noop() {
+        let mut d = DialogState::file_sync_preview(vec![
+            ("a.pdf".to_string(), "b.pdf".to_string()),
+        ]);
+        d.toggle_selected(); // should not panic
+    }
+
+    // ── truncate_to ──
+
+    #[test]
+    fn test_truncate_to_fits() {
+        assert_eq!(truncate_to("hello", 10), "hello");
+        assert_eq!(truncate_to("hello", 5), "hello");
+    }
+
+    #[test]
+    fn test_truncate_to_truncates_with_ellipsis() {
+        let r = truncate_to("hello world", 6);
+        assert!(r.ends_with('\u{2026}'));
+        assert!(r.chars().count() <= 6);
+    }
+
+    #[test]
+    fn test_truncate_to_zero() {
+        assert_eq!(truncate_to("hello", 0), "");
+    }
+
+    #[test]
+    fn test_truncate_to_one_gives_ellipsis() {
+        assert_eq!(truncate_to("hello", 1), "\u{2026}");
+    }
+
+    #[test]
+    fn test_truncate_to_empty_string() {
+        assert_eq!(truncate_to("", 5), "");
+    }
+
+    // ── fit_rename ──
+
+    #[test]
+    fn test_fit_rename_both_fit() {
+        let (old, new) = fit_rename("old.pdf", "new.pdf", 30);
+        assert_eq!(old, "old.pdf");
+        assert_eq!(new, "new.pdf");
+    }
+
+    #[test]
+    fn test_fit_rename_truncates_long_names() {
+        let long = "a".repeat(50);
+        let (old, new) = fit_rename(&long, &long, 20);
+        assert!(old.chars().count() <= 11); // half(10) + ellipsis
+        assert!(new.chars().count() <= 11);
+    }
+
+    #[test]
+    fn test_fit_rename_short_old_gives_new_more_budget() {
+        // old is 5 chars; budget=20 → new should get up to 15
+        let (old, new) = fit_rename("x.pdf", &"b".repeat(20), 20);
+        assert_eq!(old, "x.pdf");
+        assert!(new.chars().count() <= 16); // 20 - 5 + 1 for ellipsis leeway
+    }
+
+    #[test]
+    fn test_fit_rename_zero_budget() {
+        let (old, new) = fit_rename("old.pdf", "new.pdf", 0);
+        assert!(old.is_empty());
+        assert!(new.is_empty());
+    }
 }
 
 /// Truncate a string to at most `max` display columns, appending `…` when cut.

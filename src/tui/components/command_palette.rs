@@ -57,3 +57,64 @@ pub fn render_command_palette(
     let para = Paragraph::new(line);
     f.render_widget(para, area);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_new() {
+        let c = CommandPaletteState::new();
+        assert_eq!(c.input, "");
+        assert_eq!(c.cursor, 0);
+    }
+
+    #[test]
+    fn test_push_char() {
+        let mut c = CommandPaletteState::new();
+        c.push_char('w');
+        c.push_char('q');
+        assert_eq!(c.input, "wq");
+        assert_eq!(c.cursor, 2);
+    }
+
+    #[test]
+    fn test_backspace_removes_last_char() {
+        let mut c = CommandPaletteState::new();
+        c.push_char('w');
+        c.push_char('q');
+        c.backspace();
+        assert_eq!(c.input, "w");
+        assert_eq!(c.cursor, 1);
+    }
+
+    #[test]
+    fn test_backspace_at_start_is_noop() {
+        let mut c = CommandPaletteState::new();
+        c.backspace();
+        assert_eq!(c.input, "");
+        assert_eq!(c.cursor, 0);
+    }
+
+    #[test]
+    fn test_clear() {
+        let mut c = CommandPaletteState::new();
+        c.push_char('s');
+        c.push_char('a');
+        c.push_char('v');
+        c.push_char('e');
+        c.clear();
+        assert_eq!(c.input, "");
+        assert_eq!(c.cursor, 0);
+    }
+
+    #[test]
+    fn test_push_and_backspace_multibyte() {
+        let mut c = CommandPaletteState::new();
+        c.push_char('é'); // 2-byte UTF-8
+        assert_eq!(c.cursor, 2);
+        c.backspace();
+        assert_eq!(c.input, "");
+        assert_eq!(c.cursor, 0);
+    }
+}

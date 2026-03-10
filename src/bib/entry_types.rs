@@ -145,4 +145,77 @@ mod tests {
         let (req, _) = fields_for_type(&EntryType::Unpublished);
         assert!(req.contains(&"note"));
     }
+
+    #[test]
+    fn test_booklet_required_fields() {
+        let (req, opt) = fields_for_type(&EntryType::Booklet);
+        assert!(req.contains(&"title"));
+        assert!(opt.contains(&"author"));
+        assert!(opt.contains(&"howpublished"));
+    }
+
+    #[test]
+    fn test_inbook_required_fields() {
+        let (req, _) = fields_for_type(&EntryType::InBook);
+        assert!(req.contains(&"author"));
+        assert!(req.contains(&"chapter"));
+        assert!(req.contains(&"publisher"));
+        assert!(req.contains(&"title"));
+        assert!(req.contains(&"year"));
+    }
+
+    #[test]
+    fn test_incollection_required_fields() {
+        let (req, opt) = fields_for_type(&EntryType::InCollection);
+        assert!(req.contains(&"author"));
+        assert!(req.contains(&"booktitle"));
+        assert!(req.contains(&"publisher"));
+        assert!(opt.contains(&"editor"));
+    }
+
+    #[test]
+    fn test_manual_required_fields() {
+        let (req, opt) = fields_for_type(&EntryType::Manual);
+        assert_eq!(req, vec!["title"]);
+        assert!(opt.contains(&"author"));
+        assert!(opt.contains(&"organization"));
+    }
+
+    #[test]
+    fn test_proceedings_required_fields() {
+        let (req, opt) = fields_for_type(&EntryType::Proceedings);
+        assert!(req.contains(&"title"));
+        assert!(req.contains(&"year"));
+        assert!(opt.contains(&"editor"));
+        assert!(opt.contains(&"publisher"));
+    }
+
+    #[test]
+    fn test_all_types_return_disjoint_required_optional() {
+        // Required and optional lists should never share a field name.
+        let types = vec![
+            EntryType::Article, EntryType::Book, EntryType::Booklet,
+            EntryType::InBook, EntryType::InCollection, EntryType::InProceedings,
+            EntryType::Manual, EntryType::MastersThesis, EntryType::Misc,
+            EntryType::PhdThesis, EntryType::Proceedings, EntryType::TechReport,
+            EntryType::Unpublished,
+        ];
+        for et in types {
+            let (req, opt) = fields_for_type(&et);
+            for r in &req {
+                assert!(!opt.contains(r), "{:?}: '{}' in both required and optional", et, r);
+            }
+        }
+    }
+
+    #[test]
+    fn test_optional_fields_nonempty_for_common_types() {
+        for et in [
+            EntryType::Article, EntryType::Book, EntryType::InProceedings,
+            EntryType::TechReport, EntryType::PhdThesis, EntryType::MastersThesis,
+        ] {
+            let (_, opt) = fields_for_type(&et);
+            assert!(!opt.is_empty(), "{:?} should have optional fields", et);
+        }
+    }
 }

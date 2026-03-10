@@ -76,3 +76,71 @@ pub fn render_search_bar(
     let para = Paragraph::new(line);
     f.render_widget(para, area);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_new() {
+        let s = SearchBarState::new();
+        assert_eq!(s.query, "");
+        assert_eq!(s.cursor, 0);
+        assert_eq!(s.result_count, 0);
+    }
+
+    #[test]
+    fn test_push_char_ascii() {
+        let mut s = SearchBarState::new();
+        s.push_char('h');
+        s.push_char('i');
+        assert_eq!(s.query, "hi");
+        assert_eq!(s.cursor, 2);
+    }
+
+    #[test]
+    fn test_push_char_multibyte() {
+        let mut s = SearchBarState::new();
+        s.push_char('é'); // 2-byte UTF-8
+        assert_eq!(s.query, "é");
+        assert_eq!(s.cursor, 2);
+    }
+
+    #[test]
+    fn test_backspace_removes_last_char() {
+        let mut s = SearchBarState::new();
+        s.push_char('h');
+        s.push_char('i');
+        s.backspace();
+        assert_eq!(s.query, "h");
+        assert_eq!(s.cursor, 1);
+    }
+
+    #[test]
+    fn test_backspace_multibyte() {
+        let mut s = SearchBarState::new();
+        s.push_char('é');
+        s.backspace();
+        assert_eq!(s.query, "");
+        assert_eq!(s.cursor, 0);
+    }
+
+    #[test]
+    fn test_backspace_at_start_is_noop() {
+        let mut s = SearchBarState::new();
+        s.backspace();
+        assert_eq!(s.query, "");
+        assert_eq!(s.cursor, 0);
+    }
+
+    #[test]
+    fn test_clear() {
+        let mut s = SearchBarState::new();
+        s.push_char('x');
+        s.result_count = 42;
+        s.clear();
+        assert_eq!(s.query, "");
+        assert_eq!(s.cursor, 0);
+        assert_eq!(s.result_count, 0);
+    }
+}
