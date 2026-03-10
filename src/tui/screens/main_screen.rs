@@ -31,7 +31,7 @@ pub fn render_main_screen(f: &mut Frame, app: &mut App) {
     };
 
     // Main area: optional groups sidebar + entry list
-    if app.config.display.show_groups && app.show_groups {
+    if app.show_groups {
         let sidebar_width = app.config.display.group_sidebar_width;
         let horizontal = Layout::horizontal([
             Constraint::Length(sidebar_width),

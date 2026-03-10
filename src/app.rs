@@ -210,6 +210,7 @@ impl App {
         // Build sorted keys
         let sorted_keys = sort_entries(&database.entries, &config);
 
+        let show_groups = config.display.show_groups;
         let show_braces = config.display.show_braces;
         let render_latex = config.display.render_latex;
 
@@ -220,7 +221,7 @@ impl App {
             bib_path,
             mode: InputMode::Normal,
             focus: Focus::List,
-            show_groups: true,
+            show_groups,
             show_braces,
             render_latex,
             dirty: false,
@@ -417,9 +418,8 @@ impl App {
                 self.show_groups = !self.show_groups;
             }
             Action::FocusGroups => {
-                if self.show_groups {
-                    self.focus = Focus::Groups;
-                }
+                self.show_groups = true;
+                self.focus = Focus::Groups;
             }
             Action::FocusList => {
                 self.focus = Focus::List;
