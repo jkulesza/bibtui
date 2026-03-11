@@ -201,6 +201,9 @@ enum PendingAction {
     AddFieldGroup,
     EditFieldGroupFields { index: usize },
     RenameFieldGroup { index: usize },
+    /// No bib file was given on the command line; waiting for the user to
+    /// supply a path for the new library before we can do anything else.
+    NewFile,
 }
 
 impl App {
@@ -249,6 +252,58 @@ impl App {
             filtered_indices: None,
             sorted_keys,
             pending_action: None,
+            path_completions: Vec::new(),
+            path_completion_idx: 0,
+            deleted_raw_indices: Vec::new(),
+            undo_stack: Vec::new(),
+            save_generation: Some(0),
+        };
+
+        Ok(app)
+    }
+
+    /// Create an empty app when no bib file is provided.
+    /// The path prompt is shown immediately on first render.
+    pub fn new_empty(config: Config) -> Result<Self> {
+        let database = build_database(crate::bib::model::RawBibFile { items: vec![] });
+        let theme = Theme::from_config(&config.theme);
+        let group_tree_state = GroupTreeState::new(&database.groups);
+        let sorted_keys = sort_entries(&database.entries, &config);
+        let show_groups = config.display.show_groups;
+        let show_braces = config.display.show_braces;
+        let render_latex = config.display.render_latex;
+
+        let app = App {
+            database,
+            config,
+            theme,
+            bib_path: PathBuf::new(), // filled in when the user confirms a path
+            mode: InputMode::Editing,
+            focus: Focus::List,
+            show_groups,
+            show_braces,
+            render_latex,
+            dirty: false,
+            should_quit: false,
+            status_message: None,
+            last_key: None,
+            entry_list_state: EntryListState::new(),
+            group_tree_state,
+            search_bar_state: SearchBarState::new(),
+            detail_state: None,
+            detail_entry_key: None,
+            field_editor_state: Some(FieldEditorState::for_path(
+                "Save new library as",
+                "",
+            )),
+            dialog_state: None,
+            command_palette_state: CommandPaletteState::new(),
+            citation_preview_state: None,
+            settings_state: None,
+            search_engine: SearchEngine::new(),
+            filtered_indices: None,
+            sorted_keys,
+            pending_action: Some(PendingAction::NewFile),
             path_completions: Vec::new(),
             path_completion_idx: 0,
             deleted_raw_indices: Vec::new(),
@@ -366,15 +421,22 @@ impl App {
             Action::RegenCitekey => self.regen_citekey(),
             Action::ConfirmEdit => self.confirm_edit(),
             Action::CancelEdit => {
+                let is_new_file =
+                    matches!(self.pending_action, Some(PendingAction::NewFile));
                 self.field_editor_state = None;
                 self.pending_action = None;
-                self.mode = if self.settings_state.is_some() {
-                    InputMode::Settings
-                } else if self.detail_state.is_some() {
-                    InputMode::Detail
+                if is_new_file {
+                    // No path chosen — nothing to work with; exit cleanly.
+                    self.should_quit = true;
                 } else {
-                    InputMode::Normal
-                };
+                    self.mode = if self.settings_state.is_some() {
+                        InputMode::Settings
+                    } else if self.detail_state.is_some() {
+                        InputMode::Detail
+                    } else {
+                        InputMode::Normal
+                    };
+                }
             }
             Action::EditChar(c) => {
                 if let Some(ref mut editor) = self.field_editor_state {
@@ -784,6 +846,40 @@ impl App {
 
     fn confirm_edit(&mut self) {
         // Export settings ─────────────────────────────────────────────────────
+        // New file: the user just entered a path for a brand-new library. ─────
+        if matches!(self.pending_action, Some(PendingAction::NewFile)) {
+            let path_str = self
+                .field_editor_state
+                .as_ref()
+                .map(|e| e.value.trim().to_string())
+                .unwrap_or_default();
+            self.field_editor_state = None;
+            self.pending_action = None;
+
+            if path_str.is_empty() {
+                // Re-prompt: the user must provide a path.
+                self.status_message =
+                    Some("Please enter a path for the new library.".to_string());
+                self.field_editor_state =
+                    Some(FieldEditorState::for_path("Save new library as", ""));
+                self.pending_action = Some(PendingAction::NewFile);
+                self.mode = InputMode::Editing;
+                return;
+            }
+
+            // Append .bib if the user omitted it.
+            let path_str = if path_str.ends_with(".bib") {
+                path_str
+            } else {
+                format!("{}.bib", path_str)
+            };
+
+            self.bib_path = PathBuf::from(expand_tilde(&path_str));
+            self.mode = InputMode::Normal;
+            self.save(); // writes the (empty) file to disk
+            return;
+        }
+
         if matches!(self.pending_action, Some(PendingAction::ExportSettings)) {
             let path_str = self
                 .field_editor_state
@@ -1540,7 +1636,8 @@ impl App {
             | Some(PendingAction::ImportSettings)
             | Some(PendingAction::AddFieldGroup)
             | Some(PendingAction::EditFieldGroupFields { .. })
-            | Some(PendingAction::RenameFieldGroup { .. }) => {
+            | Some(PendingAction::RenameFieldGroup { .. })
+            | Some(PendingAction::NewFile) => {
                 // These are confirmed through confirm_edit(), not this path
             }
             None => {
@@ -1746,7 +1843,9 @@ impl App {
         // Only active for path-editing pending actions.
         let is_path_edit = matches!(
             self.pending_action,
-            Some(PendingAction::ExportSettings) | Some(PendingAction::ImportSettings)
+            Some(PendingAction::ExportSettings)
+                | Some(PendingAction::ImportSettings)
+                | Some(PendingAction::NewFile)
         );
         if !is_path_edit {
             return;
@@ -2054,8 +2153,8 @@ impl App {
         // Rename attached files to match citation keys before serialising.
         self.sync_filenames();
 
-        // Backup
-        if self.config.general.backup_on_save {
+        // Backup — only when the file already exists (skip for brand-new libraries).
+        if self.config.general.backup_on_save && self.bib_path.exists() {
             let backup_path = self.bib_path.with_extension("bib.bak");
             if let Err(e) = std::fs::copy(&self.bib_path, &backup_path) {
                 self.status_message = Some(format!("Backup failed: {}", e));
