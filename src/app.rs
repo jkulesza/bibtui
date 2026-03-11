@@ -34,7 +34,6 @@ use crate::tui::Term;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
-    Quit,
     MoveDown,
     MoveUp,
     MoveToTop,
@@ -368,18 +367,6 @@ impl App {
         self.status_message = None;
 
         match action {
-            Action::Quit => {
-                if self.dirty {
-                    self.pending_action = None;
-                    self.dialog_state =
-                        Some(DialogState::confirm("Quit", "Unsaved changes. Quit anyway?"));
-                    self.mode = InputMode::Dialog;
-                    self.pending_action = None;
-                    // We'll handle confirm => quit
-                } else {
-                    self.should_quit = true;
-                }
-            }
             Action::MoveDown => self.move_cursor(1),
             Action::MoveUp => self.move_cursor(-1),
             Action::MoveToTop => self.move_to_top(),
@@ -815,6 +802,10 @@ impl App {
     // ── Detail view ──
 
     fn open_detail(&mut self) {
+        if self.focus == Focus::Groups && self.show_groups {
+            self.select_group();
+            return;
+        }
         if let Some(key) = self.selected_entry_key() {
             if let Some(entry) = self.database.entries.get(&key) {
                 self.detail_state = Some(EntryDetailState::new(entry, self.config.field_groups.clone()));
@@ -2993,18 +2984,19 @@ mod tests {
     #[test]
     fn test_quit_when_clean() {
         let (mut app, _tmp) = make_app();
-        app.handle_action(Action::Quit);
+        app.command_palette_state.input = "q".to_string();
+        app.handle_action(Action::ExecuteCommand);
         assert!(app.should_quit);
     }
 
     #[test]
-    fn test_quit_when_dirty_opens_dialog() {
+    fn test_quit_when_dirty_shows_message() {
         let (mut app, _tmp) = make_app();
         app.dirty = true;
-        app.handle_action(Action::Quit);
+        app.command_palette_state.input = "q".to_string();
+        app.handle_action(Action::ExecuteCommand);
         assert!(!app.should_quit);
-        assert!(app.dialog_state.is_some());
-        assert_eq!(app.mode, InputMode::Dialog);
+        assert!(app.status_message.is_some());
     }
 
     // ── Search ────────────────────────────────────────────────────────────────

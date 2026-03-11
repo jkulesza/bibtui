@@ -30,7 +30,6 @@ pub enum InputMode {
 
 fn map_normal_key(key: KeyEvent, last_key: Option<char>) -> Option<Action> {
     match key.code {
-        KeyCode::Char('q') => Some(Action::Quit),
         KeyCode::Char('j') | KeyCode::Down => Some(Action::MoveDown),
         KeyCode::Char('k') | KeyCode::Up => Some(Action::MoveUp),
         KeyCode::Char('G') => Some(Action::MoveToBottom),
@@ -93,10 +92,10 @@ fn map_search_key(key: KeyEvent) -> Option<Action> {
 
 fn map_detail_key(key: KeyEvent) -> Option<Action> {
     match key.code {
-        KeyCode::Esc | KeyCode::Char('q') => Some(Action::CloseDetail),
+        KeyCode::Esc => Some(Action::CloseDetail),
         KeyCode::Char('j') | KeyCode::Down => Some(Action::MoveDown),
         KeyCode::Char('k') | KeyCode::Up => Some(Action::MoveUp),
-        KeyCode::Char('e') | KeyCode::Enter => Some(Action::EditField),
+        KeyCode::Char('e') | KeyCode::Char('i') | KeyCode::Enter => Some(Action::EditField),
         KeyCode::Char('a') => Some(Action::AddField),
         KeyCode::Char('d') => Some(Action::DeleteField),
         KeyCode::Char('T') => Some(Action::TitlecaseField),
@@ -164,7 +163,7 @@ fn map_command_key(key: KeyEvent) -> Option<Action> {
 
 fn map_settings_key(key: KeyEvent) -> Option<Action> {
     match key.code {
-        KeyCode::Esc | KeyCode::Char('q') => Some(Action::ExitSettings),
+        KeyCode::Esc => Some(Action::ExitSettings),
         KeyCode::Char('j') | KeyCode::Down => Some(Action::SettingsMoveDown),
         KeyCode::Char('k') | KeyCode::Up => Some(Action::SettingsMoveUp),
         KeyCode::Enter | KeyCode::Char(' ') => Some(Action::SettingsToggle),
@@ -218,7 +217,6 @@ mod tests {
 
     #[test]
     fn test_normal_misc() {
-        assert_eq!(map_key(key(KeyCode::Char('q')), &InputMode::Normal, None), Some(Action::Quit));
         assert_eq!(map_key(key(KeyCode::Char('u')), &InputMode::Normal, None), Some(Action::Undo));
         assert_eq!(map_key(key(KeyCode::Char('/')), &InputMode::Normal, None), Some(Action::EnterSearch));
         assert_eq!(map_key(key(KeyCode::Enter), &InputMode::Normal, None), Some(Action::OpenDetail));
@@ -267,8 +265,9 @@ mod tests {
     #[test]
     fn test_detail_mode() {
         assert_eq!(map_key(key(KeyCode::Esc), &InputMode::Detail, None), Some(Action::CloseDetail));
-        assert_eq!(map_key(key(KeyCode::Char('q')), &InputMode::Detail, None), Some(Action::CloseDetail));
+        assert_eq!(map_key(key(KeyCode::Char('q')), &InputMode::Detail, None), None);
         assert_eq!(map_key(key(KeyCode::Char('e')), &InputMode::Detail, None), Some(Action::EditField));
+        assert_eq!(map_key(key(KeyCode::Char('i')), &InputMode::Detail, None), Some(Action::EditField));
         assert_eq!(map_key(key(KeyCode::Enter), &InputMode::Detail, None), Some(Action::EditField));
         assert_eq!(map_key(key(KeyCode::Char('a')), &InputMode::Detail, None), Some(Action::AddField));
         assert_eq!(map_key(key(KeyCode::Char('d')), &InputMode::Detail, None), Some(Action::DeleteField));
@@ -325,7 +324,7 @@ mod tests {
     #[test]
     fn test_settings_mode() {
         assert_eq!(map_key(key(KeyCode::Esc), &InputMode::Settings, None), Some(Action::ExitSettings));
-        assert_eq!(map_key(key(KeyCode::Char('q')), &InputMode::Settings, None), Some(Action::ExitSettings));
+        assert_eq!(map_key(key(KeyCode::Char('q')), &InputMode::Settings, None), None);
         assert_eq!(map_key(key(KeyCode::Char('j')), &InputMode::Settings, None), Some(Action::SettingsMoveDown));
         assert_eq!(map_key(key(KeyCode::Down), &InputMode::Settings, None), Some(Action::SettingsMoveDown));
         assert_eq!(map_key(key(KeyCode::Char('k')), &InputMode::Settings, None), Some(Action::SettingsMoveUp));
