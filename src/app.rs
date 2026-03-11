@@ -259,11 +259,16 @@ impl App {
     }
 
     pub fn run(&mut self, terminal: &mut Term) -> Result<()> {
+        // Always draw on the first frame, then only when something changes.
+        let mut needs_redraw = true;
         while !self.should_quit {
-            terminal.draw(|f| self.render(f))?;
-
+            if needs_redraw {
+                terminal.draw(|f| self.render(f))?;
+                needs_redraw = false;
+            }
             if let Some(event) = poll_event(Duration::from_millis(100))? {
                 self.handle_event(event);
+                needs_redraw = true;
             }
         }
         Ok(())

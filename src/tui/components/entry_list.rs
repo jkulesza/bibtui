@@ -178,10 +178,39 @@ pub fn render_entry_list(
         .collect();
     let header = Row::new(header_cells).style(theme.header).height(1);
 
-    // Rows
+    // Only compute cell content for rows that are actually visible in the
+    // viewport.  Off-screen rows get cheap empty cells; ratatui still needs
+    // the full row count so that selection and scrolling work correctly.
+    //
+    // We must predict the offset ratatui *will* use this frame rather than
+    // the stale offset from the previous frame.  ratatui scrolls the table
+    // so that the selected row is always visible, using these rules:
+    //   • selected < offset          → new offset = selected
+    //   • selected ≥ offset + height → new offset = selected - height + 1
+    //   • otherwise offset is unchanged
+    // Replicating that here keeps our visible window in sync.
+
+    // Subtract 2 for the top/bottom borders and 1 for the header row.
+    let viewport_rows = area.height.saturating_sub(3) as usize;
+    let selected = state.selected();
+    let prev_offset = state.table_state.offset();
+    let offset = if selected < prev_offset {
+        selected
+    } else if viewport_rows > 0 && selected >= prev_offset + viewport_rows {
+        selected.saturating_sub(viewport_rows - 1)
+    } else {
+        prev_offset
+    };
+    let visible_end = (offset + viewport_rows).min(entries.len());
+
     let rows: Vec<Row> = entries
         .iter()
-        .map(|entry| {
+        .enumerate()
+        .map(|(i, entry)| {
+            if i < offset || i >= visible_end {
+                // Off-screen: emit a minimal placeholder row (no string work).
+                return Row::new(vec![Cell::from(""); columns.len()]).height(1);
+            }
             let cells: Vec<Cell> = columns
                 .iter()
                 .map(|col| {

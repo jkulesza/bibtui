@@ -20,15 +20,26 @@ pub fn render_main_screen(f: &mut Frame, app: &mut App) {
     let search_area = vertical[1];
     let status_area = vertical[2];
 
-    // Collect entry keys to avoid borrow conflicts
-    let visible_keys: Vec<String> = if let Some(ref indices) = app.filtered_indices {
+    // Build the visible entry list without cloning the full key vec.
+    // Using references into sorted_keys avoids per-frame String allocations.
+    let entries: Vec<&Entry> = if let Some(ref indices) = app.filtered_indices {
         indices
             .iter()
-            .filter_map(|&i| app.sorted_keys.get(i).cloned())
+            .filter_map(|&i| app.sorted_keys.get(i))
+            .filter_map(|k| app.database.entries.get(k))
             .collect()
     } else {
-        app.sorted_keys.clone()
+        app.sorted_keys
+            .iter()
+            .filter_map(|k| app.database.entries.get(k))
+            .collect()
     };
+    let entry_count = entries.len();
+
+    let bib_dir = crate::util::open::effective_file_dir(
+        &app.bib_path,
+        app.database.jabref_meta.file_directory.as_deref(),
+    );
 
     // Main area: optional groups sidebar + entry list
     if app.show_groups {
@@ -52,15 +63,6 @@ pub fn render_main_screen(f: &mut Frame, app: &mut App) {
             total_entries,
         );
 
-        let entries: Vec<&Entry> = visible_keys
-            .iter()
-            .filter_map(|k| app.database.entries.get(k))
-            .collect();
-
-        let bib_dir = crate::util::open::effective_file_dir(
-            &app.bib_path,
-            app.database.jabref_meta.file_directory.as_deref(),
-        );
         crate::tui::components::entry_list::render_entry_list(
             f,
             horizontal[1],
@@ -75,15 +77,6 @@ pub fn render_main_screen(f: &mut Frame, app: &mut App) {
             &bib_dir,
         );
     } else {
-        let entries: Vec<&Entry> = visible_keys
-            .iter()
-            .filter_map(|k| app.database.entries.get(k))
-            .collect();
-
-        let bib_dir = crate::util::open::effective_file_dir(
-            &app.bib_path,
-            app.database.jabref_meta.file_directory.as_deref(),
-        );
         crate::tui::components::entry_list::render_entry_list(
             f,
             main_area,
@@ -130,7 +123,6 @@ pub fn render_main_screen(f: &mut Frame, app: &mut App) {
     }
 
     // Status bar
-    let entry_count = visible_keys.len();
     crate::tui::components::status_bar::render_status_bar(
         f,
         status_area,
