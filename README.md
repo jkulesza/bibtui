@@ -81,7 +81,7 @@ bibtui --config ~/dotfiles/bibtui.yaml references.bib
 | `gg` | Jump to top |
 | `G` | Jump to bottom |
 | `Ctrl-F` / `Ctrl-B` | Page down / up |
-| `Enter` | Open entry detail |
+| `Enter` | Open entry detail (list focus) / select group (sidebar focus) |
 | `a` | Add new entry |
 | `dd` | Delete selected entry |
 | `D` | Duplicate selected entry |
@@ -99,7 +99,6 @@ bibtui --config ~/dotfiles/bibtui.yaml references.bib
 | `u` | Undo last change |
 | `:` | Open command palette |
 | `?` | Show help |
-| `q` | Quit |
 
 ### Search mode
 
@@ -120,7 +119,7 @@ The detail header shows the entry type and its currently assigned groups.
 | Key | Action |
 |-----|--------|
 | `j` / `k` | Move field selection |
-| `e` / `Enter` | Edit selected field |
+| `e` / `i` / `Enter` | Edit selected field (vim-style: `i` enters insert mode) |
 | `a` | Add new field |
 | `d` | Delete selected field |
 | `T` | Convert selected field to title case |
@@ -132,22 +131,29 @@ The detail header shows the entry type and its currently assigned groups.
 | `B` | Toggle case-protecting brace display |
 | `L` | Toggle LaTeX rendering |
 | `u` | Undo last change |
-| `Esc` / `q` | Close detail, return to list |
+| `Esc` | Close detail, return to list |
 
 ### Field editor (Editing mode)
 
 | Key | Action |
 |-----|--------|
 | Type | Insert character |
-| `←` / `→` | Move cursor |
+| `←` / `→` | Move cursor (or step through months in month field) |
+| `↑` / `↓` | Move between month rows in month field selector |
 | `Ctrl-A` / `Home` | Jump to start |
 | `Ctrl-E` / `End` | Jump to end |
 | `Backspace` / `Delete` | Delete character |
-| `Tab` | Filesystem path completion (in path dialogs only) |
+| `Tab` | Cycle through completions / filesystem path completion |
 | `Enter` | Confirm edit |
 | `Esc` | Cancel edit |
 
 Long values scroll horizontally; `<` and `>` at the edges indicate hidden text.
+
+**Month field selector:** editing a `month` field shows a visual 2×6 grid of the
+standard BibTeX abbreviations (`jan`–`dec`). Use `←`/`→` to step one month,
+`↑`/`↓` to jump between rows, or type a prefix (with ghost-text autocomplete) and
+press `Tab` to cycle through matches. Any recognized form (`january`, `1`, `Jan`, etc.)
+is normalized to the three-letter abbreviation on save.
 
 Path dialogs (settings export/import) support `Tab` completion: the first press fills
 the longest common prefix of all matches; subsequent presses cycle through candidates.
@@ -167,7 +173,7 @@ Opens a full-screen view of all configuration options. Changes apply immediately
 | `x` | Delete selected field group |
 | `E` | Export current config to a YAML file (path dialog with `Tab` completion) |
 | `I` | Import config from a YAML file (path dialog with `Tab` completion) |
-| `Esc` / `q` | Close settings |
+| `Esc` | Close settings |
 
 Settings marked with `●` differ from their default value.
 
@@ -197,7 +203,7 @@ or cancel.
 | Key | Action |
 |-----|--------|
 | `j` / `k` | Move selection |
-| `Space` | Apply selected group filter |
+| `Enter` / `Space` | Apply selected group filter |
 | `h` / `l` | Switch focus between groups and entry list |
 
 The group sidebar can be hidden with `Tab` and revealed again with `Tab` or `h` / `←`.
@@ -274,7 +280,7 @@ See `bibtui.yaml.example` for all options including columns, citekey templates, 
 cargo test
 ```
 
-All 372 tests should pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, TUI component state machines, and config loading).
+All 446 tests should pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, TUI component state machines, and config loading).
 
 Coverage analysis runs automatically in CI via `cargo-llvm-cov`. To run locally:
 
