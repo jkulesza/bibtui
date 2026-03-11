@@ -1,5 +1,5 @@
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
@@ -17,6 +17,9 @@ pub struct FieldEditorState {
     pub editing_name: bool,
     /// If true, Tab key triggers filesystem path completion
     pub is_path: bool,
+    /// Completion candidates for the current prefix (field name or value).
+    pub completions: Vec<String>,
+    pub completion_idx: usize,
 }
 
 impl FieldEditorState {
@@ -31,6 +34,8 @@ impl FieldEditorState {
             is_new: false,
             editing_name: false,
             is_path: false,
+            completions: Vec::new(),
+            completion_idx: 0,
         }
     }
 
@@ -44,6 +49,8 @@ impl FieldEditorState {
             is_new: false,
             editing_name: false,
             is_path: false,
+            completions: Vec::new(),
+            completion_idx: 0,
         }
     }
 
@@ -58,6 +65,8 @@ impl FieldEditorState {
             is_new: false,
             editing_name: false,
             is_path: true,
+            completions: Vec::new(),
+            completion_idx: 0,
         }
     }
 
@@ -71,6 +80,8 @@ impl FieldEditorState {
             is_new: true,
             editing_name: true,
             is_path: false,
+            completions: Vec::new(),
+            completion_idx: 0,
         }
     }
 
@@ -78,9 +89,36 @@ impl FieldEditorState {
     pub fn advance_phase(&mut self) -> bool {
         if self.is_new && self.editing_name {
             self.editing_name = false;
+            self.completions.clear();
+            self.completion_idx = 0;
             true
         } else {
             false
+        }
+    }
+
+    /// The ghost-text suffix: the part of the current best completion that
+    /// hasn't been typed yet.  Only non-empty when the cursor is at the end
+    /// of the active text and a completion extends it.
+    pub fn ghost_text(&self) -> String {
+        if self.is_path {
+            return String::new();
+        }
+        let (text, cursor_pos) = if self.editing_name {
+            (&self.field_name, self.name_cursor)
+        } else {
+            (&self.value, self.cursor)
+        };
+        // Only show when cursor is at the very end of the text.
+        if cursor_pos < text.len() {
+            return String::new();
+        }
+        let typed_chars = text.chars().count();
+        match self.completions.get(self.completion_idx) {
+            Some(c) if c.chars().count() > typed_chars => {
+                c.chars().skip(typed_chars).collect()
+            }
+            _ => String::new(),
         }
     }
 
@@ -422,8 +460,20 @@ pub fn render_field_editor(
     };
     let after_visible: String = after_cursor.chars().take(after_max).collect();
 
+    // Ghost text: the portion of the best completion not yet typed, shown
+    // only when the cursor is at the end of the active text.
+    let ghost = if !has_right && after_cursor.is_empty() {
+        state.ghost_text()
+    } else {
+        String::new()
+    };
+    let chars_used = before_char_count + 1 + after_visible.chars().count();
+    let ghost_max = text_w.saturating_sub(chars_used);
+    let ghost_display: String = ghost.chars().take(ghost_max).collect();
+
     // Build the line with optional scroll indicators at each end.
     let indicator_style = theme.label;
+    let ghost_style = Style::default().fg(Color::DarkGray).add_modifier(Modifier::DIM);
     let mut spans: Vec<Span> = Vec::new();
     if has_left {
         spans.push(Span::styled("<", indicator_style));
@@ -436,12 +486,21 @@ pub fn render_field_editor(
     spans.push(Span::raw(after_visible));
     if has_right {
         spans.push(Span::styled(">", indicator_style));
+    } else if !ghost_display.is_empty() {
+        spans.push(Span::styled(ghost_display, ghost_style));
     }
     let line = Line::from(spans);
 
+    let has_completions = !state.completions.is_empty() && !state.is_path;
     let hint = if state.is_new && state.editing_name {
-        Line::from(Span::styled(" Enter: next  Esc: cancel", theme.label))
+        if has_completions {
+            Line::from(Span::styled(" Tab: complete  Enter: next  Esc: cancel", theme.label))
+        } else {
+            Line::from(Span::styled(" Enter: next  Esc: cancel", theme.label))
+        }
     } else if state.is_path {
+        Line::from(Span::styled(" Tab: complete  Enter: save  Esc: cancel", theme.label))
+    } else if has_completions {
         Line::from(Span::styled(" Tab: complete  Enter: save  Esc: cancel", theme.label))
     } else {
         Line::from(Span::styled(" Enter: save  Esc: cancel", theme.label))

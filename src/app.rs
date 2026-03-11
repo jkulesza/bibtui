@@ -359,6 +359,7 @@ impl App {
             Action::AddField => {
                 self.field_editor_state = Some(FieldEditorState::new_field());
                 self.mode = InputMode::Editing;
+                // (completions start empty; they populate as the user types a prefix)
             }
             Action::DeleteField => self.delete_field(),
             Action::EditGroups => self.start_edit_groups(),
@@ -379,16 +380,19 @@ impl App {
                 if let Some(ref mut editor) = self.field_editor_state {
                     editor.push_char(c);
                 }
+                self.update_field_completions();
             }
             Action::EditBackspace => {
                 if let Some(ref mut editor) = self.field_editor_state {
                     editor.backspace();
                 }
+                self.update_field_completions();
             }
             Action::EditDelete => {
                 if let Some(ref mut editor) = self.field_editor_state {
                     editor.delete();
                 }
+                self.update_field_completions();
             }
             Action::EditCursorLeft => {
                 if let Some(ref mut editor) = self.field_editor_state {
@@ -611,7 +615,7 @@ impl App {
                 self.pending_action = Some(PendingAction::ImportSettings);
                 self.mode = InputMode::Editing;
             }
-            Action::EditTabComplete => self.do_path_tab_complete(),
+            Action::EditTabComplete => self.do_field_tab_complete(),
         }
     }
 
@@ -773,6 +777,7 @@ impl App {
                 self.field_editor_state =
                     Some(FieldEditorState::new(field_name, field_value));
                 self.mode = InputMode::Editing;
+                self.update_field_completions();
             }
         }
     }
@@ -900,7 +905,8 @@ impl App {
         // Two-phase for new fields: first confirm name, then enter value
         if let Some(ref mut editor) = self.field_editor_state {
             if editor.advance_phase() {
-                // Just switched from name to value editing — stay in Editing mode
+                // Just switched from name to value editing — seed value completions.
+                self.update_field_completions();
                 return;
             }
         }
@@ -1547,6 +1553,126 @@ impl App {
     // ── Save ──
 
     // ── Tab completion for path editors ──
+
+    /// Recompute tab-completion candidates for the field editor based on the
+    /// current field name and value prefix.  Called on every char/backspace.
+    fn update_field_completions(&mut self) {
+        let editor = match &self.field_editor_state {
+            Some(e) if !e.is_path => e,
+            _ => return,
+        };
+
+        let current_key = self.detail_entry_key.clone();
+
+        if editor.editing_name {
+            let prefix = editor.field_name.to_lowercase();
+            let candidates = field_name_candidates(&self.database);
+            let completions: Vec<String> = candidates
+                .into_iter()
+                .filter(|c| c.to_lowercase().starts_with(&prefix) && !prefix.is_empty())
+                .collect();
+            let e = self.field_editor_state.as_mut().unwrap();
+            e.completions = completions;
+            e.completion_idx = 0;
+        } else {
+            let field = editor.field_name.clone();
+            let value_lower = editor.value.to_lowercase();
+            let all = field_value_candidates(&self.database, &field, current_key.as_deref());
+            let completions: Vec<String> = all
+                .into_iter()
+                .filter(|c| c.to_lowercase().starts_with(&value_lower))
+                .collect();
+            let e = self.field_editor_state.as_mut().unwrap();
+            e.completions = completions;
+            e.completion_idx = 0;
+        }
+    }
+
+    /// Tab-complete for the field editor (name phase or value phase).
+    /// Delegates to path completion when `editor.is_path` is set.
+    fn do_field_tab_complete(&mut self) {
+        if self.field_editor_state.as_ref().map(|e| e.is_path).unwrap_or(false) {
+            self.do_path_tab_complete();
+            return;
+        }
+
+        let editor = match &self.field_editor_state {
+            Some(e) => e,
+            None => return,
+        };
+        let completions = editor.completions.clone();
+        if completions.is_empty() {
+            return;
+        }
+        let idx = editor.completion_idx;
+        let editing_name = editor.editing_name;
+        let current = if editing_name {
+            editor.field_name.clone()
+        } else {
+            editor.value.clone()
+        };
+
+        // If the active text already equals completions[idx], cycle to next.
+        if current.to_lowercase() == completions[idx].to_lowercase() {
+            let next_idx = (idx + 1) % completions.len();
+            let e = self.field_editor_state.as_mut().unwrap();
+            e.completion_idx = next_idx;
+            if editing_name {
+                e.field_name = completions[next_idx].clone();
+                e.name_cursor = e.field_name.len();
+            } else {
+                e.value = completions[next_idx].clone();
+                e.cursor = e.value.len();
+            }
+            return; // Preserve the completion set for continued cycling.
+        }
+
+        // First Tab on a partial: fill common prefix, then first match.
+        match completions.len() {
+            1 => {
+                let e = self.field_editor_state.as_mut().unwrap();
+                if editing_name {
+                    e.field_name = completions[0].clone();
+                    e.name_cursor = e.field_name.len();
+                } else {
+                    e.value = completions[0].clone();
+                    e.cursor = e.value.len();
+                }
+                e.completion_idx = 0;
+            }
+            _ => {
+                let common = longest_common_prefix(&completions);
+                let e = self.field_editor_state.as_mut().unwrap();
+                let active_lower = if editing_name {
+                    e.field_name.to_lowercase()
+                } else {
+                    e.value.to_lowercase()
+                };
+                if active_lower != common.to_lowercase() {
+                    // Advance to the common prefix.
+                    if editing_name {
+                        e.field_name = common;
+                        e.name_cursor = e.field_name.len();
+                    } else {
+                        e.value = common;
+                        e.cursor = e.value.len();
+                    }
+                    e.completion_idx = 0;
+                } else {
+                    // Already at common prefix — fill in first completion.
+                    if editing_name {
+                        e.field_name = completions[0].clone();
+                        e.name_cursor = e.field_name.len();
+                    } else {
+                        e.value = completions[0].clone();
+                        e.cursor = e.value.len();
+                    }
+                    e.completion_idx = 0;
+                }
+            }
+        }
+        // DON'T update completions here — preserve the set for cycling.
+    }
 
     fn update_sort_completions(&mut self) {
         let input = self.command_palette_state.input.clone();
@@ -2410,6 +2536,61 @@ fn contract_tilde(s: &str) -> String {
     s.to_string()
 }
 
+/// All BibTeX field names the user might want to type (for new-field name completion).
+fn field_name_candidates(database: &Database) -> Vec<String> {
+    let mut names: std::collections::BTreeSet<String> = [
+        "abstract", "address", "annote", "author", "booktitle", "chapter",
+        "crossref", "doi", "edition", "editor", "howpublished", "institution",
+        "isbn", "issn", "journal", "keywords", "language", "lccn", "month",
+        "note", "number", "organization", "pages", "publisher", "school",
+        "series", "title", "type", "url", "volume", "year",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+    for entry in database.entries.values() {
+        for key in entry.fields.keys() {
+            names.insert(key.clone());
+        }
+    }
+    names.into_iter().collect()
+}
+
+/// Values used for `field` across the database, sorted by frequency then
+/// alphabetically.  Skips `current_entry_key` so the entry being edited
+/// doesn't seed its own suggestions.  Returns an empty vec for fields where
+/// completion would be unhelpful (identifiers, page ranges, etc.).
+fn field_value_candidates(
+    database: &Database,
+    field: &str,
+    current_entry_key: Option<&str>,
+) -> Vec<String> {
+    // These fields hold unique identifiers or numeric ranges — skip them.
+    if matches!(
+        field,
+        "doi" | "eprint" | "isbn" | "issn" | "lccn" | "pages" | "url"
+            | "volume" | "number"
+    ) {
+        return Vec::new();
+    }
+    let mut freq: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for (key, entry) in &database.entries {
+        if current_entry_key.map(|k| k == key.as_str()).unwrap_or(false) {
+            continue;
+        }
+        if let Some(v) = entry.fields.get(field) {
+            let v = v.trim().to_string();
+            if !v.is_empty() {
+                *freq.entry(v).or_insert(0) += 1;
+            }
+        }
+    }
+    let mut candidates: Vec<String> = freq.keys().cloned().collect();
+    candidates.sort_by(|a, b| freq[b].cmp(&freq[a]).then(a.cmp(b)));
+    candidates.truncate(50);
+    candidates
+}
+
 /// All field names that are valid `:sort` targets.
 /// Includes the standard virtual fields plus every field key present in the database.
 fn sort_field_candidates(database: &Database) -> Vec<String> {
@@ -2837,6 +3018,115 @@ mod tests {
         for c in "q!".chars() { app.handle_action(Action::CommandChar(c)); }
         app.handle_action(Action::ExecuteCommand);
         assert!(app.should_quit);
+    }
+
+    // ── Field editor tab completion ───────────────────────────────────────────
+
+    #[test]
+    fn test_field_value_completion_on_open() {
+        // Opening an existing field editor seeds completions from the database.
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::OpenDetail); // enter detail view
+        app.handle_action(Action::EditField);
+        let editor = app.field_editor_state.as_ref().unwrap();
+        // Completions may be empty if the field has no other values — just
+        // verify the state is initialised (no panic and completions is a Vec).
+        let _ = &editor.completions;
+    }
+
+    #[test]
+    fn test_field_value_completion_filters_by_prefix() {
+        let (mut app, _tmp) = make_app();
+        // Manually open editor for "author" with a known prefix.
+        app.field_editor_state = Some(FieldEditorState::new("author", "S"));
+        app.update_field_completions();
+        let editor = app.field_editor_state.as_ref().unwrap();
+        // Every completion must start with "s" (case-insensitive).
+        for c in &editor.completions {
+            assert!(c.to_lowercase().starts_with('s'), "unexpected: {}", c);
+        }
+    }
+
+    #[test]
+    fn test_field_tab_complete_fills_single_match() {
+        let (mut app, _tmp) = make_app();
+        // Use a prefix that uniquely matches one author in the test bib file.
+        // We inject a known completion directly to avoid bib-content dependency.
+        app.field_editor_state = Some(FieldEditorState::new("author", "Smi"));
+        let e = app.field_editor_state.as_mut().unwrap();
+        e.completions = vec!["Smith, John".to_string()];
+        app.handle_action(Action::EditTabComplete);
+        let editor = app.field_editor_state.as_ref().unwrap();
+        assert_eq!(editor.value, "Smith, John");
+        assert_eq!(editor.cursor, "Smith, John".len());
+    }
+
+    #[test]
+    fn test_field_tab_complete_cycles() {
+        let (mut app, _tmp) = make_app();
+        app.field_editor_state = Some(FieldEditorState::new("author", "S"));
+        let e = app.field_editor_state.as_mut().unwrap();
+        e.completions = vec!["Smith, John".to_string(), "Stone, Alice".to_string()];
+        // First Tab: common prefix "S" → already there, so fill first match.
+        app.handle_action(Action::EditTabComplete);
+        assert_eq!(app.field_editor_state.as_ref().unwrap().value, "Smith, John");
+        // Second Tab: cycle to next.
+        app.handle_action(Action::EditTabComplete);
+        assert_eq!(app.field_editor_state.as_ref().unwrap().value, "Stone, Alice");
+        // Third Tab: wrap back.
+        app.handle_action(Action::EditTabComplete);
+        assert_eq!(app.field_editor_state.as_ref().unwrap().value, "Smith, John");
+    }
+
+    #[test]
+    fn test_field_tab_complete_name_phase() {
+        let (mut app, _tmp) = make_app();
+        app.field_editor_state = Some(FieldEditorState::new_field());
+        let e = app.field_editor_state.as_mut().unwrap();
+        e.field_name = "auth".to_string();
+        e.name_cursor = 4;
+        e.completions = vec!["author".to_string()];
+        app.handle_action(Action::EditTabComplete);
+        let editor = app.field_editor_state.as_ref().unwrap();
+        assert_eq!(editor.field_name, "author");
+    }
+
+    #[test]
+    fn test_ghost_text_shows_suffix() {
+        let mut e = FieldEditorState::new("author", "Smi");
+        e.completions = vec!["Smith, John".to_string()];
+        assert_eq!(e.ghost_text(), "th, John");
+    }
+
+    #[test]
+    fn test_ghost_text_empty_when_cursor_not_at_end() {
+        let mut e = FieldEditorState::new("author", "Smith");
+        e.cursor = 2; // cursor in the middle
+        e.completions = vec!["Smith, John".to_string()];
+        assert_eq!(e.ghost_text(), "");
+    }
+
+    #[test]
+    fn test_ghost_text_empty_for_exact_match() {
+        let mut e = FieldEditorState::new("author", "Smith, John");
+        e.completions = vec!["Smith, John".to_string()];
+        assert_eq!(e.ghost_text(), "");
+    }
+
+    #[test]
+    fn test_field_name_candidates_contains_standard_fields() {
+        let (app, _tmp) = make_app();
+        let names = field_name_candidates(&app.database);
+        assert!(names.contains(&"author".to_string()));
+        assert!(names.contains(&"title".to_string()));
+        assert!(names.contains(&"journal".to_string()));
+    }
+
+    #[test]
+    fn test_field_value_candidates_skips_doi() {
+        let (app, _tmp) = make_app();
+        let candidates = field_value_candidates(&app.database, "doi", None);
+        assert!(candidates.is_empty());
     }
 
     // ── Sort tab completion ───────────────────────────────────────────────────
