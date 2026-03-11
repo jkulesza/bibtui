@@ -155,6 +155,7 @@ fn map_command_key(key: KeyEvent) -> Option<Action> {
     match key.code {
         KeyCode::Esc => Some(Action::ExitCommand),
         KeyCode::Enter => Some(Action::ExecuteCommand),
+        KeyCode::Tab => Some(Action::CommandTabComplete),
         KeyCode::Backspace => Some(Action::CommandBackspace),
         KeyCode::Char(c) => Some(Action::CommandChar(c)),
         _ => None,

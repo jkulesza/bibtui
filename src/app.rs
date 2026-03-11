@@ -76,6 +76,7 @@ pub enum Action {
     ExecuteCommand,
     CommandChar(char),
     CommandBackspace,
+    CommandTabComplete,
     DialogConfirm,
     DialogCancel,
     DialogToggle,
@@ -456,13 +457,16 @@ impl App {
             Action::ExecuteCommand => self.execute_command(),
             Action::CommandChar(c) => {
                 self.command_palette_state.push_char(c);
+                self.update_sort_completions();
             }
             Action::CommandBackspace => {
                 self.command_palette_state.backspace();
                 if self.command_palette_state.input.is_empty() {
                     self.mode = InputMode::Normal;
                 }
+                self.update_sort_completions();
             }
+            Action::CommandTabComplete => self.do_sort_tab_complete(),
             Action::DialogConfirm => self.handle_dialog_confirm(),
             Action::DialogCancel => {
                 self.dialog_state = None;
@@ -1544,6 +1548,74 @@ impl App {
 
     // ── Tab completion for path editors ──
 
+    fn update_sort_completions(&mut self) {
+        let input = self.command_palette_state.input.clone();
+        let partial = match input.strip_prefix("sort ") {
+            Some(p) => p.to_string(),
+            None => {
+                self.command_palette_state.completions.clear();
+                self.command_palette_state.completion_idx = 0;
+                return;
+            }
+        };
+        let candidates = sort_field_candidates(&self.database);
+        self.command_palette_state.completions = candidates
+            .into_iter()
+            .filter(|c| c.starts_with(partial.as_str()))
+            .collect();
+        self.command_palette_state.completion_idx = 0;
+    }
+
+    fn do_sort_tab_complete(&mut self) {
+        let completions = self.command_palette_state.completions.clone();
+        if completions.is_empty() {
+            return;
+        }
+        let input = self.command_palette_state.input.clone();
+        let partial = match input.strip_prefix("sort ") {
+            Some(p) => p.to_string(),
+            None => return,
+        };
+        let idx = self.command_palette_state.completion_idx;
+
+        // Already filled this completion — cycle to the next one.
+        if partial == completions[idx].as_str() {
+            let next_idx = (idx + 1) % completions.len();
+            self.command_palette_state.completion_idx = next_idx;
+            let new_input = format!("sort {}", completions[next_idx]);
+            self.command_palette_state.cursor = new_input.len();
+            self.command_palette_state.input = new_input;
+            return; // Keep the same completion set for continued cycling.
+        }
+
+        // First Tab on a partial: complete to common prefix, then first match.
+        match completions.len() {
+            1 => {
+                let new_input = format!("sort {}", completions[0]);
+                self.command_palette_state.cursor = new_input.len();
+                self.command_palette_state.input = new_input;
+                self.command_palette_state.completion_idx = 0;
+            }
+            _ => {
+                let common = longest_common_prefix(&completions);
+                if partial.as_str() != common.as_str() {
+                    // Advance to the longest common prefix without cycling yet.
+                    let new_input = format!("sort {}", common);
+                    self.command_palette_state.cursor = new_input.len();
+                    self.command_palette_state.input = new_input;
+                    self.command_palette_state.completion_idx = 0;
+                } else {
+                    // Already at common prefix — start cycling from the first entry.
+                    let new_input = format!("sort {}", completions[0]);
+                    self.command_palette_state.cursor = new_input.len();
+                    self.command_palette_state.input = new_input;
+                    self.command_palette_state.completion_idx = 0;
+                }
+            }
+        }
+        // DON'T update completions here — preserve the full set for cycling.
+    }
+
     fn do_path_tab_complete(&mut self) {
         // Only active for path-editing pending actions.
         let is_path_edit = matches!(
@@ -2338,6 +2410,23 @@ fn contract_tilde(s: &str) -> String {
     s.to_string()
 }
 
+/// All field names that are valid `:sort` targets.
+/// Includes the standard virtual fields plus every field key present in the database.
+fn sort_field_candidates(database: &Database) -> Vec<String> {
+    let mut fields: std::collections::BTreeSet<String> = [
+        "author", "citation_key", "entrytype", "journal", "title", "year",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+    for entry in database.entries.values() {
+        for key in entry.fields.keys() {
+            fields.insert(key.clone());
+        }
+    }
+    fields.into_iter().collect()
+}
+
 fn path_completions(prefix: &str) -> Vec<String> {
     use std::path::Path;
 
@@ -2748,6 +2837,59 @@ mod tests {
         for c in "q!".chars() { app.handle_action(Action::CommandChar(c)); }
         app.handle_action(Action::ExecuteCommand);
         assert!(app.should_quit);
+    }
+
+    // ── Sort tab completion ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_sort_tab_complete_single_match() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::EnterCommand);
+        for c in "sort yea".chars() { app.handle_action(Action::CommandChar(c)); }
+        // completions should contain "year"
+        assert!(app.command_palette_state.completions.contains(&"year".to_string()));
+        app.handle_action(Action::CommandTabComplete);
+        assert_eq!(app.command_palette_state.input, "sort year");
+    }
+
+    #[test]
+    fn test_sort_tab_complete_ghost_text() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::EnterCommand);
+        for c in "sort yea".chars() { app.handle_action(Action::CommandChar(c)); }
+        assert_eq!(app.command_palette_state.ghost_text(), "r");
+    }
+
+    #[test]
+    fn test_sort_tab_complete_cycles() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::EnterCommand);
+        for c in "sort yea".chars() { app.handle_action(Action::CommandChar(c)); }
+        app.handle_action(Action::CommandTabComplete); // fills "year"
+        // Cycling: only one match for "year", so it wraps back
+        app.handle_action(Action::CommandTabComplete);
+        assert_eq!(app.command_palette_state.input, "sort year");
+    }
+
+    #[test]
+    fn test_sort_tab_no_completions_outside_sort() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::EnterCommand);
+        for c in "write".chars() { app.handle_action(Action::CommandChar(c)); }
+        assert!(app.command_palette_state.completions.is_empty());
+        // Tab should be a no-op
+        app.handle_action(Action::CommandTabComplete);
+        assert_eq!(app.command_palette_state.input, "write");
+    }
+
+    #[test]
+    fn test_sort_completions_cleared_on_clear() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::EnterCommand);
+        for c in "sort yea".chars() { app.handle_action(Action::CommandChar(c)); }
+        assert!(!app.command_palette_state.completions.is_empty());
+        app.handle_action(Action::EnterCommand); // clears state
+        assert!(app.command_palette_state.completions.is_empty());
     }
 
     // ── Entry operations ──────────────────────────────────────────────────────

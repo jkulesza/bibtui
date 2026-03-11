@@ -1,5 +1,5 @@
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
@@ -9,6 +9,9 @@ use crate::tui::theme::Theme;
 pub struct CommandPaletteState {
     pub input: String,
     pub cursor: usize,
+    /// Current tab-completion candidates (only populated for `:sort <field>`).
+    pub completions: Vec<String>,
+    pub completion_idx: usize,
 }
 
 impl CommandPaletteState {
@@ -16,12 +19,31 @@ impl CommandPaletteState {
         CommandPaletteState {
             input: String::new(),
             cursor: 0,
+            completions: Vec::new(),
+            completion_idx: 0,
         }
     }
 
     pub fn clear(&mut self) {
         self.input.clear();
         self.cursor = 0;
+        self.completions.clear();
+        self.completion_idx = 0;
+    }
+
+    /// Returns the ghost-text suffix to display after the cursor: the part of
+    /// the current completion that hasn't been typed yet.
+    pub fn ghost_text(&self) -> &str {
+        let partial = match self.input.strip_prefix("sort ") {
+            Some(p) => p,
+            None => return "",
+        };
+        match self.completions.get(self.completion_idx) {
+            Some(c) if c.starts_with(partial) && partial.len() < c.len() => {
+                &c[partial.len()..]
+            }
+            _ => "",
+        }
     }
 
     pub fn push_char(&mut self, c: char) {
@@ -48,11 +70,17 @@ pub fn render_command_palette(
     state: &CommandPaletteState,
     theme: &Theme,
 ) {
-    let line = Line::from(vec![
+    let ghost = state.ghost_text().to_string();
+    let ghost_style = Style::default().fg(Color::DarkGray).add_modifier(Modifier::DIM);
+    let mut spans = vec![
         Span::styled(":", theme.search_match),
-        Span::raw(&state.input),
-        Span::styled("_", Style::default().add_modifier(Modifier::SLOW_BLINK)),
-    ]);
+        Span::raw(state.input.clone()),
+    ];
+    if !ghost.is_empty() {
+        spans.push(Span::styled(ghost, ghost_style));
+    }
+    spans.push(Span::styled("_", Style::default().add_modifier(Modifier::SLOW_BLINK)));
+    let line = Line::from(spans);
 
     let para = Paragraph::new(line);
     f.render_widget(para, area);
