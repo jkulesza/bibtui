@@ -17,6 +17,8 @@ pub struct FieldEditorState {
     pub editing_name: bool,
     /// If true, Tab key triggers filesystem path completion
     pub is_path: bool,
+    /// If true, show the month selector grid
+    pub is_month: bool,
     /// Completion candidates for the current prefix (field name or value).
     pub completions: Vec<String>,
     pub completion_idx: usize,
@@ -27,6 +29,7 @@ impl FieldEditorState {
     pub fn new(field_name: &str, value: &str) -> Self {
         let cursor = value.len();
         FieldEditorState {
+            is_month: field_name.eq_ignore_ascii_case("month"),
             field_name: field_name.to_string(),
             name_cursor: field_name.len(),
             value: value.to_string(),
@@ -49,6 +52,7 @@ impl FieldEditorState {
             is_new: false,
             editing_name: false,
             is_path: false,
+            is_month: false,
             completions: Vec::new(),
             completion_idx: 0,
         }
@@ -65,6 +69,7 @@ impl FieldEditorState {
             is_new: false,
             editing_name: false,
             is_path: true,
+            is_month: false,
             completions: Vec::new(),
             completion_idx: 0,
         }
@@ -80,6 +85,7 @@ impl FieldEditorState {
             is_new: true,
             editing_name: true,
             is_path: false,
+            is_month: false,
             completions: Vec::new(),
             completion_idx: 0,
         }
@@ -208,6 +214,17 @@ impl FieldEditorState {
                 .map(|c| c.len_utf8())
                 .unwrap_or(0);
         }
+    }
+
+    /// Move to the previous (-1) or next (+1) month in the MONTHS list.
+    /// Sets value to the selected month abbreviation and moves cursor to end.
+    /// Only meaningful when `is_month` is true.
+    pub fn month_navigate(&mut self, delta: i32) {
+        let value_lower = self.value.to_lowercase();
+        let current_idx = MONTHS.iter().position(|&m| m == value_lower.as_str()).unwrap_or(0);
+        let new_idx = (current_idx as i32 + delta).rem_euclid(MONTHS.len() as i32) as usize;
+        self.value = MONTHS[new_idx].to_string();
+        self.cursor = self.value.len();
     }
 
     pub fn cursor_home(&mut self) {
@@ -379,6 +396,11 @@ mod tests {
     }
 }
 
+const MONTHS: [&str; 12] = [
+    "jan", "feb", "mar", "apr", "may", "jun",
+    "jul", "aug", "sep", "oct", "nov", "dec",
+];
+
 pub fn render_field_editor(
     f: &mut Frame,
     area: Rect,
@@ -387,8 +409,10 @@ pub fn render_field_editor(
 ) {
     let editor_width = (area.width.saturating_sub(4)).min(70);
     let x = area.x + (area.width.saturating_sub(editor_width)) / 2;
-    let y = area.y + area.height / 2 - 2;
-    let editor_area = Rect::new(x, y, editor_width, 4);
+    // Month mode needs 2 extra rows for the month grid.
+    let editor_height: u16 = if state.is_month { 6 } else { 4 };
+    let y = area.y + area.height / 2 - editor_height / 2;
+    let editor_area = Rect::new(x, y, editor_width, editor_height);
 
     f.render_widget(Clear, editor_area);
 
@@ -492,7 +516,9 @@ pub fn render_field_editor(
     let line = Line::from(spans);
 
     let has_completions = !state.completions.is_empty() && !state.is_path;
-    let hint = if state.is_new && state.editing_name {
+    let hint = if state.is_month {
+        Line::from(Span::styled(" Tab: cycle month  Enter: save  Esc: cancel", theme.label))
+    } else if state.is_new && state.editing_name {
         if has_completions {
             Line::from(Span::styled(" Tab: complete  Enter: next  Esc: cancel", theme.label))
         } else {
@@ -506,6 +532,42 @@ pub fn render_field_editor(
         Line::from(Span::styled(" Enter: save  Esc: cancel", theme.label))
     };
 
-    let para = Paragraph::new(vec![line, hint]);
-    f.render_widget(para, inner);
+    if state.is_month {
+        // Determine which month to highlight: exact value match takes priority,
+        // then the current completion selection.
+        let value_lower = state.value.to_lowercase();
+        let highlighted: Option<&str> = if MONTHS.contains(&value_lower.as_str()) {
+            Some(value_lower.as_str())
+        } else {
+            state.completions.get(state.completion_idx).map(|s| s.as_str())
+        };
+
+        let month_row = |months: &[&str]| -> Line {
+            let mut spans: Vec<Span> = Vec::new();
+            for (i, &m) in months.iter().enumerate() {
+                if i > 0 {
+                    spans.push(Span::raw(" "));
+                }
+                let is_sel = highlighted == Some(m);
+                let style = if is_sel {
+                    theme.border.add_modifier(Modifier::REVERSED)
+                } else {
+                    theme.label
+                };
+                spans.push(Span::styled(format!(" {} ", m), style));
+            }
+            Line::from(spans)
+        };
+
+        let para = Paragraph::new(vec![
+            line,
+            month_row(&MONTHS[..6]),
+            month_row(&MONTHS[6..]),
+            hint,
+        ]);
+        f.render_widget(para, inner);
+    } else {
+        let para = Paragraph::new(vec![line, hint]);
+        f.render_widget(para, inner);
+    }
 }

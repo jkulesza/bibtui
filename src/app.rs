@@ -6,6 +6,7 @@ use crossterm::event::{Event, KeyCode, KeyEvent};
 use indexmap::IndexMap;
 
 use crate::bib::citekey::generate_citekey;
+use crate::bib::normalize::normalize_month;
 use crate::bib::jabref::serialize_group_tree;
 use crate::bib::model::*;
 use crate::util::open::{effective_file_dir, parse_file_field, serialize_file_field};
@@ -59,6 +60,8 @@ pub enum Action {
     EditDelete,
     EditCursorLeft,
     EditCursorRight,
+    EditCursorUp,
+    EditCursorDown,
     EditCursorHome,
     EditCursorEnd,
     EditTabComplete,
@@ -445,12 +448,34 @@ impl App {
             }
             Action::EditCursorLeft => {
                 if let Some(ref mut editor) = self.field_editor_state {
-                    editor.cursor_left();
+                    if editor.is_month {
+                        editor.month_navigate(-1);
+                    } else {
+                        editor.cursor_left();
+                    }
                 }
             }
             Action::EditCursorRight => {
                 if let Some(ref mut editor) = self.field_editor_state {
-                    editor.cursor_right();
+                    if editor.is_month {
+                        editor.month_navigate(1);
+                    } else {
+                        editor.cursor_right();
+                    }
+                }
+            }
+            Action::EditCursorUp => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    if editor.is_month {
+                        editor.month_navigate(-6);
+                    }
+                }
+            }
+            Action::EditCursorDown => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    if editor.is_month {
+                        editor.month_navigate(6);
+                    }
                 }
             }
             Action::EditCursorHome => {
@@ -992,6 +1017,10 @@ impl App {
         // Two-phase for new fields: first confirm name, then enter value
         if let Some(ref mut editor) = self.field_editor_state {
             if editor.advance_phase() {
+                // Now that the field name is confirmed, enable month mode if applicable.
+                if editor.field_name.eq_ignore_ascii_case("month") {
+                    editor.is_month = true;
+                }
                 // Just switched from name to value editing — seed value completions.
                 self.update_field_completions();
                 return;
@@ -1008,14 +1037,20 @@ impl App {
                 let existing = self.database.entries.get(key)
                     .and_then(|e| e.fields.get(&editor.field_name).cloned());
                 let existing_str = existing.clone().unwrap_or_default();
-                if editor.value != existing_str {
+                // Normalize month values to standard 3-letter abbreviations.
+                let save_value = if editor.is_month {
+                    normalize_month(&editor.value)
+                } else {
+                    editor.value.clone()
+                };
+                if save_value != existing_str {
                     self.push_undo(UndoItem::FieldChanged {
                         entry_key: key.clone(),
                         field_name: editor.field_name.clone(),
                         old_value: existing,
                     });
                     if let Some(entry) = self.database.entries.get_mut(key) {
-                        entry.fields.insert(editor.field_name.clone(), editor.value.clone());
+                        entry.fields.insert(editor.field_name.clone(), save_value);
                         entry.dirty = true;
                         let snapshot = entry.clone();
                         if let Some(ref mut detail) = self.detail_state {
@@ -1649,6 +1684,25 @@ impl App {
             Some(e) if !e.is_path => e,
             _ => return,
         };
+
+        // Month field: completions are always the 12 standard abbreviations,
+        // filtered by whatever the user has typed so far.
+        if editor.is_month {
+            const MONTHS: [&str; 12] = [
+                "jan", "feb", "mar", "apr", "may", "jun",
+                "jul", "aug", "sep", "oct", "nov", "dec",
+            ];
+            let prefix = editor.value.to_lowercase();
+            let completions: Vec<String> = MONTHS
+                .iter()
+                .filter(|&&m| m.starts_with(prefix.as_str()))
+                .map(|&m| m.to_string())
+                .collect();
+            let e = self.field_editor_state.as_mut().unwrap();
+            e.completions = completions;
+            e.completion_idx = 0;
+            return;
+        }
 
         let current_key = self.detail_entry_key.clone();
 

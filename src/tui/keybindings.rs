@@ -118,6 +118,8 @@ fn map_editing_key(key: KeyEvent) -> Option<Action> {
         KeyCode::Backspace => Some(Action::EditBackspace),
         KeyCode::Left => Some(Action::EditCursorLeft),
         KeyCode::Right => Some(Action::EditCursorRight),
+        KeyCode::Up => Some(Action::EditCursorUp),
+        KeyCode::Down => Some(Action::EditCursorDown),
         KeyCode::Home | KeyCode::Char('a') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             Some(Action::EditCursorHome)
         }
