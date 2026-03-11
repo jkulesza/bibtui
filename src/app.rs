@@ -562,7 +562,7 @@ impl App {
             }
             Action::ShowHelp => {
                 self.status_message = Some(
-                    "j/k:nav  /:search  Enter:detail  a:add  dd:del  D:dup  yy:yank  o:file  w:web  B:braces  L:latex  Tab:groups  h/l:focus  a/dd:group(grp focus)  g:assign groups(detail)  u:undo  :w save  q:quit".to_string(),
+                    "j/k:nav  /:search  Enter:detail  a:add  dd:del  D:dup  yy:yank  o:file  w:web  B:braces  L:latex  Tab:groups  h/l:focus  a/dd:group(grp focus)  g:assign groups(detail)  u:undo  :w:save  :q:quit".to_string(),
                 );
             }
             Action::TitlecaseField => self.titlecase_selected_field(),
