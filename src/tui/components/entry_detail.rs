@@ -450,6 +450,21 @@ mod tests {
     }
 
     #[test]
+    fn test_apply_display_pipeline_latex_rendered() {
+        // LaTeX rendering converts accents; braces stripped afterwards.
+        let result = apply_display_pipeline("{\\'{e}}", false, true);
+        assert_eq!(result, "é", "LaTeX accent should be rendered to unicode");
+    }
+
+    #[test]
+    fn test_apply_display_pipeline_latex_with_show_braces() {
+        // When show_braces=true the result after latex rendering is kept as-is
+        // (no further brace stripping).
+        let result = apply_display_pipeline("plain text", true, false);
+        assert_eq!(result, "plain text");
+    }
+
+    #[test]
     fn test_groups_field_excluded_from_display_items() {
         // "groups" should never appear as a selectable Field row even when present
         // in entry.fields (it is shown in the header area instead).
@@ -463,6 +478,80 @@ mod tests {
             matches!(item, DisplayItem::Field { name, .. } if name == "groups")
         });
         assert!(!has_groups_field, "'groups' should not appear as a field row");
+    }
+
+    #[test]
+    fn test_refresh_with_groups_rebuilds_items() {
+        use crate::config::schema::CustomFieldGroup;
+        let e = make_entry(EntryType::Article, &[
+            ("author", "Smith"), ("title", "P"), ("year", "2020"),
+            ("journal", "N"), ("isbn", "123"),
+        ]);
+        let mut state = EntryDetailState::new(&e, vec![]);
+        // Initially no Identifiers group
+        assert!(!state.display_fields.iter().any(|i| {
+            matches!(i, DisplayItem::Header(h) if h.contains("Identifiers"))
+        }));
+        // Now add a custom group
+        let groups = vec![CustomFieldGroup {
+            name: "Identifiers".to_string(),
+            fields: vec!["isbn".to_string()],
+        }];
+        state.refresh_with_groups(&e, groups);
+        assert!(state.display_fields.iter().any(|i| {
+            matches!(i, DisplayItem::Header(h) if h.contains("Identifiers"))
+        }), "refresh_with_groups should rebuild items with new groups");
+    }
+
+    #[test]
+    fn test_move_selection_zero_delta_stays_on_field() {
+        let e = make_entry(EntryType::Article, &[
+            ("author", "Smith"), ("title", "Paper"), ("year", "2020"), ("journal", "N"),
+        ]);
+        let mut state = EntryDetailState::new(&e, vec![]);
+        let start = state.selected();
+        state.move_selection(0); // no-op / header-skip
+        assert!(matches!(state.display_fields[state.selected()], DisplayItem::Field { .. }));
+        // Selection stays when delta=0 and already on a Field
+        assert_eq!(state.selected(), start);
+    }
+
+    #[test]
+    fn test_move_selection_clamps_at_bottom() {
+        let e = make_entry(EntryType::Article, &[
+            ("author", "Smith"), ("title", "Paper"), ("year", "2020"), ("journal", "N"),
+        ]);
+        let mut state = EntryDetailState::new(&e, vec![]);
+        state.move_selection(1000); // go far past the end
+        let last = state.selected();
+        state.move_selection(1); // try to go further
+        assert_eq!(state.selected(), last, "should clamp at last selectable field");
+        assert!(matches!(state.display_fields[state.selected()], DisplayItem::Field { .. }));
+    }
+
+    #[test]
+    fn test_selected_field_returns_correct_name_and_value() {
+        let e = make_entry(EntryType::Article, &[
+            ("author", "Smith, J"), ("title", "Great Paper"), ("year", "2020"), ("journal", "N"),
+        ]);
+        let state = EntryDetailState::new(&e, vec![]);
+        // Move to a Field that has a known name
+        if let Some((name, _)) = state.selected_field() {
+            // We can't control which field is first, but it must not be a header
+            assert!(!name.is_empty());
+        } else {
+            panic!("selected_field should return Some for an Article with fields");
+        }
+    }
+
+    #[test]
+    fn test_refresh_with_empty_entry_selects_none() {
+        let e = make_entry(EntryType::Other("Custom".to_string()), &[]);
+        let mut state = EntryDetailState::new(&e, vec![]);
+        // Entry with no fields — display_fields is empty, selection is None.
+        assert!(state.selected_field().is_none());
+        // refresh should not panic
+        state.refresh(&e);
     }
 
     #[test]

@@ -294,6 +294,51 @@ mod tests {
         assert_eq!(map_key(key(KeyCode::Char('z')), &InputMode::Editing, None), Some(Action::EditChar('z')));
     }
 
+    #[test]
+    fn test_editing_mode_up_down() {
+        // Up/Down arrow keys in editing mode map to EditCursorUp/Down (used by month navigation).
+        assert_eq!(
+            map_key(key(KeyCode::Up), &InputMode::Editing, None),
+            Some(Action::EditCursorUp)
+        );
+        assert_eq!(
+            map_key(key(KeyCode::Down), &InputMode::Editing, None),
+            Some(Action::EditCursorDown)
+        );
+    }
+
+    #[test]
+    fn test_editing_mode_home_end() {
+        // Home and End with CONTROL modifier map to cursor-home/end.
+        assert_eq!(
+            map_key(
+                KeyEvent::new(KeyCode::Home, KeyModifiers::CONTROL),
+                &InputMode::Editing, None
+            ),
+            Some(Action::EditCursorHome)
+        );
+        assert_eq!(
+            map_key(
+                KeyEvent::new(KeyCode::End, KeyModifiers::CONTROL),
+                &InputMode::Editing, None
+            ),
+            Some(Action::EditCursorEnd)
+        );
+        // Without CONTROL modifier they fall through to None.
+        assert_eq!(
+            map_key(key(KeyCode::Home), &InputMode::Editing, None),
+            None
+        );
+    }
+
+    #[test]
+    fn test_editing_mode_tab() {
+        assert_eq!(
+            map_key(key(KeyCode::Tab), &InputMode::Editing, None),
+            Some(Action::EditTabComplete)
+        );
+    }
+
     // ── Dialog mode ──
 
     #[test]

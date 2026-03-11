@@ -3741,6 +3741,210 @@ mod tests {
         assert!(app.pending_action.is_none());
     }
 
+    // ── new_empty constructor ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_new_empty_app_starts_in_editing_mode() {
+        let app = App::new_empty(default_config()).unwrap();
+        assert_eq!(app.mode, InputMode::Editing);
+    }
+
+    #[test]
+    fn test_new_empty_app_has_no_entries() {
+        let app = App::new_empty(default_config()).unwrap();
+        assert_eq!(app.database.entries.len(), 0);
+    }
+
+    #[test]
+    fn test_new_empty_app_has_path_editor() {
+        let app = App::new_empty(default_config()).unwrap();
+        let editor = app.field_editor_state.as_ref().expect("editor should be set");
+        assert!(editor.is_path, "new_empty should open a path editor");
+    }
+
+    #[test]
+    fn test_new_empty_app_has_new_file_pending_action() {
+        let app = App::new_empty(default_config()).unwrap();
+        assert!(matches!(app.pending_action, Some(PendingAction::NewFile)));
+    }
+
+    #[test]
+    fn test_new_empty_app_cancel_sets_should_quit() {
+        let mut app = App::new_empty(default_config()).unwrap();
+        app.handle_action(Action::CancelEdit);
+        assert!(app.should_quit, "cancelling on a NewFile prompt should quit");
+    }
+
+    // ── Month mode in the field editor ───────────────────────────────────────
+
+    /// A bib with a month field for month-editor tests.
+    const MONTH_BIB: &str = r#"@Article{Smith2020,
+  author  = {Smith, John},
+  title   = {My Paper},
+  year    = {2020},
+  journal = {Nature},
+  month   = {jan},
+}
+"#;
+
+    fn make_app_with_month() -> (App, NamedTempFile) {
+        let mut tmp = NamedTempFile::new().unwrap();
+        write!(tmp, "{}", MONTH_BIB).unwrap();
+        tmp.flush().unwrap();
+        let path = tmp.path().to_path_buf();
+        let app = App::new(path, default_config()).unwrap();
+        (app, tmp)
+    }
+
+    /// Open detail view, navigate to the month field, and start editing it.
+    /// Returns the app with a month field editor open.
+    fn open_month_editor() -> (App, NamedTempFile) {
+        let (mut app, tmp) = make_app_with_month();
+        app.handle_action(Action::OpenDetail);
+        // Manually inject the month field editor so we don't depend on
+        // the detail-view navigation (which can vary by field order).
+        use crate::tui::components::field_editor::FieldEditorState;
+        app.field_editor_state = Some(FieldEditorState::new("month", "jan"));
+        app.mode = InputMode::Editing;
+        (app, tmp)
+    }
+
+    #[test]
+    fn test_is_month_flag_on_month_field() {
+        use crate::tui::components::field_editor::FieldEditorState;
+        let e = FieldEditorState::new("month", "jan");
+        assert!(e.is_month);
+    }
+
+    #[test]
+    fn test_is_month_flag_false_for_title() {
+        use crate::tui::components::field_editor::FieldEditorState;
+        let e = FieldEditorState::new("title", "x");
+        assert!(!e.is_month);
+    }
+
+    #[test]
+    fn test_edit_cursor_left_in_month_mode_navigates_backward() {
+        let (mut app, _tmp) = open_month_editor();
+        // value starts at "jan"
+        app.handle_action(Action::EditCursorLeft);
+        let val = app.field_editor_state.as_ref().unwrap().value.clone();
+        // jan backward → dec
+        assert_eq!(val, "dec", "EditCursorLeft in month mode should go to dec from jan");
+    }
+
+    #[test]
+    fn test_edit_cursor_right_in_month_mode_navigates_forward() {
+        let (mut app, _tmp) = open_month_editor();
+        // value starts at "jan"
+        app.handle_action(Action::EditCursorRight);
+        let val = app.field_editor_state.as_ref().unwrap().value.clone();
+        // jan forward → feb
+        assert_eq!(val, "feb", "EditCursorRight in month mode should go to feb from jan");
+    }
+
+    #[test]
+    fn test_edit_cursor_up_in_month_mode_navigates_minus_6() {
+        let (mut app, _tmp) = open_month_editor();
+        // Set value to "jul" (index 6) so -6 → jan
+        app.field_editor_state.as_mut().unwrap().value = "jul".to_string();
+        app.field_editor_state.as_mut().unwrap().cursor = 3;
+        app.handle_action(Action::EditCursorUp);
+        let val = app.field_editor_state.as_ref().unwrap().value.clone();
+        assert_eq!(val, "jan", "EditCursorUp in month mode should navigate -6");
+    }
+
+    #[test]
+    fn test_edit_cursor_down_in_month_mode_navigates_plus_6() {
+        let (mut app, _tmp) = open_month_editor();
+        // value starts at "jan" (index 0); +6 → jul (index 6)
+        app.handle_action(Action::EditCursorDown);
+        let val = app.field_editor_state.as_ref().unwrap().value.clone();
+        assert_eq!(val, "jul", "EditCursorDown in month mode should navigate +6");
+    }
+
+    #[test]
+    fn test_edit_cursor_up_down_noop_for_non_month() {
+        let (mut app, _tmp) = make_app();
+        // Plain text editor — EditCursorUp/Down should be no-ops.
+        use crate::tui::components::field_editor::FieldEditorState;
+        app.field_editor_state = Some(FieldEditorState::new("title", "hello"));
+        app.mode = InputMode::Editing;
+        app.handle_action(Action::EditCursorUp);
+        app.handle_action(Action::EditCursorDown);
+        // Value must be unchanged
+        let val = app.field_editor_state.as_ref().unwrap().value.clone();
+        assert_eq!(val, "hello");
+    }
+
+    #[test]
+    fn test_month_completions_filtered_by_prefix() {
+        let (mut app, _tmp) = make_app_with_month();
+        use crate::tui::components::field_editor::FieldEditorState;
+        // Set up a month editor with prefix "j" — should match jan, jul
+        app.field_editor_state = Some(FieldEditorState::new("month", "j"));
+        app.field_editor_state.as_mut().unwrap().is_month = true;
+        app.update_field_completions();
+        let completions = app.field_editor_state.as_ref().unwrap().completions.clone();
+        assert!(completions.contains(&"jan".to_string()), "should contain jan");
+        assert!(completions.contains(&"jun".to_string()), "should contain jun");
+        assert!(completions.contains(&"jul".to_string()), "should contain jul");
+        for c in &completions {
+            assert!(c.starts_with('j'), "all completions should start with 'j': {}", c);
+        }
+    }
+
+    #[test]
+    fn test_month_completions_all_when_empty_prefix() {
+        let (mut app, _tmp) = make_app_with_month();
+        use crate::tui::components::field_editor::FieldEditorState;
+        // Empty value → all 12 months
+        app.field_editor_state = Some(FieldEditorState::new("month", ""));
+        app.field_editor_state.as_mut().unwrap().is_month = true;
+        app.update_field_completions();
+        let completions = app.field_editor_state.as_ref().unwrap().completions.clone();
+        assert_eq!(completions.len(), 12);
+    }
+
+    #[test]
+    fn test_confirm_edit_normalizes_month() {
+        let (mut app, _tmp) = make_app_with_month();
+        // Open detail view on Smith2020
+        app.handle_action(Action::OpenDetail);
+        // Manually inject a month editor with the full word "january"
+        use crate::tui::components::field_editor::FieldEditorState;
+        app.field_editor_state = Some(FieldEditorState::new("month", "january"));
+        app.field_editor_state.as_mut().unwrap().is_month = true;
+        app.detail_entry_key = Some("Smith2020".to_string());
+        app.handle_action(Action::ConfirmEdit);
+        // The saved value should be normalized to "jan"
+        let saved = app.database.entries.get("Smith2020")
+            .and_then(|e| e.fields.get("month"))
+            .cloned()
+            .unwrap_or_default();
+        assert_eq!(saved, "jan", "month should be normalized to 3-letter abbreviation");
+    }
+
+    #[test]
+    fn test_advance_phase_sets_is_month_when_field_name_is_month() {
+        // When a new-field editor advances from name→value phase
+        // and field_name == "month", App should set is_month.
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::OpenDetail); // enter detail
+        // Inject a new-field editor with "month" as the name
+        use crate::tui::components::field_editor::FieldEditorState;
+        let mut editor = FieldEditorState::new_field();
+        editor.field_name = "month".to_string();
+        editor.name_cursor = 5;
+        app.field_editor_state = Some(editor);
+        app.mode = InputMode::Editing;
+        // ConfirmEdit while in name phase → advance to value phase
+        app.handle_action(Action::ConfirmEdit);
+        // After advancing, is_month should be true
+        let is_month = app.field_editor_state.as_ref().map(|e| e.is_month).unwrap_or(false);
+        assert!(is_month, "is_month should be set after phase transition to 'month' field");
+    }
+
     // ── Toggle / show_groups init ────────────────────────────────────────────
 
     #[test]

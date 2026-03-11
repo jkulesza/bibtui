@@ -211,6 +211,52 @@ mod tests {
         d.toggle_selected(); // should not panic
     }
 
+    // ── toggle_selected on GroupAssign cycling ──
+
+    #[test]
+    fn test_toggle_selected_second_item() {
+        let groups = vec![
+            ("Physics".into(), false),
+            ("Chemistry".into(), false),
+        ];
+        let mut d = DialogState::group_assign(groups);
+        d.select(1);
+        d.toggle_selected();
+        if let DialogKind::GroupAssign { groups } = &d.kind {
+            assert!(!groups[0].1);
+            assert!(groups[1].1);
+        } else {
+            panic!("wrong kind");
+        }
+    }
+
+    #[test]
+    fn test_toggle_selected_toggles_back() {
+        let groups = vec![("Physics".into(), true)];
+        let mut d = DialogState::group_assign(groups);
+        d.toggle_selected();
+        if let DialogKind::GroupAssign { groups } = &d.kind {
+            assert!(!groups[0].1, "should toggle from true to false");
+        }
+    }
+
+    // ── select / selected edge cases ──
+
+    #[test]
+    fn test_selected_default_is_zero() {
+        let d = DialogState::confirm("T", "M");
+        assert_eq!(d.selected(), 0);
+    }
+
+    #[test]
+    fn test_select_and_selected_roundtrip() {
+        let mut d = DialogState::type_picker(vec!["A".into(), "B".into(), "C".into(), "D".into()]);
+        for i in 0..4 {
+            d.select(i);
+            assert_eq!(d.selected(), i);
+        }
+    }
+
     // ── truncate_to ──
 
     #[test]

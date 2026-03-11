@@ -394,6 +394,259 @@ mod tests {
         e.delete();
         assert_eq!(e.field_name, "b");
     }
+
+    // ── is_month flag ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_is_month_true_for_month_field() {
+        let e = FieldEditorState::new("month", "jan");
+        assert!(e.is_month, "is_month should be true when field_name is 'month'");
+    }
+
+    #[test]
+    fn test_is_month_true_case_insensitive() {
+        let e = FieldEditorState::new("Month", "jan");
+        assert!(e.is_month, "is_month should be case-insensitive");
+        let e2 = FieldEditorState::new("MONTH", "jan");
+        assert!(e2.is_month, "is_month should be case-insensitive (uppercase)");
+    }
+
+    #[test]
+    fn test_is_month_false_for_title() {
+        let e = FieldEditorState::new("title", "My Paper");
+        assert!(!e.is_month, "is_month should be false for non-month fields");
+    }
+
+    #[test]
+    fn test_is_month_false_for_year() {
+        let e = FieldEditorState::new("year", "2020");
+        assert!(!e.is_month, "is_month should be false for 'year' field");
+    }
+
+    #[test]
+    fn test_for_input_is_not_month() {
+        let e = FieldEditorState::for_input("month");
+        assert!(!e.is_month, "for_input should never set is_month");
+    }
+
+    #[test]
+    fn test_for_path_is_not_month() {
+        let e = FieldEditorState::for_path("month", "");
+        assert!(!e.is_month, "for_path should never set is_month");
+    }
+
+    #[test]
+    fn test_new_field_is_not_month() {
+        let e = FieldEditorState::new_field();
+        assert!(!e.is_month, "new_field should never set is_month");
+    }
+
+    // ── month_navigate ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_month_navigate_forward() {
+        let mut e = FieldEditorState::new("month", "jan");
+        e.month_navigate(1);
+        assert_eq!(e.value, "feb");
+        e.month_navigate(1);
+        assert_eq!(e.value, "mar");
+    }
+
+    #[test]
+    fn test_month_navigate_backward() {
+        let mut e = FieldEditorState::new("month", "mar");
+        e.month_navigate(-1);
+        assert_eq!(e.value, "feb");
+        e.month_navigate(-1);
+        assert_eq!(e.value, "jan");
+    }
+
+    #[test]
+    fn test_month_navigate_wraps_dec_to_jan() {
+        let mut e = FieldEditorState::new("month", "dec");
+        e.month_navigate(1);
+        assert_eq!(e.value, "jan");
+    }
+
+    #[test]
+    fn test_month_navigate_wraps_jan_to_dec() {
+        let mut e = FieldEditorState::new("month", "jan");
+        e.month_navigate(-1);
+        assert_eq!(e.value, "dec");
+    }
+
+    #[test]
+    fn test_month_navigate_row_down_6() {
+        // jan is index 0; +6 should give jul (index 6)
+        let mut e = FieldEditorState::new("month", "jan");
+        e.month_navigate(6);
+        assert_eq!(e.value, "jul");
+    }
+
+    #[test]
+    fn test_month_navigate_row_up_6() {
+        // jul is index 6; -6 should give jan (index 0)
+        let mut e = FieldEditorState::new("month", "jul");
+        e.month_navigate(-6);
+        assert_eq!(e.value, "jan");
+    }
+
+    #[test]
+    fn test_month_navigate_unknown_value_starts_from_jan() {
+        // Unrecognised value → unwrap_or(0) → jan, then +1 → feb
+        let mut e = FieldEditorState::new("month", "spring");
+        e.month_navigate(1);
+        assert_eq!(e.value, "feb");
+    }
+
+    #[test]
+    fn test_month_navigate_sets_cursor_to_end() {
+        let mut e = FieldEditorState::new("month", "jan");
+        e.cursor = 0;
+        e.month_navigate(1);
+        assert_eq!(e.cursor, e.value.len());
+    }
+
+    #[test]
+    fn test_month_navigate_full_cycle() {
+        let mut e = FieldEditorState::new("month", "jan");
+        for _ in 0..12 {
+            e.month_navigate(1);
+        }
+        // After 12 forward steps from jan we should be back at jan
+        assert_eq!(e.value, "jan");
+    }
+
+    // ── ghost_text ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_ghost_text_empty_for_path_editor() {
+        let mut e = FieldEditorState::for_path("file", "");
+        e.completions = vec!["some/path.bib".to_string()];
+        assert_eq!(e.ghost_text(), "", "ghost_text should be empty for path editors");
+    }
+
+    #[test]
+    fn test_ghost_text_empty_when_cursor_not_at_end() {
+        let mut e = FieldEditorState::new("title", "Smi");
+        e.cursor = 1; // cursor in middle
+        e.completions = vec!["Smith, John".to_string()];
+        assert_eq!(e.ghost_text(), "");
+    }
+
+    #[test]
+    fn test_ghost_text_empty_when_no_completions() {
+        let e = FieldEditorState::new("title", "abc");
+        // completions is empty
+        assert_eq!(e.ghost_text(), "");
+    }
+
+    #[test]
+    fn test_ghost_text_empty_when_completion_not_longer() {
+        let mut e = FieldEditorState::new("title", "Smith, John");
+        e.completions = vec!["Smith, John".to_string()]; // same length — no suffix
+        assert_eq!(e.ghost_text(), "");
+    }
+
+    #[test]
+    fn test_ghost_text_name_editing_phase() {
+        let mut e = FieldEditorState::new_field();
+        e.push_char('a');
+        e.push_char('u');
+        // name_cursor now = 2
+        e.completions = vec!["author".to_string()];
+        assert_eq!(e.ghost_text(), "thor");
+    }
+
+    #[test]
+    fn test_ghost_text_name_editing_cursor_not_at_end_is_empty() {
+        let mut e = FieldEditorState::new_field();
+        e.push_char('a');
+        e.push_char('u');
+        e.push_char('t');
+        e.name_cursor = 1; // move cursor back
+        e.completions = vec!["author".to_string()];
+        assert_eq!(e.ghost_text(), "");
+    }
+
+    // ── delete on name-editing path ──────────────────────────────────────────
+
+    #[test]
+    fn test_delete_name_mid_cursor() {
+        let mut e = FieldEditorState::new_field();
+        // field_name = "ab", cursor at 1 → delete 'b'
+        e.push_char('a');
+        e.push_char('b');
+        e.name_cursor = 1;
+        e.delete();
+        assert_eq!(e.field_name, "a");
+        assert_eq!(e.name_cursor, 1);
+    }
+
+    #[test]
+    fn test_delete_name_at_end_is_noop() {
+        let mut e = FieldEditorState::new_field();
+        e.push_char('a');
+        // name_cursor = 1 = field_name.len() → nothing to delete
+        e.delete();
+        assert_eq!(e.field_name, "a");
+    }
+
+    // ── cursor_left / cursor_right on name-editing path ──────────────────────
+
+    #[test]
+    fn test_cursor_left_name_editing() {
+        let mut e = FieldEditorState::new_field();
+        e.push_char('a');
+        e.push_char('b');
+        e.cursor_left();
+        assert_eq!(e.name_cursor, 1);
+    }
+
+    #[test]
+    fn test_cursor_left_name_editing_at_start_clamps() {
+        let mut e = FieldEditorState::new_field();
+        e.push_char('a');
+        e.name_cursor = 0;
+        e.cursor_left();
+        assert_eq!(e.name_cursor, 0);
+    }
+
+    #[test]
+    fn test_cursor_right_name_editing() {
+        let mut e = FieldEditorState::new_field();
+        e.push_char('a');
+        e.push_char('b');
+        e.name_cursor = 0;
+        e.cursor_right();
+        assert_eq!(e.name_cursor, 1);
+    }
+
+    #[test]
+    fn test_cursor_right_name_editing_at_end_clamps() {
+        let mut e = FieldEditorState::new_field();
+        e.push_char('a');
+        // name_cursor already at end
+        e.cursor_right();
+        assert_eq!(e.name_cursor, 1);
+    }
+
+    // ── cursor_home / cursor_end on name-editing path (already tested above in
+    //    test_cursor_home_end_name, but add explicit coverage for the method ──
+
+    #[test]
+    fn test_advance_phase_sets_editing_name_false() {
+        let mut e = FieldEditorState::new_field();
+        e.push_char('m');
+        e.push_char('o');
+        e.push_char('n');
+        e.push_char('t');
+        e.push_char('h');
+        assert!(e.advance_phase());
+        assert!(!e.editing_name);
+        // Note: advance_phase itself does not set is_month — that is done
+        // by App::confirm_edit after the phase transition.
+    }
 }
 
 const MONTHS: [&str; 12] = [
