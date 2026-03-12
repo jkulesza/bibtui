@@ -68,7 +68,7 @@ fn map_normal_key(key: KeyEvent, last_key: Option<char>) -> Option<Action> {
         KeyCode::Tab => Some(Action::ToggleGroups),
         KeyCode::Char('h') | KeyCode::Left => Some(Action::FocusGroups),
         KeyCode::Char('l') | KeyCode::Right => Some(Action::FocusList),
-        KeyCode::Char(' ') => Some(Action::SelectGroup),
+        KeyCode::Char(' ') => Some(Action::ShowCitationPreview),
         KeyCode::Char('B') => Some(Action::ToggleBraces),
         KeyCode::Char('L') => Some(Action::ToggleLatex),
         KeyCode::Char('o') => Some(Action::OpenFile),

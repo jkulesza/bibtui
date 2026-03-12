@@ -72,7 +72,7 @@ pub enum Action {
     ToggleGroups,
     FocusGroups,
     FocusList,
-    SelectGroup,
+    ShowCitationPreview,
     EnterCommand,
     ExitCommand,
     ExecuteCommand,
@@ -514,12 +514,9 @@ impl App {
             Action::FocusList => {
                 self.focus = Focus::List;
             }
-            Action::SelectGroup => {
-                if self.focus == Focus::List {
-                    self.show_citation_preview();
-                } else {
-                    self.select_group();
-                }
+            // fixes #11: Space only previews, never selects group
+            Action::ShowCitationPreview => {
+                self.show_citation_preview();
             }
             Action::CloseCitationPreview => {
                 self.citation_preview_state = None;
