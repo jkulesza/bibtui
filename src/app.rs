@@ -370,8 +370,18 @@ impl App {
         self.status_message = None;
 
         match action {
-            Action::MoveDown => self.move_cursor(1),
-            Action::MoveUp => self.move_cursor(-1),
+            Action::MoveDown => {
+                self.move_cursor(1);
+                if self.citation_preview_state.is_some() {
+                    self.show_citation_preview();
+                }
+            }
+            Action::MoveUp => {
+                self.move_cursor(-1);
+                if self.citation_preview_state.is_some() {
+                    self.show_citation_preview();
+                }
+            }
             Action::MoveToTop => self.move_to_top(),
             Action::MoveToBottom => self.move_to_bottom(),
             Action::PageDown => self.move_cursor(20),

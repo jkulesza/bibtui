@@ -11,7 +11,7 @@ pub fn map_key(key: KeyEvent, mode: &InputMode, last_key: Option<char>) -> Optio
         InputMode::Editing => map_editing_key(key),
         InputMode::Dialog => map_dialog_key(key),
         InputMode::Command => map_command_key(key),
-        InputMode::CitationPreview => Some(Action::CloseCitationPreview),
+        InputMode::CitationPreview => map_citation_preview_key(key),
         InputMode::Settings => map_settings_key(key),
     }
 }
@@ -176,6 +176,14 @@ fn map_settings_key(key: KeyEvent) -> Option<Action> {
         KeyCode::Char('x') => Some(Action::SettingsDeleteFieldGroup),
         KeyCode::Char('r') => Some(Action::SettingsRenameFieldGroup),
         _ => None,
+    }
+}
+
+fn map_citation_preview_key(key: KeyEvent) -> Option<Action> {
+    match key.code {
+        KeyCode::Char('j') | KeyCode::Down => Some(Action::MoveDown),
+        KeyCode::Char('k') | KeyCode::Up => Some(Action::MoveUp),
+        _ => Some(Action::CloseCitationPreview),
     }
 }
 

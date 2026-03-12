@@ -39,7 +39,7 @@ pub fn render_citation_preview(
                 format!(" {} ", state.style_name),
                 theme.label,
             ),
-            Span::styled(" Space/Esc: close ", theme.label),
+            Span::styled(" j/k: navigate  Space/Esc: close ", theme.label),
         ]));
 
     let inner = block.inner(popup_area);
