@@ -5,6 +5,8 @@
 
 A terminal UI BibTeX manager written in Rust. Designed as a lightweight, keyboard-driven replacement for JabRef.
 
+![bibtui entry list showing groups sidebar, fuzzy search, and entry detail columns](assets/screenshot.png)
+
 ## Features
 
 - Fast fuzzy search across all fields with field-specific syntax (`author:smith year:2020`)
