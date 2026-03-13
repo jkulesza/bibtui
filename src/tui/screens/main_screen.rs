@@ -158,6 +158,11 @@ pub fn render_main_screen(f: &mut Frame, app: &mut App) {
             f, area, vrs, &app.theme,
         );
     }
+
+    // Help overlay
+    if let Some(ref state) = app.help_state {
+        crate::tui::components::help::render_help(f, area, state, &app.theme);
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

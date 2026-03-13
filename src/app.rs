@@ -15,6 +15,7 @@ use crate::bib::jabref::serialize_group_tree;
 use crate::bib::model::*;
 use crate::util::open::{effective_file_dir, parse_file_field, serialize_file_field};
 use crate::tui::components::citation_preview::CitationPreviewState;
+use crate::tui::components::help::HelpState;
 use crate::tui::components::validate_results::{Violation, ValidateResultsState};
 use crate::util::citation::format_citation;
 use crate::bib::parser::{build_database, parse_bib_file};
@@ -116,6 +117,8 @@ pub enum Action {
     // Validate
     Validate,
     CloseValidateResults,
+    // Help
+    CloseHelp,
 }
 
 /// A single reversible operation stored on the undo stack.
@@ -177,6 +180,7 @@ pub struct App {
     pub citation_preview_state: Option<CitationPreviewState>,
     pub settings_state: Option<SettingsState>,
     pub validate_results_state: Option<ValidateResultsState>,
+    pub help_state: Option<HelpState>,
 
     // Search
     pub search_engine: SearchEngine,
@@ -265,6 +269,7 @@ impl App {
             citation_preview_state: None,
             settings_state: None,
             validate_results_state: None,
+            help_state: None,
             search_engine: SearchEngine::new(),
             filtered_indices: None,
             sorted_keys,
@@ -318,6 +323,7 @@ impl App {
             citation_preview_state: None,
             settings_state: None,
             validate_results_state: None,
+            help_state: None,
             search_engine: SearchEngine::new(),
             filtered_indices: None,
             sorted_keys,
@@ -627,9 +633,12 @@ impl App {
                 }
             }
             Action::ShowHelp => {
-                self.status_message = Some(
-                    "j/k:nav  /:search  Enter:detail  a:add  dd:del  D:dup  yy:yank  o:file  w:web  B:braces  L:latex  Tab:groups  h/l:focus  a/dd:group(grp focus)  g:assign groups(detail)  u:undo  :w:save  :q:quit".to_string(),
-                );
+                self.help_state = Some(HelpState);
+                self.mode = InputMode::Help;
+            }
+            Action::CloseHelp => {
+                self.help_state = None;
+                self.mode = InputMode::Normal;
             }
             Action::TitlecaseField => self.titlecase_selected_field(),
             Action::NormalizeAuthor => self.normalize_author_field(),
@@ -3781,10 +3790,14 @@ mod tests {
     // ── ShowHelp ─────────────────────────────────────────────────────────────
 
     #[test]
-    fn test_show_help_sets_status() {
+    fn test_show_help_opens_modal() {
         let (mut app, _tmp) = make_app();
         app.handle_action(Action::ShowHelp);
-        assert!(app.status_message.is_some());
+        assert!(app.help_state.is_some());
+        assert_eq!(app.mode, InputMode::Help);
+        app.handle_action(Action::CloseHelp);
+        assert!(app.help_state.is_none());
+        assert_eq!(app.mode, InputMode::Normal);
     }
 
     // ── Close citation preview ────────────────────────────────────────────────

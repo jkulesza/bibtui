@@ -14,6 +14,7 @@ pub fn map_key(key: KeyEvent, mode: &InputMode, last_key: Option<char>) -> Optio
         InputMode::CitationPreview => map_citation_preview_key(key, last_key),
         InputMode::Settings => map_settings_key(key),
         InputMode::ValidateResults => map_validate_results_key(key),
+        InputMode::Help => Some(Action::CloseHelp),
     }
 }
 
@@ -28,6 +29,7 @@ pub enum InputMode {
     CitationPreview,
     Settings,
     ValidateResults,
+    Help,
 }
 
 fn map_normal_key(key: KeyEvent, last_key: Option<char>) -> Option<Action> {
