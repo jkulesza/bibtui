@@ -287,6 +287,77 @@ impl SettingsState {
                 value: SettingValue::Str(config.theme.border_color.clone()),
                 default: SettingValue::Str(defaults.theme.border_color.clone()),
             },
+            // ── Save Actions ──
+            SettingItem {
+                id: "save_actions.escape_underscores".into(),
+                label: "escape_underscores".into(),
+                description: "Escape bare underscores (_) as \\_ in text fields on save (math mode is skipped).".into(),
+                value: SettingValue::Bool(config.save.save_action_escape_underscores),
+                default: SettingValue::Bool(defaults.save.save_action_escape_underscores),
+            },
+            SettingItem {
+                id: "save_actions.escape_ampersands".into(),
+                label: "escape_ampersands".into(),
+                description: "Escape bare ampersands (&) as \\& in text and name fields on save.".into(),
+                value: SettingValue::Bool(config.save.save_action_escape_ampersands),
+                default: SettingValue::Bool(defaults.save.save_action_escape_ampersands),
+            },
+            SettingItem {
+                id: "save_actions.cleanup_url".into(),
+                label: "cleanup_url".into(),
+                description: "Decode percent-encoded characters in the 'url' field on save (e.g. %2F → /).".into(),
+                value: SettingValue::Bool(config.save.save_action_cleanup_url),
+                default: SettingValue::Bool(defaults.save.save_action_cleanup_url),
+            },
+            SettingItem {
+                id: "save_actions.latex_cleanup".into(),
+                label: "latex_cleanup".into(),
+                description: "Escape bare % signs as \\% and collapse multiple spaces in text fields on save.".into(),
+                value: SettingValue::Bool(config.save.save_action_latex_cleanup),
+                default: SettingValue::Bool(defaults.save.save_action_latex_cleanup),
+            },
+            SettingItem {
+                id: "save_actions.normalize_date".into(),
+                label: "normalize_date".into(),
+                description: "Normalise the 'date' field to ISO 8601 format (yyyy-MM-dd or yyyy-MM) on save.".into(),
+                value: SettingValue::Bool(config.save.save_action_normalize_date),
+                default: SettingValue::Bool(defaults.save.save_action_normalize_date),
+            },
+            SettingItem {
+                id: "save_actions.normalize_month".into(),
+                label: "normalize_month".into(),
+                description: "Normalise the 'month' field to a three-letter BibTeX abbreviation (jan, feb, …) on save.".into(),
+                value: SettingValue::Bool(config.save.save_action_normalize_month),
+                default: SettingValue::Bool(defaults.save.save_action_normalize_month),
+            },
+            SettingItem {
+                id: "save_actions.normalize_names_of_persons".into(),
+                label: "normalize_names_of_persons".into(),
+                description: "Normalise author and editor names to 'Last, First' form on save.".into(),
+                value: SettingValue::Bool(config.save.save_action_normalize_names_of_persons),
+                default: SettingValue::Bool(defaults.save.save_action_normalize_names_of_persons),
+            },
+            SettingItem {
+                id: "save_actions.normalize_page_numbers".into(),
+                label: "normalize_page_numbers".into(),
+                description: "Normalise page ranges to double-hyphen format (1-5 → 1--5) on save.".into(),
+                value: SettingValue::Bool(config.save.save_action_normalize_page_numbers),
+                default: SettingValue::Bool(defaults.save.save_action_normalize_page_numbers),
+            },
+            SettingItem {
+                id: "save_actions.ordinals_to_superscript".into(),
+                label: "ordinals_to_superscript".into(),
+                description: "Convert ordinal suffixes to LaTeX superscripts on save (1st → 1\\textsuperscript{st}).".into(),
+                value: SettingValue::Bool(config.save.save_action_ordinals_to_superscript),
+                default: SettingValue::Bool(defaults.save.save_action_ordinals_to_superscript),
+            },
+            SettingItem {
+                id: "save_actions.unicode_to_latex".into(),
+                label: "unicode_to_latex".into(),
+                description: "Convert Unicode characters to LaTeX equivalents on save (é → {\\'e}, ü → {\\\"u}).".into(),
+                value: SettingValue::Bool(config.save.save_action_unicode_to_latex),
+                default: SettingValue::Bool(defaults.save.save_action_unicode_to_latex),
+            },
         ];
 
         // ── Citekey Templates (one item per standard entry type) ──
@@ -326,7 +397,18 @@ impl SettingsState {
         //                                20  theme.header_fg
         //                                21  theme.search_match
         //                                22  theme.border_color
-        //                                23+ citekey templates
+        //  Save Actions (23–32):
+        //                                23  escape_underscores
+        //                                24  escape_ampersands
+        //                                25  cleanup_url
+        //                                26  latex_cleanup
+        //                                27  normalize_date
+        //                                28  normalize_month
+        //                                29  normalize_names_of_persons
+        //                                30  normalize_page_numbers
+        //                                31  ordinals_to_superscript
+        //                                32  unicode_to_latex
+        //                                33+ citekey templates
         let mut rows: Vec<SettingRow> = vec![
             SettingRow::Section("General"),
             SettingRow::Item(11), // bib_file
@@ -345,6 +427,17 @@ impl SettingsState {
             SettingRow::Item(7),  // align_fields
             SettingRow::Item(8),  // field_order
             SettingRow::Item(9),  // sync_filenames
+            SettingRow::Section("Save Actions"),
+            SettingRow::Item(23), // escape_underscores
+            SettingRow::Item(24), // escape_ampersands
+            SettingRow::Item(25), // cleanup_url
+            SettingRow::Item(26), // latex_cleanup
+            SettingRow::Item(27), // normalize_date
+            SettingRow::Item(28), // normalize_month
+            SettingRow::Item(29), // normalize_names_of_persons
+            SettingRow::Item(30), // normalize_page_numbers
+            SettingRow::Item(31), // ordinals_to_superscript
+            SettingRow::Item(32), // unicode_to_latex
             SettingRow::Section("Citation"),
             SettingRow::Item(10), // style
             SettingRow::Section("Titlecase"),
@@ -619,6 +712,36 @@ impl SettingsState {
                         words.sort_unstable();
                         config.titlecase.stop_words = words;
                     }
+                }
+                "save_actions.escape_underscores" => {
+                    if let SettingValue::Bool(v) = item.value { config.save.save_action_escape_underscores = v; }
+                }
+                "save_actions.escape_ampersands" => {
+                    if let SettingValue::Bool(v) = item.value { config.save.save_action_escape_ampersands = v; }
+                }
+                "save_actions.cleanup_url" => {
+                    if let SettingValue::Bool(v) = item.value { config.save.save_action_cleanup_url = v; }
+                }
+                "save_actions.latex_cleanup" => {
+                    if let SettingValue::Bool(v) = item.value { config.save.save_action_latex_cleanup = v; }
+                }
+                "save_actions.normalize_date" => {
+                    if let SettingValue::Bool(v) = item.value { config.save.save_action_normalize_date = v; }
+                }
+                "save_actions.normalize_month" => {
+                    if let SettingValue::Bool(v) = item.value { config.save.save_action_normalize_month = v; }
+                }
+                "save_actions.normalize_names_of_persons" => {
+                    if let SettingValue::Bool(v) = item.value { config.save.save_action_normalize_names_of_persons = v; }
+                }
+                "save_actions.normalize_page_numbers" => {
+                    if let SettingValue::Bool(v) = item.value { config.save.save_action_normalize_page_numbers = v; }
+                }
+                "save_actions.ordinals_to_superscript" => {
+                    if let SettingValue::Bool(v) = item.value { config.save.save_action_ordinals_to_superscript = v; }
+                }
+                "save_actions.unicode_to_latex" => {
+                    if let SettingValue::Bool(v) = item.value { config.save.save_action_unicode_to_latex = v; }
                 }
                 "theme.selected_bg"  => { if let SettingValue::Str(v) = &item.value { config.theme.selected_bg  = v.clone(); } }
                 "theme.selected_fg"  => { if let SettingValue::Str(v) = &item.value { config.theme.selected_fg  = v.clone(); } }

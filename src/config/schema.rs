@@ -128,10 +128,30 @@ pub struct EntryTypeConfig {
 pub struct SaveConfig {
     pub align_fields: bool,
     pub field_order: String,
-    pub actions: Vec<SaveAction>,
     /// Rename attached files to match the citation key on save.
     /// Single file: `citekey.ext`. Multiple files: `citekey_1.ext`, `citekey_2.ext`, …
     pub sync_filenames: bool,
+    // ── Save actions (applied to all entries on save) ────────────────────────
+    /// Escape bare `_` as `\_` in text fields (skips math mode).
+    pub save_action_escape_underscores: bool,
+    /// Escape bare `&` as `\&` in text fields.
+    pub save_action_escape_ampersands: bool,
+    /// Decode percent-encoded characters in `url` fields.
+    pub save_action_cleanup_url: bool,
+    /// Escape bare `%` as `\%` and collapse multiple spaces in text fields.
+    pub save_action_latex_cleanup: bool,
+    /// Normalise the `date` field to ISO 8601 (`yyyy-MM-dd` / `yyyy-MM`).
+    pub save_action_normalize_date: bool,
+    /// Normalise the `month` field to a three-letter BibTeX abbreviation.
+    pub save_action_normalize_month: bool,
+    /// Normalise person names to "Last, First" form in `author` / `editor` fields.
+    pub save_action_normalize_names_of_persons: bool,
+    /// Normalise page ranges to double-hyphen format (`1-5` → `1--5`).
+    pub save_action_normalize_page_numbers: bool,
+    /// Convert ordinal suffixes to LaTeX superscripts (`1st` → `1\textsuperscript{st}`).
+    pub save_action_ordinals_to_superscript: bool,
+    /// Convert Unicode characters to their LaTeX equivalents (`é` → `{\'e}`).
+    pub save_action_unicode_to_latex: bool,
 }
 
 impl Default for SaveConfig {
@@ -139,25 +159,19 @@ impl Default for SaveConfig {
         SaveConfig {
             align_fields: true,
             field_order: "jabref".to_string(),
-            actions: vec![
-                SaveAction {
-                    field: "month".to_string(),
-                    action: "normalize_month".to_string(),
-                },
-                SaveAction {
-                    field: "pages".to_string(),
-                    action: "normalize_page_numbers".to_string(),
-                },
-            ],
             sync_filenames: false,
+            save_action_escape_underscores: true,
+            save_action_escape_ampersands: true,
+            save_action_cleanup_url: true,
+            save_action_latex_cleanup: true,
+            save_action_normalize_date: true,
+            save_action_normalize_month: true,
+            save_action_normalize_names_of_persons: true,
+            save_action_normalize_page_numbers: true,
+            save_action_ordinals_to_superscript: true,
+            save_action_unicode_to_latex: true,
         }
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SaveAction {
-    pub field: String,
-    pub action: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

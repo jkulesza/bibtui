@@ -50,17 +50,62 @@ pub fn normalize_author_names(s: &str) -> String {
         .join(" and ")
 }
 
+/// Returns true if `name` contains a comma at brace depth 0.
+fn has_comma_at_depth_zero(name: &str) -> bool {
+    let mut depth = 0usize;
+    for ch in name.chars() {
+        match ch {
+            '{' => depth += 1,
+            '}' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => return true,
+            _ => {}
+        }
+    }
+    false
+}
+
+/// Split a name string on whitespace, treating `{...}` groups as atomic tokens.
+fn tokenize_name(name: &str) -> Vec<String> {
+    let mut tokens: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut depth = 0usize;
+
+    for ch in name.chars() {
+        match ch {
+            '{' => {
+                depth += 1;
+                current.push(ch);
+            }
+            '}' => {
+                depth = depth.saturating_sub(1);
+                current.push(ch);
+            }
+            ' ' | '\t' if depth == 0 => {
+                if !current.is_empty() {
+                    tokens.push(current.clone());
+                    current.clear();
+                }
+            }
+            _ => current.push(ch),
+        }
+    }
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+    tokens
+}
+
 fn normalize_one(name: &str) -> String {
-    if name.contains(',') {
+    if has_comma_at_depth_zero(name) {
         // Already in "Last, First" form
         name.to_string()
     } else {
-        let parts: Vec<&str> = name.split_whitespace().collect();
+        let parts = tokenize_name(name);
         match parts.len() {
             0 => String::new(),
             1 => name.to_string(),
             _ => {
-                let last = *parts.last().unwrap();
+                let last = parts.last().unwrap().clone();
                 let first = parts[..parts.len() - 1].join(" ");
                 format!("{}, {}", last, first)
             }
@@ -117,6 +162,25 @@ mod tests {
         assert_eq!(
             normalize_author_names("Smith, John and Alice Jones"),
             "Smith, John and Jones, Alice"
+        );
+    }
+
+    #[test]
+    fn test_normalize_brace_protected_name() {
+        // Names with brace-protected suffixes must not be split on spaces inside {}
+        assert_eq!(normalize_author_names("R. J. {McConn Jr.}"), "{McConn Jr.}, R. J.");
+        assert_eq!(normalize_author_names("R. G. {Williams III}"), "{Williams III}, R. G.");
+        // Multiple authors, some with braces
+        assert_eq!(
+            normalize_author_names(
+                "R. J. {McConn Jr.} and C. J. Gesh and R. G. {Williams III}"
+            ),
+            "{McConn Jr.}, R. J. and Gesh, C. J. and {Williams III}, R. G."
+        );
+        // Already normalized with brace — leave unchanged
+        assert_eq!(
+            normalize_author_names("{McConn Jr.}, R. J."),
+            "{McConn Jr.}, R. J."
         );
     }
 }

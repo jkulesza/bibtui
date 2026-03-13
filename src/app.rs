@@ -6,7 +6,11 @@ use crossterm::event::{Event, KeyCode, KeyEvent};
 use indexmap::IndexMap;
 
 use crate::bib::citekey::generate_citekey;
-use crate::bib::normalize::normalize_month;
+use crate::bib::normalize::{
+    cleanup_url, escape_ampersands, escape_underscores, latex_cleanup,
+    normalize_date, normalize_month, normalize_page_numbers, ordinals_to_superscript,
+    unicode_to_latex,
+};
 use crate::bib::jabref::serialize_group_tree;
 use crate::bib::model::*;
 use crate::util::open::{effective_file_dir, parse_file_field, serialize_file_field};
@@ -2222,6 +2226,9 @@ impl App {
         // Rename attached files to match citation keys before serialising.
         self.sync_filenames();
 
+        // Apply save actions (field normalisations) to all entries.
+        self.apply_save_actions();
+
         // Backup — only when the file already exists (skip for brand-new libraries).
         if self.config.general.backup_on_save && self.bib_path.exists() {
             let backup_path = self.bib_path.with_extension("bib.bak");
@@ -2248,6 +2255,118 @@ impl App {
             }
             Err(e) => {
                 self.status_message = Some(format!("Save failed: {}", e));
+            }
+        }
+    }
+
+    /// Apply the enabled save actions to every entry in the database.
+    ///
+    /// Entries whose fields change are marked dirty so they are re-serialised.
+    /// Actions are applied in a stable order: unicode conversion first (so that
+    /// subsequent escaping acts on LaTeX sequences), then escaping, cleanup,
+    /// normalisation, and finally ordinal superscripts.
+    fn apply_save_actions(&mut self) {
+        // Text fields that contain natural-language prose / titles.
+        const TEXT: &[&str] = &[
+            "abstract", "addendum", "address", "afterword", "annote",
+            "booktitle", "chapter", "edition", "institution", "journal",
+            "keywords", "language", "note", "organization", "publisher",
+            "school", "series", "subtitle", "title", "titleaddon", "type",
+            "venue",
+        ];
+        // Person-name fields.
+        const NAMES: &[&str] = &[
+            "author", "editor", "editora", "editorb", "editorc",
+            "bookauthor", "afterword", "translator",
+        ];
+
+        let cfg = self.config.save.clone();
+        let keys: Vec<String> = self.database.entries.keys().cloned().collect();
+
+        for key in &keys {
+            let entry = match self.database.entries.get_mut(key) {
+                Some(e) => e,
+                None => continue,
+            };
+            let mut changed = false;
+
+            // Helper: apply a &str → String function to a named field.
+            macro_rules! apply {
+                ($field:expr, $fn:expr) => {{
+                    if let Some(val) = entry.fields.get($field) {
+                        let new_val = $fn(val.as_str());
+                        if new_val != *val {
+                            entry.fields.insert($field.to_string(), new_val);
+                            changed = true;
+                        }
+                    }
+                }};
+            }
+
+            // 1. Unicode → LaTeX (run first so later escaping sees LaTeX text)
+            if cfg.save_action_unicode_to_latex {
+                for f in TEXT.iter().copied().chain(NAMES.iter().copied()) {
+                    apply!(f, unicode_to_latex);
+                }
+            }
+
+            // 2. Escape underscores
+            if cfg.save_action_escape_underscores {
+                for f in TEXT.iter().copied() {
+                    apply!(f, escape_underscores);
+                }
+            }
+
+            // 3. Escape ampersands
+            if cfg.save_action_escape_ampersands {
+                for f in TEXT.iter().copied().chain(NAMES.iter().copied()) {
+                    apply!(f, escape_ampersands);
+                }
+            }
+
+            // 4. LaTeX cleanup (% escaping, space collapsing)
+            if cfg.save_action_latex_cleanup {
+                for f in TEXT.iter().copied() {
+                    apply!(f, latex_cleanup);
+                }
+            }
+
+            // 5. URL cleanup
+            if cfg.save_action_cleanup_url {
+                apply!("url", cleanup_url);
+            }
+
+            // 6. Ordinals to superscript
+            if cfg.save_action_ordinals_to_superscript {
+                for f in TEXT.iter().copied() {
+                    apply!(f, ordinals_to_superscript);
+                }
+            }
+
+            // 7. Normalise date
+            if cfg.save_action_normalize_date {
+                apply!("date", normalize_date);
+            }
+
+            // 8. Normalise month
+            if cfg.save_action_normalize_month {
+                apply!("month", normalize_month);
+            }
+
+            // 9. Normalise page numbers
+            if cfg.save_action_normalize_page_numbers {
+                apply!("pages", normalize_page_numbers);
+            }
+
+            // 10. Normalise person names
+            if cfg.save_action_normalize_names_of_persons {
+                for f in NAMES.iter().copied() {
+                    apply!(f, crate::util::author::normalize_author_names);
+                }
+            }
+
+            if changed {
+                entry.dirty = true;
             }
         }
     }

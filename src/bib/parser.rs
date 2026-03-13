@@ -162,9 +162,9 @@ impl<'a> Parser<'a> {
 
         if self.peek() != Some('{') {
             bail!(
-                "Expected '{{' after @{} at byte offset {}",
+                "Expected '{{' after @{} at line {}",
                 entry_type,
-                start
+                self.line_at(start)
             );
         }
         self.advance(1);
@@ -196,7 +196,7 @@ impl<'a> Parser<'a> {
             }
 
             if self.at_end() {
-                bail!("Unexpected end of input in entry {}", citation_key);
+                bail!("Unexpected end of input in entry {} at line {}", citation_key, self.current_line());
             }
 
             // Read field name
@@ -218,9 +218,10 @@ impl<'a> Parser<'a> {
             // Expect '='
             if self.peek() != Some('=') {
                 bail!(
-                    "Expected '=' after field name '{}' in entry {}",
+                    "Expected '=' after field name '{}' in entry {} at line {}",
                     field_name,
-                    citation_key
+                    citation_key,
+                    self.current_line()
                 );
             }
             self.advance(1);
@@ -309,7 +310,7 @@ impl<'a> Parser<'a> {
                     .to_string();
                 Ok(RawFieldValue::Bare(bare))
             }
-            other => bail!("Unexpected character {:?} in field value", other),
+            other => bail!("Unexpected character {:?} in field value at line {}", other, self.current_line()),
         }
     }
 
@@ -347,7 +348,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        bail!("Unterminated braced content starting at byte offset {}", start);
+        bail!("Unterminated braced content starting at line {}", self.line_at(start));
     }
 
     /// Read content inside quotes, handling escaped quotes. Consumes the closing '"'.
@@ -374,7 +375,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        bail!("Unterminated quoted string starting at byte offset {}", start);
+        bail!("Unterminated quoted string starting at line {}", self.line_at(start));
     }
 
     fn skip_whitespace(&mut self) {
@@ -383,6 +384,19 @@ impl<'a> Parser<'a> {
 
     fn skip_inline_whitespace(&mut self) {
         self.take_while(|c| c == ' ' || c == '\t');
+    }
+
+    /// Return the 1-based line number corresponding to a byte offset in the input.
+    fn line_at(&self, byte_offset: usize) -> usize {
+        self.input[..byte_offset.min(self.input.len())]
+            .chars()
+            .filter(|&c| c == '\n')
+            .count()
+            + 1
+    }
+
+    fn current_line(&self) -> usize {
+        self.line_at(self.pos)
     }
 }
 

@@ -148,12 +148,30 @@ save:
   # Field ordering strategy: 'jabref' preserves JabRef order; 'alpha' sorts alphabetically
   field_order: jabref
 
-  # Post-save normalization actions (applied to dirty entries only)
-  actions:
-    - field: month
-      action: normalize_month       # jan/Jan/January → jan
-    - field: pages
-      action: normalize_page_numbers # 1--10 or 1-10 → normalised
+  # Rename attached files to match the citation key on save.
+  sync_filenames: false
+
+  # ── Save actions (applied to all entries on save) ──────────────────────────
+  # Escape bare underscores (_) as \_ in text fields (math mode is skipped)
+  save_action_escape_underscores: true
+  # Escape bare ampersands (&) as \& in text and name fields
+  save_action_escape_ampersands: true
+  # Decode percent-encoded characters in the 'url' field (e.g. %2F → /)
+  save_action_cleanup_url: true
+  # Escape bare % signs as \% and collapse multiple spaces in text fields
+  save_action_latex_cleanup: true
+  # Normalise the 'date' field to ISO 8601 (yyyy-MM-dd or yyyy-MM)
+  save_action_normalize_date: true
+  # Normalise the 'month' field to a three-letter BibTeX abbreviation (jan, feb, …)
+  save_action_normalize_month: true
+  # Normalise author and editor names to "Last, First" form
+  save_action_normalize_names_of_persons: true
+  # Normalise page ranges to double-hyphen format (1-5 → 1--5)
+  save_action_normalize_page_numbers: true
+  # Convert ordinal suffixes to LaTeX superscripts (1st → 1\textsuperscript{st})
+  save_action_ordinals_to_superscript: true
+  # Convert Unicode characters to LaTeX equivalents (é → {\'e}, ü → {\"u})
+  save_action_unicode_to_latex: true
 
 theme:
   # Tokyo Night dark palette (hex colours)
