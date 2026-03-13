@@ -11,7 +11,7 @@ pub fn map_key(key: KeyEvent, mode: &InputMode, last_key: Option<char>) -> Optio
         InputMode::Editing => map_editing_key(key),
         InputMode::Dialog => map_dialog_key(key),
         InputMode::Command => map_command_key(key),
-        InputMode::CitationPreview => map_citation_preview_key(key),
+        InputMode::CitationPreview => map_citation_preview_key(key, last_key),
         InputMode::Settings => map_settings_key(key),
     }
 }
@@ -179,10 +179,17 @@ fn map_settings_key(key: KeyEvent) -> Option<Action> {
     }
 }
 
-fn map_citation_preview_key(key: KeyEvent) -> Option<Action> {
+fn map_citation_preview_key(key: KeyEvent, last_key: Option<char>) -> Option<Action> {
     match key.code {
         KeyCode::Char('j') | KeyCode::Down => Some(Action::MoveDown),
         KeyCode::Char('k') | KeyCode::Up => Some(Action::MoveUp),
+        KeyCode::Char('y') => {
+            if last_key == Some('y') {
+                Some(Action::YankCitationPreview)
+            } else {
+                None // Wait for second 'y'
+            }
+        }
         _ => Some(Action::CloseCitationPreview),
     }
 }
@@ -401,6 +408,20 @@ mod tests {
         assert_eq!(
             map_key(key(KeyCode::Char('q')), &InputMode::CitationPreview, None),
             Some(Action::CloseCitationPreview)
+        );
+    }
+
+    #[test]
+    fn test_citation_preview_yy() {
+        // First 'y' returns None (waiting for second)
+        assert_eq!(
+            map_key(key(KeyCode::Char('y')), &InputMode::CitationPreview, None),
+            None
+        );
+        // Second 'y' returns YankCitationPreview
+        assert_eq!(
+            map_key(key(KeyCode::Char('y')), &InputMode::CitationPreview, Some('y')),
+            Some(Action::YankCitationPreview)
         );
     }
 }

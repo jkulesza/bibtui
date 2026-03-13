@@ -90,6 +90,7 @@ pub enum Action {
     OpenFile,
     OpenWeb,
     CloseCitationPreview,
+    YankCitationPreview,
     Undo,
     // Settings screen
     EnterSettings,
@@ -531,6 +532,21 @@ impl App {
             Action::CloseCitationPreview => {
                 self.citation_preview_state = None;
                 self.mode = InputMode::Normal;
+            }
+            Action::YankCitationPreview => {
+                if let Some(state) = &self.citation_preview_state {
+                    let text = state.citation.clone();
+                    let key = state.entry_key.clone();
+                    match crate::util::clipboard::copy_to_clipboard(&text) {
+                        Ok(()) => {
+                            self.status_message =
+                                Some(format!("Copied citation for '{}' to clipboard", key))
+                        }
+                        Err(e) => {
+                            self.status_message = Some(format!("Clipboard error: {}", e))
+                        }
+                    }
+                }
             }
             Action::EnterCommand => {
                 self.mode = InputMode::Command;
