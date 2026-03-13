@@ -166,12 +166,32 @@ pub struct TitlecaseConfig {
     /// Words to reproduce verbatim regardless of position (case-insensitive match).
     /// Defaults to ["MCNP", "OpenMC"].
     pub ignore_words: Vec<String>,
+    /// Words lowercased in title case unless they are the first or last word.
+    /// Defaults to standard English articles, conjunctions, and short prepositions.
+    pub stop_words: Vec<String>,
 }
 
 impl Default for TitlecaseConfig {
     fn default() -> Self {
         TitlecaseConfig {
             ignore_words: vec!["MCNP".to_string(), "OpenMC".to_string()],
+            stop_words: vec![
+                "a", "an", "and", "as", "at",
+                "but", "by",
+                "for",
+                "in",
+                "nor",
+                "of", "off", "on", "or", "out",
+                "per",
+                "so",
+                "the", "to",
+                "up",
+                "via", "vs",
+                "yet",
+            ]
+            .into_iter()
+            .map(str::to_string)
+            .collect(),
         }
     }
 }

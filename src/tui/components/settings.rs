@@ -237,6 +237,13 @@ impl SettingsState {
                 value: SettingValue::Str(config.titlecase.ignore_words.join(", ")),
                 default: SettingValue::Str(defaults.titlecase.ignore_words.join(", ")),
             },
+            SettingItem {
+                id: "titlecase.stop_words".into(),
+                label: "stop_words".into(),
+                description: "Words lowercased in title case unless first or last. Enter as comma-separated list, e.g.: a, an, the, and, or, in, of.".into(),
+                value: SettingValue::Str(config.titlecase.stop_words.join(", ")),
+                default: SettingValue::Str(defaults.titlecase.stop_words.join(", ")),
+            },
             // ── Theme ──
             SettingItem {
                 id: "theme.selected_bg".into(),
@@ -312,13 +319,14 @@ impl SettingsState {
         //  6  display.abbreviate_authors  13  display.default_sort.field
         //                                14  display.default_sort.ascending
         //                                15  titlecase.ignore_words
-        //                                16  theme.selected_bg
-        //                                17  theme.selected_fg
-        //                                18  theme.header_bg
-        //                                19  theme.header_fg
-        //                                20  theme.search_match
-        //                                21  theme.border_color
-        //                                22+ citekey templates
+        //                                16  titlecase.stop_words
+        //                                17  theme.selected_bg
+        //                                18  theme.selected_fg
+        //                                19  theme.header_bg
+        //                                20  theme.header_fg
+        //                                21  theme.search_match
+        //                                22  theme.border_color
+        //                                23+ citekey templates
         let mut rows: Vec<SettingRow> = vec![
             SettingRow::Section("General"),
             SettingRow::Item(11), // bib_file
@@ -341,13 +349,14 @@ impl SettingsState {
             SettingRow::Item(10), // style
             SettingRow::Section("Titlecase"),
             SettingRow::Item(15), // ignore_words
+            SettingRow::Item(16), // stop_words
             SettingRow::Section("Theme"),
-            SettingRow::Item(16), // selected_bg
-            SettingRow::Item(17), // selected_fg
-            SettingRow::Item(18), // header_bg
-            SettingRow::Item(19), // header_fg
-            SettingRow::Item(20), // search_match
-            SettingRow::Item(21), // border_color
+            SettingRow::Item(17), // selected_bg
+            SettingRow::Item(18), // selected_fg
+            SettingRow::Item(19), // header_bg
+            SettingRow::Item(20), // header_fg
+            SettingRow::Item(21), // search_match
+            SettingRow::Item(22), // border_color
             SettingRow::Section("Citekey Templates"),
         ];
         for i in 0..CITEKEY_TYPES.len() {
@@ -526,7 +535,10 @@ impl SettingsState {
     }
 
     /// Apply all current values to a `Config` in place.
-    pub fn apply_to_config(&self, config: &mut Config) {
+    ///
+    /// Some fields (e.g. `titlecase.stop_words`) are normalised (sorted) during
+    /// application; the displayed `SettingValue` is updated to match.
+    pub fn apply_to_config(&mut self, config: &mut Config) {
         for item in &self.items {
             match item.id.as_str() {
                 "general.backup_on_save" => {
@@ -597,6 +609,17 @@ impl SettingsState {
                             .collect();
                     }
                 }
+                "titlecase.stop_words" => {
+                    if let SettingValue::Str(v) = &item.value {
+                        let mut words: Vec<String> = v
+                            .split(',')
+                            .map(|s| s.trim().to_string())
+                            .filter(|s| !s.is_empty())
+                            .collect();
+                        words.sort_unstable();
+                        config.titlecase.stop_words = words;
+                    }
+                }
                 "theme.selected_bg"  => { if let SettingValue::Str(v) = &item.value { config.theme.selected_bg  = v.clone(); } }
                 "theme.selected_fg"  => { if let SettingValue::Str(v) = &item.value { config.theme.selected_fg  = v.clone(); } }
                 "theme.header_bg"    => { if let SettingValue::Str(v) = &item.value { config.theme.header_bg    = v.clone(); } }
@@ -611,6 +634,11 @@ impl SettingsState {
                 }
                 _ => {}
             }
+        }
+        // Sync sorted stop_words back to the displayed SettingValue so the UI
+        // reflects the canonical order without requiring the screen to be reopened.
+        if let Some(item) = self.items.iter_mut().find(|i| i.id == "titlecase.stop_words") {
+            item.value = SettingValue::Str(config.titlecase.stop_words.join(", "));
         }
         // Apply field groups
         config.field_groups = self.field_groups.iter()

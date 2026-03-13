@@ -1269,6 +1269,7 @@ impl App {
                     let converted = crate::util::titlecase::apply_titlecase(
                         &value,
                         &self.config.titlecase.ignore_words,
+                        &self.config.titlecase.stop_words,
                     );
                     if converted != value {
                         self.push_undo(UndoItem::FieldChanged {
