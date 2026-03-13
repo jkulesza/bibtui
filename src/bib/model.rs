@@ -217,7 +217,7 @@ pub struct Group {
     pub group_type: GroupType,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum GroupType {
     AllEntries,
     Static,

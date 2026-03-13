@@ -306,4 +306,119 @@ mod tests {
         assert_eq!(fields[2], "keywords");
         assert_eq!(fields[3], "Nuclear");
     }
+
+    // ── parse_jabref_comment ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_parse_jabref_comment_database_type() {
+        let raw = "@Comment{jabref-meta: databaseType:bibtex;}";
+        let mut meta = JabRefMeta::default();
+        parse_jabref_comment(raw, &mut meta);
+        assert_eq!(meta.database_type.as_deref(), Some("bibtex"));
+    }
+
+    #[test]
+    fn test_parse_jabref_comment_file_directory() {
+        let raw = "@Comment{jabref-meta: fileDirectory:/home/user/papers;}";
+        let mut meta = JabRefMeta::default();
+        parse_jabref_comment(raw, &mut meta);
+        assert_eq!(meta.file_directory.as_deref(), Some("/home/user/papers"));
+    }
+
+    #[test]
+    fn test_parse_jabref_comment_non_jabref_is_ignored() {
+        let raw = "@Comment{This is just a regular comment}";
+        let mut meta = JabRefMeta::default();
+        parse_jabref_comment(raw, &mut meta);
+        assert!(meta.database_type.is_none());
+    }
+
+    #[test]
+    fn test_parse_jabref_comment_unknown_key_stored() {
+        let raw = "@Comment{jabref-meta: someUnknownKey:someValue;}";
+        let mut meta = JabRefMeta::default();
+        parse_jabref_comment(raw, &mut meta);
+        assert!(meta.unknown_meta.contains_key("someUnknownKey")
+            || meta.unknown_meta.contains_key("someunknownkey"));
+    }
+
+    // ── serialize_group_tree ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_serialize_all_entries_group() {
+        let tree = GroupTree {
+            root: GroupNode {
+                group: Group { name: "All Entries".to_string(), group_type: GroupType::AllEntries },
+                children: vec![],
+                expanded: true,
+            },
+        };
+        let out = serialize_group_tree(&tree);
+        assert!(out.contains("AllEntriesGroup:"), "got: {}", out);
+    }
+
+    #[test]
+    fn test_serialize_static_group() {
+        let tree = GroupTree {
+            root: GroupNode {
+                group: Group { name: "All Entries".to_string(), group_type: GroupType::AllEntries },
+                children: vec![GroupNode {
+                    group: Group { name: "MyGroup".to_string(), group_type: GroupType::Static },
+                    children: vec![],
+                    expanded: false,
+                }],
+                expanded: true,
+            },
+        };
+        let out = serialize_group_tree(&tree);
+        assert!(out.contains("StaticGroup:MyGroup"), "got: {}", out);
+    }
+
+    #[test]
+    fn test_serialize_keyword_group() {
+        let tree = GroupTree {
+            root: GroupNode {
+                group: Group { name: "All Entries".to_string(), group_type: GroupType::AllEntries },
+                children: vec![GroupNode {
+                    group: Group {
+                        name: "Nuclear".to_string(),
+                        group_type: GroupType::Keyword {
+                            field: "keywords".to_string(),
+                            search_term: "Nuclear".to_string(),
+                            case_sensitive: false,
+                            regex: false,
+                        },
+                    },
+                    children: vec![],
+                    expanded: true,
+                }],
+                expanded: true,
+            },
+        };
+        let out = serialize_group_tree(&tree);
+        assert!(out.contains("KeywordGroup:Nuclear"), "got: {}", out);
+        assert!(out.contains("keywords"), "got: {}", out);
+    }
+
+    // ── build_group_tree ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_build_group_tree_empty_meta() {
+        let meta = JabRefMeta::default();
+        let tree = build_group_tree(&meta);
+        // Should always produce at least a root AllEntriesGroup
+        assert_eq!(tree.root.group.group_type, GroupType::AllEntries);
+    }
+
+    #[test]
+    fn test_build_group_tree_roundtrip() {
+        // Parse grouping text → build tree → serialize → compare
+        let grouping = "0 AllEntriesGroup:;\n1 StaticGroup:Physics\\;2\\;1\\;\\;\\;\\;;";
+        let mut meta = JabRefMeta::default();
+        meta.unknown_meta.insert("grouping".to_string(), grouping.to_string());
+        let tree = build_group_tree(&meta);
+        let serialized = serialize_group_tree(&tree);
+        assert!(serialized.contains("AllEntriesGroup:"));
+        assert!(serialized.contains("StaticGroup:Physics"));
+    }
 }

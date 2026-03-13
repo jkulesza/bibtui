@@ -23,6 +23,8 @@ A terminal UI BibTeX manager written in Rust. Designed as a lightweight, keyboar
 - Assigned groups shown in the entry detail header alongside the entry type
 - Configurable columns, sort, theme, and citekey templates via YAML
 - In-TUI settings editor (`S`) with live config import/export, `Tab`-completion path dialogs, and field group management
+- Validate command (`v`) dry-runs all save actions and shows which fields would change, without modifying the file
+- Full-screen help modal (`?`) with complete keyboard reference
 - Scrollable filename-sync preview dialog confirms file renames before they are applied
 
 ## Requirements
@@ -97,10 +99,11 @@ bibtui --config ~/dotfiles/bibtui.yaml references.bib
 | `w` | Open DOI / URL in default browser |
 | `B` | Toggle case-protecting brace display |
 | `L` | Toggle LaTeX rendering (accents, math, dashes) |
+| `v` | Validate: dry-run save actions, show what would change |
 | `S` | Open settings editor |
 | `u` | Undo last change |
 | `:` | Open command palette |
-| `?` | Show help |
+| `?` | Show full-screen help modal |
 
 ### Search mode
 
@@ -168,6 +171,8 @@ Opens a full-screen view of all configuration options. Changes apply immediately
 | Key | Action |
 |-----|--------|
 | `j` / `k` | Navigate settings |
+| `g` / `G` | Jump to top / bottom |
+| `Ctrl-F` / `Ctrl-B` | Page down / up |
 | `Enter` / `Space` | Toggle boolean setting |
 | `e` | Edit string setting / edit fields of selected field group |
 | `r` | Rename selected field group |
@@ -282,7 +287,7 @@ See `bibtui.yaml.example` for all options including columns, citekey templates, 
 cargo test
 ```
 
-All 446 tests should pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, TUI component state machines, and config loading).
+All 514 tests should pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, TUI component state machines, and config loading).
 
 Coverage analysis runs automatically in CI via `cargo-llvm-cov`. To run locally:
 

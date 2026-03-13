@@ -1197,6 +1197,78 @@ mod tests {
         }
         assert!(found, "move_down should reach the Field Groups section");
     }
+
+    // ── Extended navigation ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_move_to_top_returns_to_first_item() {
+        let cfg = default_config();
+        let mut state = SettingsState::new(&cfg);
+        let top = state.cursor;
+        // Move away from the top
+        state.move_down();
+        state.move_down();
+        state.move_down();
+        assert!(state.cursor > top);
+        state.move_to_top();
+        assert_eq!(state.cursor, top);
+        assert!(state.is_selectable_row(state.cursor));
+    }
+
+    #[test]
+    fn test_move_to_bottom_reaches_last_selectable() {
+        let cfg = default_config();
+        let mut state = SettingsState::new(&cfg);
+        let top = state.cursor;
+        state.move_to_bottom();
+        assert!(state.cursor > top);
+        assert!(state.is_selectable_row(state.cursor));
+        // A second call should be idempotent
+        let bottom = state.cursor;
+        state.move_to_bottom();
+        assert_eq!(state.cursor, bottom);
+    }
+
+    #[test]
+    fn test_move_page_down_advances_multiple_items() {
+        let cfg = default_config();
+        let mut state = SettingsState::new(&cfg);
+        let start = state.cursor;
+        state.move_page_down();
+        assert!(state.cursor > start);
+        assert!(state.is_selectable_row(state.cursor));
+    }
+
+    #[test]
+    fn test_move_page_up_retreats_multiple_items() {
+        let cfg = default_config();
+        let mut state = SettingsState::new(&cfg);
+        // First get to the bottom so there is room to page up
+        state.move_to_bottom();
+        let bottom = state.cursor;
+        state.move_page_up();
+        assert!(state.cursor < bottom);
+        assert!(state.is_selectable_row(state.cursor));
+    }
+
+    #[test]
+    fn test_move_page_up_at_top_is_noop() {
+        let cfg = default_config();
+        let mut state = SettingsState::new(&cfg);
+        let top = state.cursor;
+        state.move_page_up();
+        assert_eq!(state.cursor, top);
+    }
+
+    #[test]
+    fn test_move_page_down_at_bottom_is_noop() {
+        let cfg = default_config();
+        let mut state = SettingsState::new(&cfg);
+        state.move_to_bottom();
+        let bottom = state.cursor;
+        state.move_page_down();
+        assert_eq!(state.cursor, bottom);
+    }
 }
 
 // ── Render ────────────────────────────────────────────────────────────────────

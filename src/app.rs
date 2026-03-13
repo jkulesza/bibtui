@@ -3800,6 +3800,116 @@ mod tests {
         assert_eq!(app.mode, InputMode::Normal);
     }
 
+    // ── Validate ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_validate_opens_results_panel() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::Validate);
+        assert!(app.validate_results_state.is_some());
+        assert_eq!(app.mode, InputMode::ValidateResults);
+    }
+
+    #[test]
+    fn test_close_validate_results_returns_to_normal() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::Validate);
+        app.handle_action(Action::CloseValidateResults);
+        assert!(app.validate_results_state.is_none());
+        assert_eq!(app.mode, InputMode::Normal);
+    }
+
+    #[test]
+    fn test_validate_move_down_scrolls_results() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::Validate);
+        // Build a large enough violation list that scroll > 0 is possible
+        if let Some(ref mut vrs) = app.validate_results_state {
+            // Manually push enough violations so total_lines > inner_height fallback (24)
+            for i in 0..10 {
+                vrs.violations.push(
+                    crate::tui::components::validate_results::Violation {
+                        entry_key: format!("k{}", i),
+                        field: "title".to_string(),
+                        old_value: "old".to_string(),
+                        new_value: "new".to_string(),
+                        action_name: "test",
+                    },
+                );
+            }
+        }
+        // In ValidateResults mode, MoveDown scrolls the panel
+        app.handle_action(Action::MoveDown);
+        assert_eq!(app.validate_results_state.as_ref().unwrap().scroll, 1);
+    }
+
+    #[test]
+    fn test_validate_move_up_scrolls_results() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::Validate);
+        if let Some(ref mut vrs) = app.validate_results_state {
+            for i in 0..10 {
+                vrs.violations.push(
+                    crate::tui::components::validate_results::Violation {
+                        entry_key: format!("k{}", i),
+                        field: "title".to_string(),
+                        old_value: "old".to_string(),
+                        new_value: "new".to_string(),
+                        action_name: "test",
+                    },
+                );
+            }
+        }
+        app.handle_action(Action::MoveDown);
+        assert_eq!(app.validate_results_state.as_ref().unwrap().scroll, 1);
+        app.handle_action(Action::MoveUp);
+        assert_eq!(app.validate_results_state.as_ref().unwrap().scroll, 0);
+    }
+
+    // ── Settings extended navigation ──────────────────────────────────────────
+
+    #[test]
+    fn test_settings_move_to_top() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::EnterSettings);
+        // Move down a few rows
+        app.handle_action(Action::SettingsMoveDown);
+        app.handle_action(Action::SettingsMoveDown);
+        let after_down = app.settings_state.as_ref().unwrap().cursor;
+        app.handle_action(Action::SettingsMoveToTop);
+        let after_top = app.settings_state.as_ref().unwrap().cursor;
+        assert!(after_top < after_down);
+    }
+
+    #[test]
+    fn test_settings_move_to_bottom() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::EnterSettings);
+        let start = app.settings_state.as_ref().unwrap().cursor;
+        app.handle_action(Action::SettingsMoveToBottom);
+        let bottom = app.settings_state.as_ref().unwrap().cursor;
+        assert!(bottom > start);
+    }
+
+    #[test]
+    fn test_settings_page_down() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::EnterSettings);
+        let start = app.settings_state.as_ref().unwrap().cursor;
+        app.handle_action(Action::SettingsPageDown);
+        let after = app.settings_state.as_ref().unwrap().cursor;
+        assert!(after > start);
+    }
+
+    #[test]
+    fn test_settings_page_up_at_top_is_noop() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::EnterSettings);
+        let top = app.settings_state.as_ref().unwrap().cursor;
+        app.handle_action(Action::SettingsPageUp);
+        assert_eq!(app.settings_state.as_ref().unwrap().cursor, top);
+    }
+
     // ── Close citation preview ────────────────────────────────────────────────
 
     #[test]

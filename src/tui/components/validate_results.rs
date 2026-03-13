@@ -126,7 +126,7 @@ pub fn render_validate_results(
     f.render_widget(para, inner);
 }
 
-fn unique_entry_count(violations: &[Violation]) -> usize {
+pub(crate) fn unique_entry_count(violations: &[Violation]) -> usize {
     let mut seen = std::collections::HashSet::new();
     for v in violations {
         seen.insert(&v.entry_key);
@@ -134,7 +134,7 @@ fn unique_entry_count(violations: &[Violation]) -> usize {
     seen.len()
 }
 
-fn truncate(s: &str, max_chars: usize) -> String {
+pub(crate) fn truncate(s: &str, max_chars: usize) -> String {
     if max_chars == 0 {
         return String::new();
     }
@@ -144,5 +144,111 @@ fn truncate(s: &str, max_chars: usize) -> String {
     } else {
         let t: String = chars[..max_chars.saturating_sub(1)].iter().collect();
         format!("{}…", t)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_violation(key: &str, field: &str) -> Violation {
+        Violation {
+            entry_key: key.to_string(),
+            field: field.to_string(),
+            old_value: "old".to_string(),
+            new_value: "new".to_string(),
+            action_name: "test_action",
+        }
+    }
+
+    // ── ValidateResultsState ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_new_empty() {
+        let s = ValidateResultsState::new(vec![]);
+        assert!(s.violations.is_empty());
+        assert_eq!(s.scroll, 0);
+    }
+
+    #[test]
+    fn test_new_with_violations() {
+        let v = vec![make_violation("k1", "title"), make_violation("k2", "author")];
+        let s = ValidateResultsState::new(v);
+        assert_eq!(s.violations.len(), 2);
+    }
+
+    #[test]
+    fn test_scroll_up_at_zero_is_noop() {
+        let mut s = ValidateResultsState::new(vec![make_violation("k", "f")]);
+        s.scroll_up();
+        assert_eq!(s.scroll, 0);
+    }
+
+    #[test]
+    fn test_scroll_down_bounded_by_total_lines() {
+        let mut s = ValidateResultsState::new(vec![make_violation("k", "f")]);
+        // total_lines = 4 (one violation × 4 lines), inner_height = 24
+        // max_scroll = 4.saturating_sub(24) = 0 → clamped to 0
+        s.scroll_down(24, 4);
+        assert_eq!(s.scroll, 0);
+    }
+
+    #[test]
+    fn test_scroll_down_advances_when_room() {
+        let mut s = ValidateResultsState::new(vec![make_violation("k", "f")]);
+        // total_lines = 100, inner_height = 10 → max_scroll = 90
+        s.scroll_down(10, 100);
+        assert_eq!(s.scroll, 1);
+    }
+
+    #[test]
+    fn test_scroll_up_decrements() {
+        let mut s = ValidateResultsState::new(vec![make_violation("k", "f")]);
+        s.scroll_down(10, 100);
+        s.scroll_down(10, 100);
+        assert_eq!(s.scroll, 2);
+        s.scroll_up();
+        assert_eq!(s.scroll, 1);
+    }
+
+    // ── unique_entry_count ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_unique_entry_count_empty() {
+        assert_eq!(unique_entry_count(&[]), 0);
+    }
+
+    #[test]
+    fn test_unique_entry_count_deduplicates() {
+        let v = vec![
+            make_violation("k1", "title"),
+            make_violation("k1", "author"),
+            make_violation("k2", "title"),
+        ];
+        assert_eq!(unique_entry_count(&v), 2);
+    }
+
+    // ── truncate ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_truncate_short_string_unchanged() {
+        assert_eq!(truncate("hello", 10), "hello");
+    }
+
+    #[test]
+    fn test_truncate_exact_length_unchanged() {
+        assert_eq!(truncate("hello", 5), "hello");
+    }
+
+    #[test]
+    fn test_truncate_long_string_ellipsis() {
+        let result = truncate("hello world", 6);
+        assert!(result.ends_with('…'));
+        assert!(result.len() < "hello world".len());
+    }
+
+    #[test]
+    fn test_truncate_zero_max_returns_empty() {
+        assert_eq!(truncate("hello", 0), "");
     }
 }
