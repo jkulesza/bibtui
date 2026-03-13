@@ -151,6 +151,13 @@ pub fn render_main_screen(f: &mut Frame, app: &mut App) {
             f, area, preview_state, &app.theme,
         );
     }
+
+    // Validate results overlay
+    if let Some(ref mut vrs) = app.validate_results_state {
+        crate::tui::components::validate_results::render_validate_results(
+            f, area, vrs, &app.theme,
+        );
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -15,6 +15,7 @@ use crate::bib::jabref::serialize_group_tree;
 use crate::bib::model::*;
 use crate::util::open::{effective_file_dir, parse_file_field, serialize_file_field};
 use crate::tui::components::citation_preview::CitationPreviewState;
+use crate::tui::components::validate_results::{Violation, ValidateResultsState};
 use crate::util::citation::format_citation;
 use crate::bib::parser::{build_database, parse_bib_file};
 use crate::bib::writer::{serialize_entry, write_bib_file};
@@ -108,6 +109,9 @@ pub enum Action {
     SettingsAddFieldGroup,
     SettingsDeleteFieldGroup,
     SettingsRenameFieldGroup,
+    // Validate
+    Validate,
+    CloseValidateResults,
 }
 
 /// A single reversible operation stored on the undo stack.
@@ -168,6 +172,7 @@ pub struct App {
     pub command_palette_state: CommandPaletteState,
     pub citation_preview_state: Option<CitationPreviewState>,
     pub settings_state: Option<SettingsState>,
+    pub validate_results_state: Option<ValidateResultsState>,
 
     // Search
     pub search_engine: SearchEngine,
@@ -255,6 +260,7 @@ impl App {
             command_palette_state: CommandPaletteState::new(),
             citation_preview_state: None,
             settings_state: None,
+            validate_results_state: None,
             search_engine: SearchEngine::new(),
             filtered_indices: None,
             sorted_keys,
@@ -307,6 +313,7 @@ impl App {
             command_palette_state: CommandPaletteState::new(),
             citation_preview_state: None,
             settings_state: None,
+            validate_results_state: None,
             search_engine: SearchEngine::new(),
             filtered_indices: None,
             sorted_keys,
@@ -376,15 +383,25 @@ impl App {
 
         match action {
             Action::MoveDown => {
-                self.move_cursor(1);
-                if self.citation_preview_state.is_some() {
-                    self.show_citation_preview();
+                if let Some(ref mut vrs) = self.validate_results_state {
+                    // 24 is a safe inner-height fallback; render clamps anyway
+                    let total = vrs.violations.len() * 4;
+                    vrs.scroll_down(24, total);
+                } else {
+                    self.move_cursor(1);
+                    if self.citation_preview_state.is_some() {
+                        self.show_citation_preview();
+                    }
                 }
             }
             Action::MoveUp => {
-                self.move_cursor(-1);
-                if self.citation_preview_state.is_some() {
-                    self.show_citation_preview();
+                if let Some(ref mut vrs) = self.validate_results_state {
+                    vrs.scroll_up();
+                } else {
+                    self.move_cursor(-1);
+                    if self.citation_preview_state.is_some() {
+                        self.show_citation_preview();
+                    }
                 }
             }
             Action::MoveToTop => self.move_to_top(),
@@ -551,6 +568,24 @@ impl App {
                         }
                     }
                 }
+            }
+            Action::Validate => {
+                let violations = self.compute_violations();
+                let count = violations.len();
+                self.validate_results_state = Some(ValidateResultsState::new(violations));
+                self.mode = InputMode::ValidateResults;
+                if count == 0 {
+                    self.status_message = Some("All entries are valid".to_string());
+                } else {
+                    self.status_message = Some(format!(
+                        "{} field(s) would change on save",
+                        count
+                    ));
+                }
+            }
+            Action::CloseValidateResults => {
+                self.validate_results_state = None;
+                self.mode = InputMode::Normal;
             }
             Action::EnterCommand => {
                 self.mode = InputMode::Command;
@@ -2259,6 +2294,127 @@ impl App {
         }
     }
 
+    /// Dry-run of [`apply_save_actions`]: returns every field that *would* change
+    /// without mutating the database.  Violations are listed in the same stable
+    /// order as the real save actions.
+    fn compute_violations(&self) -> Vec<Violation> {
+        const TEXT: &[&str] = &[
+            "abstract", "addendum", "address", "afterword", "annote",
+            "booktitle", "chapter", "edition", "institution", "journal",
+            "keywords", "language", "note", "organization", "publisher",
+            "school", "series", "subtitle", "title", "titleaddon", "type",
+            "venue",
+        ];
+        const NAMES: &[&str] = &[
+            "author", "editor", "editora", "editorb", "editorc",
+            "bookauthor", "afterword", "translator",
+        ];
+
+        let cfg = &self.config.save;
+        let mut violations: Vec<Violation> = Vec::new();
+
+        for (key, entry) in &self.database.entries {
+            // Simulate each save action on a per-field current value, accumulating
+            // transforms in the same order as apply_save_actions so that the
+            // final (new_value, old_value) pair reflects the net change.
+            // We only report a violation when the final value differs from the
+            // original stored value.
+
+            // Collect the fields we care about and simulate sequentially.
+            let mut field_state: IndexMap<&str, String> = IndexMap::new();
+            let relevant: Vec<&str> = TEXT
+                .iter()
+                .copied()
+                .chain(NAMES.iter().copied())
+                .chain(["url", "date", "month", "pages"])
+                .collect();
+
+            for &f in &relevant {
+                if let Some(v) = entry.fields.get(f) {
+                    field_state.insert(f, v.clone());
+                }
+            }
+
+            macro_rules! transform {
+                ($field:expr, $fn:expr) => {{
+                    if let Some(val) = field_state.get_mut($field) {
+                        *val = $fn(val.as_str());
+                    }
+                }};
+            }
+
+            // 1. Unicode → LaTeX
+            if cfg.save_action_unicode_to_latex {
+                for f in TEXT.iter().copied().chain(NAMES.iter().copied()) {
+                    transform!(f, unicode_to_latex);
+                }
+            }
+            // 2. Escape underscores
+            if cfg.save_action_escape_underscores {
+                for f in TEXT.iter().copied() {
+                    transform!(f, escape_underscores);
+                }
+            }
+            // 3. Escape ampersands
+            if cfg.save_action_escape_ampersands {
+                for f in TEXT.iter().copied().chain(NAMES.iter().copied()) {
+                    transform!(f, escape_ampersands);
+                }
+            }
+            // 4. LaTeX cleanup
+            if cfg.save_action_latex_cleanup {
+                for f in TEXT.iter().copied() {
+                    transform!(f, latex_cleanup);
+                }
+            }
+            // 5. URL cleanup
+            if cfg.save_action_cleanup_url {
+                transform!("url", cleanup_url);
+            }
+            // 6. Ordinals to superscript
+            if cfg.save_action_ordinals_to_superscript {
+                for f in TEXT.iter().copied() {
+                    transform!(f, ordinals_to_superscript);
+                }
+            }
+            // 7. Normalise date
+            if cfg.save_action_normalize_date {
+                transform!("date", normalize_date);
+            }
+            // 8. Normalise month
+            if cfg.save_action_normalize_month {
+                transform!("month", normalize_month);
+            }
+            // 9. Normalise page numbers
+            if cfg.save_action_normalize_page_numbers {
+                transform!("pages", normalize_page_numbers);
+            }
+            // 10. Normalise person names
+            if cfg.save_action_normalize_names_of_persons {
+                for f in NAMES.iter().copied() {
+                    transform!(f, crate::util::author::normalize_author_names);
+                }
+            }
+
+            // Emit one violation per field whose net value changed.
+            for (field, new_val) in &field_state {
+                if let Some(orig) = entry.fields.get(*field) {
+                    if new_val != orig {
+                        violations.push(Violation {
+                            entry_key: key.clone(),
+                            field: field.to_string(),
+                            old_value: orig.clone(),
+                            new_value: new_val.clone(),
+                            action_name: action_label_for_field(field, cfg),
+                        });
+                    }
+                }
+            }
+        }
+
+        violations
+    }
+
     /// Apply the enabled save actions to every entry in the database.
     ///
     /// Entries whose fields change are marked dirty so they are re-serialised.
@@ -2722,6 +2878,39 @@ impl App {
             .jabref_meta
             .unknown_meta
             .insert("grouping".to_string(), serialized);
+    }
+}
+
+/// Return a short label describing which save action is responsible for
+/// the change in `field`.  Used in the Validate results popup.
+fn action_label_for_field(field: &str, cfg: &crate::config::schema::SaveConfig) -> &'static str {
+    match field {
+        "url" if cfg.save_action_cleanup_url => "cleanup_url",
+        "date" if cfg.save_action_normalize_date => "normalize_date",
+        "month" if cfg.save_action_normalize_month => "normalize_month",
+        "pages" if cfg.save_action_normalize_page_numbers => "normalize_pages",
+        "author" | "editor" | "editora" | "editorb" | "editorc"
+        | "bookauthor" | "translator"
+            if cfg.save_action_normalize_names_of_persons =>
+        {
+            "normalize_names"
+        }
+        _ => {
+            // For text fields the first applicable action wins (same order as apply_save_actions)
+            if cfg.save_action_unicode_to_latex {
+                "unicode→latex"
+            } else if cfg.save_action_escape_underscores {
+                "esc_underscores"
+            } else if cfg.save_action_escape_ampersands {
+                "esc_ampersands"
+            } else if cfg.save_action_latex_cleanup {
+                "latex_cleanup"
+            } else if cfg.save_action_ordinals_to_superscript {
+                "ordinals"
+            } else {
+                "save_action"
+            }
+        }
     }
 }
 

@@ -13,6 +13,7 @@ pub fn map_key(key: KeyEvent, mode: &InputMode, last_key: Option<char>) -> Optio
         InputMode::Command => map_command_key(key),
         InputMode::CitationPreview => map_citation_preview_key(key, last_key),
         InputMode::Settings => map_settings_key(key),
+        InputMode::ValidateResults => map_validate_results_key(key),
     }
 }
 
@@ -26,6 +27,7 @@ pub enum InputMode {
     Command,
     CitationPreview,
     Settings,
+    ValidateResults,
 }
 
 fn map_normal_key(key: KeyEvent, last_key: Option<char>) -> Option<Action> {
@@ -76,6 +78,7 @@ fn map_normal_key(key: KeyEvent, last_key: Option<char>) -> Option<Action> {
         KeyCode::Char(':') => Some(Action::EnterCommand),
         KeyCode::Char('?') => Some(Action::ShowHelp),
         KeyCode::Char('S') => Some(Action::EnterSettings),
+        KeyCode::Char('v') => Some(Action::Validate),
         _ => None,
     }
 }
@@ -175,6 +178,15 @@ fn map_settings_key(key: KeyEvent) -> Option<Action> {
         KeyCode::Char('a') => Some(Action::SettingsAddFieldGroup),
         KeyCode::Char('x') => Some(Action::SettingsDeleteFieldGroup),
         KeyCode::Char('r') => Some(Action::SettingsRenameFieldGroup),
+        _ => None,
+    }
+}
+
+fn map_validate_results_key(key: KeyEvent) -> Option<Action> {
+    match key.code {
+        KeyCode::Char('j') | KeyCode::Down => Some(Action::MoveDown),
+        KeyCode::Char('k') | KeyCode::Up => Some(Action::MoveUp),
+        KeyCode::Esc | KeyCode::Char('q') => Some(Action::CloseValidateResults),
         _ => None,
     }
 }
