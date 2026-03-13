@@ -25,7 +25,7 @@ pub fn render_status_bar(
         entry_count, group_name, sort_field, sort_dir, dirty_indicator
     );
 
-    let right = message.unwrap_or(":q: quit  /: search  ?: help");
+    let right = message.unwrap_or("/: search  ?: help");
 
     // Pad to fill width
     let pad_len = (area.width as usize).saturating_sub(left.len() + right.len());
