@@ -171,6 +171,14 @@ fn map_settings_key(key: KeyEvent) -> Option<Action> {
         KeyCode::Esc => Some(Action::ExitSettings),
         KeyCode::Char('j') | KeyCode::Down => Some(Action::SettingsMoveDown),
         KeyCode::Char('k') | KeyCode::Up => Some(Action::SettingsMoveUp),
+        KeyCode::Char('g') => Some(Action::SettingsMoveToTop),
+        KeyCode::Char('G') => Some(Action::SettingsMoveToBottom),
+        KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(Action::SettingsPageDown)
+        }
+        KeyCode::Char('b') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(Action::SettingsPageUp)
+        }
         KeyCode::Enter | KeyCode::Char(' ') => Some(Action::SettingsToggle),
         KeyCode::Char('e') => Some(Action::SettingsEdit),
         KeyCode::Char('E') => Some(Action::SettingsExport),
@@ -402,6 +410,10 @@ mod tests {
         assert_eq!(map_key(key(KeyCode::Char('j')), &InputMode::Settings, None), Some(Action::SettingsMoveDown));
         assert_eq!(map_key(key(KeyCode::Down), &InputMode::Settings, None), Some(Action::SettingsMoveDown));
         assert_eq!(map_key(key(KeyCode::Char('k')), &InputMode::Settings, None), Some(Action::SettingsMoveUp));
+        assert_eq!(map_key(key(KeyCode::Char('g')), &InputMode::Settings, None), Some(Action::SettingsMoveToTop));
+        assert_eq!(map_key(key(KeyCode::Char('G')), &InputMode::Settings, None), Some(Action::SettingsMoveToBottom));
+        assert_eq!(map_key(ctrl('f'), &InputMode::Settings, None), Some(Action::SettingsPageDown));
+        assert_eq!(map_key(ctrl('b'), &InputMode::Settings, None), Some(Action::SettingsPageUp));
         assert_eq!(map_key(key(KeyCode::Enter), &InputMode::Settings, None), Some(Action::SettingsToggle));
         assert_eq!(map_key(key(KeyCode::Char(' ')), &InputMode::Settings, None), Some(Action::SettingsToggle));
         assert_eq!(map_key(key(KeyCode::Char('e')), &InputMode::Settings, None), Some(Action::SettingsEdit));

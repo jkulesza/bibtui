@@ -507,6 +507,35 @@ impl SettingsState {
         }
     }
 
+    pub fn move_to_top(&mut self) {
+        self.cursor = 0;
+        while self.cursor < self.rows.len() && !self.is_selectable_row(self.cursor) {
+            self.cursor += 1;
+        }
+    }
+
+    pub fn move_to_bottom(&mut self) {
+        if self.rows.is_empty() {
+            return;
+        }
+        self.cursor = self.rows.len() - 1;
+        while self.cursor > 0 && !self.is_selectable_row(self.cursor) {
+            self.cursor -= 1;
+        }
+    }
+
+    pub fn move_page_down(&mut self) {
+        for _ in 0..10 {
+            self.move_down();
+        }
+    }
+
+    pub fn move_page_up(&mut self) {
+        for _ in 0..10 {
+            self.move_up();
+        }
+    }
+
     pub fn selected_item(&self) -> Option<&SettingItem> {
         match self.rows.get(self.cursor) {
             Some(SettingRow::Item(idx)) => self.items.get(*idx),

@@ -109,6 +109,10 @@ pub enum Action {
     SettingsAddFieldGroup,
     SettingsDeleteFieldGroup,
     SettingsRenameFieldGroup,
+    SettingsMoveToTop,
+    SettingsMoveToBottom,
+    SettingsPageDown,
+    SettingsPageUp,
     // Validate
     Validate,
     CloseValidateResults,
@@ -666,6 +670,26 @@ impl App {
             Action::SettingsMoveUp => {
                 if let Some(ref mut s) = self.settings_state {
                     s.move_up();
+                }
+            }
+            Action::SettingsMoveToTop => {
+                if let Some(ref mut s) = self.settings_state {
+                    s.move_to_top();
+                }
+            }
+            Action::SettingsMoveToBottom => {
+                if let Some(ref mut s) = self.settings_state {
+                    s.move_to_bottom();
+                }
+            }
+            Action::SettingsPageDown => {
+                if let Some(ref mut s) = self.settings_state {
+                    s.move_page_down();
+                }
+            }
+            Action::SettingsPageUp => {
+                if let Some(ref mut s) = self.settings_state {
+                    s.move_page_up();
                 }
             }
             Action::SettingsToggle => {
