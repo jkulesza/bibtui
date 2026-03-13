@@ -1,7 +1,8 @@
 use std::path::Path;
 
-use ratatui::layout::{Constraint, Rect};
+use ratatui::layout::{Alignment, Constraint, Rect};
 use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::Line;
 use ratatui::widgets::{Block, Borders, Cell, Row, Table, TableState};
 use ratatui::Frame;
 
@@ -238,7 +239,15 @@ pub fn render_entry_list(
             Block::default()
                 .borders(Borders::ALL)
                 .border_style(border_style)
-                .title(" Entries "),
+                .title(" Entries ")
+                .title(
+                    Line::from(format!(
+                        " {} v{} ",
+                        env!("CARGO_PKG_NAME"),
+                        env!("CARGO_PKG_VERSION")
+                    ))
+                    .alignment(Alignment::Right),
+                ),
         )
         .row_highlight_style(theme.selected);
 
