@@ -32,6 +32,29 @@ pub fn write_bib_file(raw: &RawBibFile) -> String {
     out
 }
 
+/// Replace any sequence of 3 or more consecutive newlines with exactly two
+/// (i.e. at most one blank line between items).
+pub fn normalize_blank_lines(s: String) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut newline_run = 0usize;
+
+    for &b in bytes {
+        if b == b'\n' {
+            newline_run += 1;
+            if newline_run <= 2 {
+                out.push(b);
+            }
+        } else {
+            newline_run = 0;
+            out.push(b);
+        }
+    }
+
+    // SAFETY: input was valid UTF-8 and we only kept/dropped '\n' bytes.
+    unsafe { String::from_utf8_unchecked(out) }
+}
+
 /// Serialize a single entry from semantic data (for modified entries).
 pub fn serialize_entry(entry: &Entry, align: bool, sort_fields: bool) -> String {
     let mut out = String::new();
@@ -98,7 +121,7 @@ pub fn serialize_entry(entry: &Entry, align: bool, sort_fields: bool) -> String 
         ));
     }
 
-    out.push('}');
+    out.push_str("}\n");
     out
 }
 
