@@ -23,6 +23,12 @@ pub enum DialogKind {
     FileSyncPreview {
         renames: Vec<(String, String)>,
     },
+    /// Multi-select: choose which attached files to delete alongside an entry.
+    /// Each item is (display_label, delete_this_file).
+    FileDeleteSelect {
+        title: String,
+        files: Vec<(String, bool)>,
+    },
 }
 
 pub struct DialogState {
@@ -81,6 +87,17 @@ impl DialogState {
         }
     }
 
+    pub fn file_delete_select(title: &str, files: Vec<(String, bool)>) -> Self {
+        let mut state = ListState::default();
+        if !files.is_empty() {
+            state.select(Some(0));
+        }
+        DialogState {
+            kind: DialogKind::FileDeleteSelect { title: title.to_string(), files },
+            list_state: state,
+        }
+    }
+
     pub fn selected(&self) -> usize {
         self.list_state.selected().unwrap_or(0)
     }
@@ -95,15 +112,24 @@ impl DialogState {
             DialogKind::TypePicker { options, .. } => options.len(),
             DialogKind::GroupAssign { groups } => groups.len(),
             DialogKind::FileSyncPreview { renames } => renames.len(),
+            DialogKind::FileDeleteSelect { files, .. } => files.len(),
         }
     }
 
     pub fn toggle_selected(&mut self) {
-        if let DialogKind::GroupAssign { groups } = &mut self.kind {
-            let idx = self.list_state.selected().unwrap_or(0);
-            if let Some((_, checked)) = groups.get_mut(idx) {
-                *checked = !*checked;
+        let idx = self.list_state.selected().unwrap_or(0);
+        match &mut self.kind {
+            DialogKind::GroupAssign { groups } => {
+                if let Some((_, checked)) = groups.get_mut(idx) {
+                    *checked = !*checked;
+                }
             }
+            DialogKind::FileDeleteSelect { files, .. } => {
+                if let Some((_, checked)) = files.get_mut(idx) {
+                    *checked = !*checked;
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -182,6 +208,66 @@ mod tests {
     fn test_toggle_selected_type_picker_is_noop() {
         let mut d = DialogState::type_picker(vec!["A".into()]);
         d.toggle_selected(); // should not panic
+    }
+
+    // ── file_delete_select ──
+
+    #[test]
+    fn test_file_delete_select_option_count() {
+        let d = DialogState::file_delete_select(
+            "Delete 'Smith2020'",
+            vec![
+                ("Smith2020.pdf".into(), true),
+                ("Smith2020_supp.pdf".into(), true),
+            ],
+        );
+        assert_eq!(d.option_count(), 2);
+        assert_eq!(d.selected(), 0);
+        assert!(matches!(d.kind, DialogKind::FileDeleteSelect { .. }));
+    }
+
+    #[test]
+    fn test_file_delete_select_empty() {
+        let d = DialogState::file_delete_select("Delete 'X'", vec![]);
+        assert_eq!(d.option_count(), 0);
+    }
+
+    #[test]
+    fn test_file_delete_select_toggle() {
+        let mut d = DialogState::file_delete_select(
+            "Delete 'X'",
+            vec![("a.pdf".into(), true), ("b.pdf".into(), true)],
+        );
+        d.select(1);
+        d.toggle_selected(); // uncheck second
+        if let DialogKind::FileDeleteSelect { files, .. } = &d.kind {
+            assert!(files[0].1, "first still checked");
+            assert!(!files[1].1, "second unchecked");
+        } else {
+            panic!("wrong kind");
+        }
+    }
+
+    #[test]
+    fn test_file_delete_select_toggle_back() {
+        let mut d = DialogState::file_delete_select(
+            "Delete 'X'",
+            vec![("a.pdf".into(), false)],
+        );
+        d.toggle_selected();
+        if let DialogKind::FileDeleteSelect { files, .. } = &d.kind {
+            assert!(files[0].1, "should toggle from false to true");
+        }
+    }
+
+    #[test]
+    fn test_file_delete_select_title() {
+        let d = DialogState::file_delete_select("Delete 'Foo'", vec![("x.pdf".into(), true)]);
+        if let DialogKind::FileDeleteSelect { title, .. } = &d.kind {
+            assert_eq!(title, "Delete 'Foo'");
+        } else {
+            panic!("wrong kind");
+        }
     }
 
     // ── file_sync_preview ──
@@ -363,6 +449,11 @@ pub fn render_dialog(f: &mut Frame, area: Rect, state: &mut DialogState, theme: 
             (widest as u16).max(44).min(area.width.saturating_sub(4))
         }
         DialogKind::GroupAssign { .. } => 50u16.min(area.width.saturating_sub(4)),
+        DialogKind::FileDeleteSelect { files, .. } => {
+            // Wide enough for "[x] {longest filename}" + 6 padding, min 44
+            let widest = files.iter().map(|(n, _)| n.chars().count()).max().unwrap_or(0);
+            ((widest + 10) as u16).max(44).min(area.width.saturating_sub(4))
+        }
         _ => 40u16.min(area.width.saturating_sub(4)),
     };
     let dialog_height = match &state.kind {
@@ -375,6 +466,9 @@ pub fn render_dialog(f: &mut Frame, area: Rect, state: &mut DialogState, theme: 
         }
         DialogKind::FileSyncPreview { renames } => {
             (renames.len() as u16 + 4).min(area.height.saturating_sub(4))
+        }
+        DialogKind::FileDeleteSelect { files, .. } => {
+            (files.len() as u16 + 5).min(area.height.saturating_sub(4))
         }
     };
 
@@ -437,6 +531,30 @@ pub fn render_dialog(f: &mut Frame, area: Rect, state: &mut DialogState, theme: 
                 .iter()
                 .map(|(name, checked)| {
                     let mark = if *checked { "[x]" } else { "[ ]" };
+                    ListItem::new(Line::from(format!("  {} {}", mark, name)))
+                })
+                .collect();
+
+            let list = List::new(items)
+                .block(block)
+                .highlight_style(theme.selected);
+
+            f.render_stateful_widget(list, dialog_area, &mut state.list_state);
+        }
+        DialogKind::FileDeleteSelect { title, files } => {
+            let block = Block::default()
+                .borders(Borders::ALL)
+                .border_style(theme.border)
+                .title(format!(" {} ", title))
+                .title_bottom(Line::from(Span::styled(
+                    " Space:toggle  Enter:delete  Esc:cancel ",
+                    theme.label,
+                )));
+
+            let items: Vec<ListItem> = files
+                .iter()
+                .map(|(name, delete)| {
+                    let mark = if *delete { "[x]" } else { "[ ]" };
                     ListItem::new(Line::from(format!("  {} {}", mark, name)))
                 })
                 .collect();

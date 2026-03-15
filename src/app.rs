@@ -233,6 +233,12 @@ enum PendingAction {
     NewFile,
     /// Waiting for the user to type a DOI or URL to import.
     ImportUrl,
+    /// Deleting an entry that has exactly one local file; TypePicker offers
+    /// "delete entry+file", "delete entry only", or "cancel".
+    DeleteEntryWithFile { entry_key: String, file: std::path::PathBuf },
+    /// Deleting an entry that has multiple local files; FileDeleteSelect lets
+    /// the user choose which files to also remove.
+    DeleteEntryWithFileSelect { entry_key: String, files: Vec<std::path::PathBuf> },
 }
 
 impl App {
@@ -1334,14 +1340,84 @@ impl App {
     }
 
     fn start_delete_entry(&mut self) {
-        if let Some(key) = self.selected_entry_key() {
-            self.dialog_state = Some(DialogState::confirm(
-                "Delete Entry",
-                &format!("Delete '{}'?", key),
-            ));
-            self.pending_action = Some(PendingAction::DeleteEntry(key));
-            self.mode = InputMode::Dialog;
+        let Some(key) = self.selected_entry_key() else { return };
+
+        let local_files = self.resolve_entry_local_files(&key);
+
+        match local_files.len() {
+            0 => {
+                // No local files — simple yes/no confirm (existing behaviour).
+                self.dialog_state = Some(DialogState::confirm(
+                    "Delete Entry",
+                    &format!("Delete '{}'?", key),
+                ));
+                self.pending_action = Some(PendingAction::DeleteEntry(key));
+            }
+            1 => {
+                // One local file — TypePicker with three clear choices.
+                let file = local_files.into_iter().next().unwrap();
+                let fname = file
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("file")
+                    .to_string();
+                self.dialog_state = Some(DialogState::type_picker_titled(
+                    &format!("Delete '{}'", key),
+                    vec![
+                        format!("Delete entry + {}", fname),
+                        "Delete entry only".to_string(),
+                        "Cancel".to_string(),
+                    ],
+                ));
+                self.pending_action =
+                    Some(PendingAction::DeleteEntryWithFile { entry_key: key, file });
+            }
+            _ => {
+                // Multiple local files — checkbox multi-select (default: all checked).
+                let labels: Vec<(String, bool)> = local_files
+                    .iter()
+                    .map(|p| {
+                        let name = p
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("?")
+                            .to_string();
+                        (name, true)
+                    })
+                    .collect();
+                self.dialog_state = Some(DialogState::file_delete_select(
+                    &format!("Delete '{}'", key),
+                    labels,
+                ));
+                self.pending_action = Some(PendingAction::DeleteEntryWithFileSelect {
+                    entry_key: key,
+                    files: local_files,
+                });
+            }
         }
+        self.mode = InputMode::Dialog;
+    }
+
+    /// Collect paths of locally-existing files referenced in the entry's `file` field.
+    fn resolve_entry_local_files(&self, key: &str) -> Vec<std::path::PathBuf> {
+        use crate::util::open::{effective_file_dir, parse_file_field, resolve_file_path};
+        let entry = match self.database.entries.get(key) {
+            Some(e) => e,
+            None => return vec![],
+        };
+        let file_value = match entry.fields.get("file") {
+            Some(v) if !v.trim().is_empty() => v.clone(),
+            _ => return vec![],
+        };
+        let bib_dir = effective_file_dir(
+            &self.bib_path,
+            self.database.jabref_meta.file_directory.as_deref(),
+        );
+        parse_file_field(&file_value)
+            .into_iter()
+            .map(|f| resolve_file_path(&f.path, &bib_dir))
+            .filter(|p| p.exists())
+            .collect()
     }
 
     fn delete_entry(&mut self, key: &str) {
@@ -1751,6 +1827,36 @@ impl App {
         match action {
             Some(PendingAction::DeleteEntry(key)) => {
                 self.delete_entry(&key);
+            }
+            Some(PendingAction::DeleteEntryWithFile { entry_key, file }) => {
+                let selected = dialog.as_ref().map(|d| d.selected()).unwrap_or(2);
+                match selected {
+                    0 => {
+                        // Delete entry and the one attached file.
+                        let _ = std::fs::remove_file(&file);
+                        self.delete_entry(&entry_key);
+                    }
+                    1 => {
+                        // Delete entry, keep file.
+                        self.delete_entry(&entry_key);
+                    }
+                    _ => {
+                        // Cancel — do nothing; mode already reset to Normal above.
+                    }
+                }
+            }
+            Some(PendingAction::DeleteEntryWithFileSelect { entry_key, files }) => {
+                // Delete the entry unconditionally; delete only the checked files.
+                if let Some(ref d) = dialog {
+                    if let DialogKind::FileDeleteSelect { files: ref labels, .. } = d.kind {
+                        for (path, (_, delete)) in files.iter().zip(labels.iter()) {
+                            if *delete {
+                                let _ = std::fs::remove_file(path);
+                            }
+                        }
+                    }
+                }
+                self.delete_entry(&entry_key);
             }
             Some(PendingAction::AddEntryType) => {
                 if let Some(dialog) = dialog {
@@ -4038,6 +4144,176 @@ mod tests {
         app.handle_action(Action::DeleteEntry);
         assert!(app.dialog_state.is_some());
         assert_eq!(app.mode, InputMode::Dialog);
+        // No local files → simple Confirm dialog
+        assert!(matches!(
+            app.dialog_state.as_ref().unwrap().kind,
+            crate::tui::components::dialog::DialogKind::Confirm { .. }
+        ));
+    }
+
+    #[test]
+    fn test_delete_entry_with_one_local_file_shows_type_picker() {
+        use tempfile::NamedTempFile;
+        let (mut app, _tmp) = make_app();
+
+        // Attach a real temporary file to the first entry.
+        let pdf = NamedTempFile::new().unwrap();
+        let pdf_path = pdf.path().to_path_buf();
+        let fname = pdf_path.file_name().unwrap().to_str().unwrap().to_string();
+
+        let key = app.sorted_keys.first().cloned().unwrap();
+        app.database
+            .entries
+            .get_mut(&key)
+            .unwrap()
+            .fields
+            .insert("file".to_string(), format!(":{}:PDF", pdf_path.display()));
+
+        app.handle_action(Action::DeleteEntry);
+        assert_eq!(app.mode, InputMode::Dialog);
+        // Should be a TypePicker (not Confirm) because there is one local file.
+        let dialog = app.dialog_state.as_ref().unwrap();
+        assert!(matches!(
+            dialog.kind,
+            crate::tui::components::dialog::DialogKind::TypePicker { .. }
+        ));
+        // "Delete entry + {fname}" should be the first option.
+        if let crate::tui::components::dialog::DialogKind::TypePicker { options, .. } = &dialog.kind {
+            assert!(options[0].contains(&fname));
+            assert_eq!(options.len(), 3); // entry+file, entry only, cancel
+        }
+    }
+
+    #[test]
+    fn test_delete_entry_with_multiple_local_files_shows_file_delete_select() {
+        use tempfile::NamedTempFile;
+        let (mut app, _tmp) = make_app();
+
+        let pdf1 = NamedTempFile::new().unwrap();
+        let pdf2 = NamedTempFile::new().unwrap();
+        let p1 = pdf1.path();
+        let p2 = pdf2.path();
+        let file_val = format!(":{}:PDF;:{}:PDF", p1.display(), p2.display());
+
+        let key = app.sorted_keys.first().cloned().unwrap();
+        app.database
+            .entries
+            .get_mut(&key)
+            .unwrap()
+            .fields
+            .insert("file".to_string(), file_val);
+
+        app.handle_action(Action::DeleteEntry);
+        assert_eq!(app.mode, InputMode::Dialog);
+        let dialog = app.dialog_state.as_ref().unwrap();
+        assert!(matches!(
+            dialog.kind,
+            crate::tui::components::dialog::DialogKind::FileDeleteSelect { .. }
+        ));
+        assert_eq!(dialog.option_count(), 2);
+    }
+
+    #[test]
+    fn test_delete_entry_with_file_option0_deletes_both() {
+        use tempfile::NamedTempFile;
+        let (mut app, _tmp) = make_app();
+
+        let pdf = NamedTempFile::new().unwrap();
+        let pdf_path = pdf.path().to_path_buf();
+
+        let key = app.sorted_keys.first().cloned().unwrap();
+        app.database
+            .entries
+            .get_mut(&key)
+            .unwrap()
+            .fields
+            .insert("file".to_string(), format!(":{}:PDF", pdf_path.display()));
+
+        // Trigger delete → TypePicker
+        app.handle_action(Action::DeleteEntry);
+        // Select option 0 (delete entry + file) and confirm
+        app.dialog_state.as_mut().unwrap().select(0);
+        app.handle_action(Action::DialogConfirm);
+
+        assert!(!app.database.entries.contains_key(&key));
+        assert!(!pdf_path.exists(), "file should have been deleted");
+    }
+
+    #[test]
+    fn test_delete_entry_with_file_option1_keeps_file() {
+        use tempfile::NamedTempFile;
+        let (mut app, _tmp) = make_app();
+
+        let pdf = NamedTempFile::new().unwrap();
+        let pdf_path = pdf.path().to_path_buf();
+
+        let key = app.sorted_keys.first().cloned().unwrap();
+        app.database
+            .entries
+            .get_mut(&key)
+            .unwrap()
+            .fields
+            .insert("file".to_string(), format!(":{}:PDF", pdf_path.display()));
+
+        app.handle_action(Action::DeleteEntry);
+        app.dialog_state.as_mut().unwrap().select(1); // "Delete entry only"
+        app.handle_action(Action::DialogConfirm);
+
+        assert!(!app.database.entries.contains_key(&key));
+        assert!(pdf_path.exists(), "file should have been kept");
+    }
+
+    #[test]
+    fn test_delete_entry_with_file_option2_cancels() {
+        use tempfile::NamedTempFile;
+        let (mut app, _tmp) = make_app();
+
+        let pdf = NamedTempFile::new().unwrap();
+        let pdf_path = pdf.path().to_path_buf();
+        let key = app.sorted_keys.first().cloned().unwrap();
+        app.database
+            .entries
+            .get_mut(&key)
+            .unwrap()
+            .fields
+            .insert("file".to_string(), format!(":{}:PDF", pdf_path.display()));
+
+        app.handle_action(Action::DeleteEntry);
+        app.dialog_state.as_mut().unwrap().select(2); // "Cancel"
+        app.handle_action(Action::DialogConfirm);
+
+        assert!(app.database.entries.contains_key(&key), "entry should survive cancel");
+        assert!(pdf_path.exists(), "file should survive cancel");
+    }
+
+    #[test]
+    fn test_delete_entry_multi_file_select_partial() {
+        use tempfile::NamedTempFile;
+        let (mut app, _tmp) = make_app();
+
+        let pdf1 = NamedTempFile::new().unwrap();
+        let pdf2 = NamedTempFile::new().unwrap();
+        let p1 = pdf1.path().to_path_buf();
+        let p2 = pdf2.path().to_path_buf();
+        let file_val = format!(":{}:PDF;:{}:PDF", p1.display(), p2.display());
+
+        let key = app.sorted_keys.first().cloned().unwrap();
+        app.database
+            .entries
+            .get_mut(&key)
+            .unwrap()
+            .fields
+            .insert("file".to_string(), file_val);
+
+        app.handle_action(Action::DeleteEntry);
+        // Uncheck the second file (keep it)
+        app.dialog_state.as_mut().unwrap().select(1);
+        app.handle_action(Action::DialogToggle); // uncheck second file
+        app.handle_action(Action::DialogConfirm);
+
+        assert!(!app.database.entries.contains_key(&key));
+        assert!(!p1.exists(), "first file should be deleted");
+        assert!(p2.exists(), "second file should be kept");
     }
 
     #[test]
