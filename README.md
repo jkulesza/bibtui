@@ -127,6 +127,9 @@ The detail header shows the entry type and its currently assigned groups.
 | Key | Action |
 |-----|--------|
 | `j` / `k` | Move field selection |
+| `gg` | Jump to first field |
+| `G` | Jump to last field |
+| `Ctrl-F` / `Ctrl-B` | Page down / up |
 | `e` / `i` / `Enter` | Edit selected field (vim-style: `i` enters insert mode) |
 | `a` | Add new field |
 | `d` | Delete selected field |
@@ -134,7 +137,7 @@ The detail header shows the entry type and its currently assigned groups.
 | `N` | Normalize author names to "Last, First" form |
 | `o` | Open attached file(s) in OS default viewer |
 | `w` | Open DOI / URL in default browser |
-| `g` | Edit entry's group assignments |
+| `Tab` | Edit entry's group assignments |
 | `c` | Regenerate citation key from template |
 | `B` | Toggle case-protecting brace display |
 | `L` | Toggle LaTeX rendering |

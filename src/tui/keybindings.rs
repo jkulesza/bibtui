@@ -7,7 +7,7 @@ pub fn map_key(key: KeyEvent, mode: &InputMode, last_key: Option<char>) -> Optio
     match mode {
         InputMode::Normal => map_normal_key(key, last_key),
         InputMode::Search => map_search_key(key),
-        InputMode::Detail => map_detail_key(key),
+        InputMode::Detail => map_detail_key(key, last_key),
         InputMode::Editing => map_editing_key(key),
         InputMode::Dialog => map_dialog_key(key),
         InputMode::Command => map_command_key(key),
@@ -96,11 +96,25 @@ fn map_search_key(key: KeyEvent) -> Option<Action> {
     }
 }
 
-fn map_detail_key(key: KeyEvent) -> Option<Action> {
+fn map_detail_key(key: KeyEvent, last_key: Option<char>) -> Option<Action> {
     match key.code {
         KeyCode::Esc => Some(Action::CloseDetail),
         KeyCode::Char('j') | KeyCode::Down => Some(Action::MoveDown),
         KeyCode::Char('k') | KeyCode::Up => Some(Action::MoveUp),
+        KeyCode::Char('G') => Some(Action::MoveToBottom),
+        KeyCode::Char('g') => {
+            if last_key == Some('g') {
+                Some(Action::MoveToTop)
+            } else {
+                None // Wait for second 'g'
+            }
+        }
+        KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(Action::PageDown)
+        }
+        KeyCode::Char('b') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(Action::PageUp)
+        }
         KeyCode::Char('e') | KeyCode::Char('i') | KeyCode::Enter => Some(Action::EditField),
         KeyCode::Char('a') => Some(Action::AddField),
         KeyCode::Char('d') => Some(Action::DeleteField),
@@ -108,7 +122,7 @@ fn map_detail_key(key: KeyEvent) -> Option<Action> {
         KeyCode::Char('N') => Some(Action::NormalizeAuthor),
         KeyCode::Char('o') => Some(Action::OpenFile),
         KeyCode::Char('w') => Some(Action::OpenWeb),
-        KeyCode::Char('g') => Some(Action::EditGroups),
+        KeyCode::Tab => Some(Action::EditGroups),
         KeyCode::Char('c') => Some(Action::RegenCitekey),
         KeyCode::Char('L') => Some(Action::ToggleLatex),
         KeyCode::Char('B') => Some(Action::ToggleBraces),
@@ -316,6 +330,15 @@ mod tests {
         assert_eq!(map_key(key(KeyCode::Char('N')), &InputMode::Detail, None), Some(Action::NormalizeAuthor));
         assert_eq!(map_key(key(KeyCode::Char('c')), &InputMode::Detail, None), Some(Action::RegenCitekey));
         assert_eq!(map_key(key(KeyCode::Char('u')), &InputMode::Detail, None), Some(Action::Undo));
+        // Navigation
+        assert_eq!(map_key(key(KeyCode::Char('G')), &InputMode::Detail, None), Some(Action::MoveToBottom));
+        assert_eq!(map_key(key(KeyCode::Char('g')), &InputMode::Detail, Some('g')), Some(Action::MoveToTop));
+        assert_eq!(map_key(key(KeyCode::Char('g')), &InputMode::Detail, None), None);
+        assert_eq!(map_key(ctrl('f'), &InputMode::Detail, None), Some(Action::PageDown));
+        assert_eq!(map_key(ctrl('b'), &InputMode::Detail, None), Some(Action::PageUp));
+        // Group editing moved to Tab
+        assert_eq!(map_key(key(KeyCode::Tab), &InputMode::Detail, None), Some(Action::EditGroups));
+        assert_eq!(map_key(key(KeyCode::Char('g')), &InputMode::Detail, Some('x')), None);
     }
 
     // ── Editing mode ──

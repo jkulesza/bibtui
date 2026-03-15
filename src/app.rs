@@ -866,7 +866,7 @@ impl App {
         if self.focus == Focus::Groups && self.show_groups {
             self.group_tree_state.select(0);
         } else if let Some(ref mut detail) = self.detail_state {
-            detail.move_selection(i32::MIN / 2);
+            detail.move_to_top();
         } else {
             self.entry_list_state.select(0);
         }
@@ -879,7 +879,7 @@ impl App {
                 self.group_tree_state.select(count - 1);
             }
         } else if let Some(ref mut detail) = self.detail_state {
-            detail.move_selection(i32::MAX / 2);
+            detail.move_to_bottom();
         } else {
             let count = self.visible_entry_count();
             if count > 0 {

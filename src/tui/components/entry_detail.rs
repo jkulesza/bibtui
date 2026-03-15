@@ -71,21 +71,47 @@ impl EntryDetailState {
         let current = self.selected() as i32;
         let mut new = (current + delta).clamp(0, count as i32 - 1) as usize;
 
-        // Skip header rows
-        let direction = delta.signum();
+        // Skip header rows in the direction of movement; if the edge is reached,
+        // scan the other direction so we always land on a Field.
+        let direction = if delta >= 0 { 1i32 } else { -1i32 };
         loop {
             if let DisplayItem::Field { .. } = &self.display_fields[new] {
                 break;
             }
             let candidate = new as i32 + direction;
             if candidate < 0 || candidate >= count as i32 {
-                // All positions in this direction are headers; stay on the current field.
-                new = current as usize;
+                // Edge reached; try scanning the other way to find a Field.
+                let rev = -direction;
+                let mut rev_pos = new as i32 + rev;
+                while rev_pos >= 0 && rev_pos < count as i32 {
+                    if let DisplayItem::Field { .. } = &self.display_fields[rev_pos as usize] {
+                        new = rev_pos as usize;
+                        break;
+                    }
+                    rev_pos += rev;
+                }
+                if !matches!(&self.display_fields[new], DisplayItem::Field { .. }) {
+                    new = current as usize; // no fields at all; stay put
+                }
                 break;
             }
             new = candidate as usize;
         }
         self.select(new);
+    }
+
+    /// Jump to the first selectable field.
+    pub fn move_to_top(&mut self) {
+        if let Some(idx) = self.display_fields.iter().position(|i| matches!(i, DisplayItem::Field { .. })) {
+            self.select(idx);
+        }
+    }
+
+    /// Jump to the last selectable field.
+    pub fn move_to_bottom(&mut self) {
+        if let Some(idx) = self.display_fields.iter().rposition(|i| matches!(i, DisplayItem::Field { .. })) {
+            self.select(idx);
+        }
     }
 
     /// Return (field_name, field_value) for the currently selected item, if it is a Field.
@@ -615,6 +641,45 @@ mod tests {
         // Other type with no fields has nothing selectable.
         assert!(state.selected_field().is_none());
     }
+
+    #[test]
+    fn test_move_to_top_lands_on_field() {
+        let e = make_entry(EntryType::Article, &[
+            ("author", "Smith"), ("title", "Paper"), ("year", "2020"), ("journal", "N"),
+        ]);
+        let mut state = EntryDetailState::new(&e, vec![]);
+        state.move_selection(100); // go to bottom first
+        state.move_to_top();
+        assert!(matches!(state.display_fields[state.selected()], DisplayItem::Field { .. }));
+        // Should be the first field (smallest index among Fields)
+        let first_field = state.display_fields.iter().position(|i| matches!(i, DisplayItem::Field { .. })).unwrap();
+        assert_eq!(state.selected(), first_field);
+    }
+
+    #[test]
+    fn test_move_to_bottom_lands_on_field() {
+        let e = make_entry(EntryType::Article, &[
+            ("author", "Smith"), ("title", "Paper"), ("year", "2020"), ("journal", "N"),
+        ]);
+        let mut state = EntryDetailState::new(&e, vec![]);
+        state.move_to_bottom();
+        assert!(matches!(state.display_fields[state.selected()], DisplayItem::Field { .. }));
+        // Should be the last field (largest index among Fields)
+        let last_field = state.display_fields.iter().rposition(|i| matches!(i, DisplayItem::Field { .. })).unwrap();
+        assert_eq!(state.selected(), last_field);
+    }
+
+    #[test]
+    fn test_move_selection_large_negative_lands_on_field() {
+        // Regression: i32::MIN/2 delta used to fail when display starts with a Header.
+        let e = make_entry(EntryType::Article, &[
+            ("author", "Smith"), ("title", "Paper"), ("year", "2020"), ("journal", "N"),
+        ]);
+        let mut state = EntryDetailState::new(&e, vec![]);
+        state.move_selection(100);
+        state.move_selection(i32::MIN / 2);
+        assert!(matches!(state.display_fields[state.selected()], DisplayItem::Field { .. }));
+    }
 }
 
 pub fn render_entry_detail(
@@ -631,7 +696,7 @@ pub fn render_entry_detail(
         .border_style(theme.border)
         .title(format!(" {} ", entry.citation_key))
         .title_bottom(
-            Line::from(" [e]dit  [a]dd  [d]el  [T]itlecase  [N]orm author  [o]pen file  [w]eb  [g]roups  [c]itekey  [Esc] back ")
+            Line::from(" [e]dit  [a]dd  [d]el  [T]itlecase  [N]orm author  [o]pen file  [w]eb  [Tab] groups  [c]itekey  [Esc] back ")
                 .style(theme.label),
         );
 
