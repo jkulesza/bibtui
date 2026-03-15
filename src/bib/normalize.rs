@@ -212,45 +212,14 @@ pub fn escape_ampersands(s: &str) -> String {
 
 /// Normalise a URL string:
 ///
-/// 1. Decode percent-encoded printable-ASCII sequences (`%20`–`%7E`).
-/// 2. Remove a single trailing slash (e.g. `https://example.com/article/` →
-///    `https://example.com/article`), unless the slash is the path root
-///    (`https://example.com/`).
+/// Remove a single trailing slash (e.g. `https://example.com/article/` →
+/// `https://example.com/article`), unless the slash is the path root
+/// (`https://example.com/`).
+///
+/// Percent-encoded sequences (e.g. `%20`) are preserved as-is so that URLs
+/// containing encoded characters remain valid.
 pub fn cleanup_url(s: &str) -> String {
-    // Step 1 — percent-decode printable ASCII sequences.
-    let decoded = if s.contains('%') {
-        let mut result = String::with_capacity(s.len());
-        let mut remaining = s;
-        while !remaining.is_empty() {
-            if let Some(pos) = remaining.find('%') {
-                result.push_str(&remaining[..pos]);
-                let after = &remaining[pos + 1..];
-                if after.len() >= 2 {
-                    let hex = &after[..2];
-                    if let Ok(byte) = u8::from_str_radix(hex, 16) {
-                        if byte >= 0x20 && byte < 0x7F {
-                            result.push(byte as char);
-                            remaining = &remaining[pos + 3..];
-                            continue;
-                        }
-                    }
-                }
-                result.push('%');
-                remaining = &remaining[pos + 1..];
-            } else {
-                result.push_str(remaining);
-                break;
-            }
-        }
-        result
-    } else {
-        s.to_string()
-    };
-
-    // Step 2 — strip a trailing slash, but only when the URL has a path
-    // component beyond the root (i.e. there is a non-slash character after
-    // the scheme+authority).
-    trim_url_trailing_slash(&decoded)
+    trim_url_trailing_slash(s)
 }
 
 /// Remove a single trailing slash from `url` unless it is the root slash
@@ -676,9 +645,10 @@ mod tests {
 
     #[test]
     fn test_cleanup_url_basic() {
+        // Percent-encoded sequences are preserved as-is (issue #14).
         assert_eq!(
             cleanup_url("http%3A%2F%2Fexample.com%2Fpage"),
-            "http://example.com/page"
+            "http%3A%2F%2Fexample.com%2Fpage"
         );
     }
 
@@ -688,8 +658,10 @@ mod tests {
     }
 
     #[test]
-    fn test_cleanup_url_space_encoding() {
-        assert_eq!(cleanup_url("foo%20bar"), "foo bar");
+    fn test_cleanup_url_percent_encoding_preserved() {
+        // Percent-encoded sequences must be left intact (GitHub issue #14).
+        assert_eq!(cleanup_url("foo%20bar"), "foo%20bar");
+        assert_eq!(cleanup_url("https://example.com/a%20b/"), "https://example.com/a%20b");
     }
 
     // ── trim_url_trailing_slash ───────────────────────────────────────────────
