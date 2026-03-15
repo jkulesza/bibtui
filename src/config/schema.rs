@@ -166,7 +166,7 @@ impl Default for SaveConfig {
     fn default() -> Self {
         SaveConfig {
             align_fields: true,
-            field_order: "jabref".to_string(),
+            field_order: "alphabetical".to_string(),
             sync_filenames: false,
             save_action_escape_underscores: true,
             save_action_escape_ampersands: true,
