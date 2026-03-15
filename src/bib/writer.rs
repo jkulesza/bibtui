@@ -1,3 +1,4 @@
+use super::entry_types::fields_for_type;
 use super::model::*;
 
 /// Serialize a RawBibFile back to a string.
@@ -32,7 +33,7 @@ pub fn write_bib_file(raw: &RawBibFile) -> String {
 }
 
 /// Serialize a single entry from semantic data (for modified entries).
-pub fn serialize_entry(entry: &Entry, align: bool) -> String {
+pub fn serialize_entry(entry: &Entry, align: bool, sort_fields: bool) -> String {
     let mut out = String::new();
 
     out.push_str(&format!(
@@ -40,6 +41,34 @@ pub fn serialize_entry(entry: &Entry, align: bool) -> String {
         entry.entry_type.display_name(),
         entry.citation_key
     ));
+
+    // Optionally sort fields: required (alpha) → optional (alpha) → nonstandard (alpha)
+    let sorted_keys: Vec<String>;
+    let field_iter: Box<dyn Iterator<Item = (&String, &String)>> = if sort_fields {
+        let (required, optional) = fields_for_type(&entry.entry_type);
+        let req_set: std::collections::HashSet<&str> = required.iter().copied().collect();
+        let opt_set: std::collections::HashSet<&str> = optional.iter().copied().collect();
+
+        let mut req_keys: Vec<&String> = entry.fields.keys()
+            .filter(|k| req_set.contains(k.as_str())).collect();
+        let mut opt_keys: Vec<&String> = entry.fields.keys()
+            .filter(|k| opt_set.contains(k.as_str())).collect();
+        let mut other_keys: Vec<&String> = entry.fields.keys()
+            .filter(|k| !req_set.contains(k.as_str()) && !opt_set.contains(k.as_str())).collect();
+
+        req_keys.sort_unstable_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+        opt_keys.sort_unstable_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+        other_keys.sort_unstable_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+
+        sorted_keys = req_keys.into_iter()
+            .chain(opt_keys)
+            .chain(other_keys)
+            .map(|k| k.clone())
+            .collect();
+        Box::new(sorted_keys.iter().map(|k| (k, &entry.fields[k])))
+    } else {
+        Box::new(entry.fields.iter())
+    };
 
     // Compute alignment width
     let align_width = if align {
@@ -53,7 +82,7 @@ pub fn serialize_entry(entry: &Entry, align: bool) -> String {
         0
     };
 
-    for (key, value) in entry.fields.iter() {
+    for (key, value) in field_iter {
         let padding = if align && key.len() < align_width {
             " ".repeat(align_width - key.len())
         } else {
@@ -127,7 +156,7 @@ mod tests {
     #[test]
     fn test_serialize_entry_no_align() {
         let entry = make_test_entry();
-        let result = serialize_entry(&entry, false);
+        let result = serialize_entry(&entry, false, false);
         assert!(result.starts_with("@Article{Smith2020,"), "result: {}", result);
         assert!(result.contains("year = {2020}"), "result: {}", result);
         assert!(result.contains("title = {A Test}"), "result: {}", result);
@@ -136,7 +165,7 @@ mod tests {
     #[test]
     fn test_serialize_entry_align() {
         let entry = make_test_entry();
-        let result = serialize_entry(&entry, true);
+        let result = serialize_entry(&entry, true, false);
         // max key len is "title" = 5; "year" = 4 gets 1 extra space
         assert!(result.starts_with("@Article{Smith2020,"), "result: {}", result);
         assert!(result.contains("year  ="), "result: {}", result);

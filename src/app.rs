@@ -1871,7 +1871,7 @@ impl App {
                 format!("key '{}'", entry.citation_key),
             ),
             "bibtex" => (
-                serialize_entry(entry, self.config.save.align_fields),
+                serialize_entry(entry, self.config.save.align_fields, self.config.save.field_order == "alphabetical"),
                 format!("BibTeX entry for '{}'", entry.citation_key),
             ),
             _ => (
@@ -3015,18 +3015,21 @@ impl App {
     }
 
     fn sync_dirty_entries(&mut self) {
-        let dirty_keys: Vec<String> = self
+        let sort_fields = self.config.save.field_order == "alphabetical";
+        // When alphabetical ordering is enabled, re-serialize all entries (not just
+        // dirty ones) so that existing entries also get their fields reordered.
+        let keys_to_sync: Vec<String> = self
             .database
             .entries
             .iter()
-            .filter(|(_, e)| e.dirty)
+            .filter(|(_, e)| e.dirty || sort_fields)
             .map(|(k, _)| k.clone())
             .collect();
 
-        for key in dirty_keys {
+        for key in keys_to_sync {
             if let Some(entry) = self.database.entries.get(&key) {
                 let serialized =
-                    serialize_entry(entry, self.config.save.align_fields);
+                    serialize_entry(entry, self.config.save.align_fields, sort_fields);
 
                 if entry.raw_index < self.database.raw_file.items.len() {
                     // Update existing raw item in-place (no length change)
