@@ -3428,12 +3428,21 @@ impl App {
             Ok(imported) => {
                 let entry_type = EntryType::from_str(&imported.entry_type);
 
-                // Generate a preliminary key; citekey regen can be done from detail view
-                let temp_key = imported
-                    .fields
-                    .get("doi")
-                    .map(|d| format!("import_{}", d.replace('/', "_").replace('.', "_")))
-                    .unwrap_or_else(|| "imported_entry".to_string());
+                // Generate a citation key from the configured template.
+                let type_name = EntryType::from_str(&imported.entry_type)
+                    .display_name()
+                    .to_lowercase();
+                let template = self
+                    .config
+                    .citekey
+                    .templates
+                    .get(&type_name)
+                    .cloned()
+                    .unwrap_or_else(|| format!("{}_{{}}", type_name));
+                let temp_key = {
+                    let key = generate_citekey(&template, &imported.fields);
+                    if key.is_empty() { "imported_entry".to_string() } else { key }
+                };
 
                 let mut fields = imported.fields;
 
