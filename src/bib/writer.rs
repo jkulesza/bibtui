@@ -219,4 +219,136 @@ mod tests {
         let result = write_bib_file(&raw);
         assert_eq!(result, raw_text);
     }
+
+    #[test]
+    fn test_serialize_entry_trailing_newline() {
+        let entry = make_test_entry();
+        let result = serialize_entry(&entry, false, false);
+        assert!(result.ends_with("}\n"), "result: {:?}", result);
+    }
+
+    #[test]
+    fn test_serialize_entry_sort_fields_required_first() {
+        let mut fields = IndexMap::new();
+        // Insert in reverse order: nonstandard, optional, required
+        fields.insert("abstract".to_string(), "Some abstract".to_string()); // nonstandard for Article
+        fields.insert("volume".to_string(), "12".to_string());   // optional
+        fields.insert("pages".to_string(), "1--10".to_string()); // optional
+        fields.insert("year".to_string(), "2020".to_string());   // required
+        fields.insert("title".to_string(), "My Title".to_string()); // required
+        fields.insert("author".to_string(), "Smith, J".to_string()); // required
+        fields.insert("journal".to_string(), "Nature".to_string()); // required
+        let entry = Entry {
+            entry_type: EntryType::Article,
+            citation_key: "Smith2020".to_string(),
+            fields,
+            group_memberships: vec![],
+            raw_index: 0,
+            dirty: false,
+        };
+        let result = serialize_entry(&entry, false, true);
+        // Required fields (author, journal, title, year) must appear before optional (pages, volume)
+        // and optional before nonstandard (abstract)
+        let author_pos = result.find("author").unwrap();
+        let journal_pos = result.find("journal").unwrap();
+        let title_pos = result.find("  title").unwrap();
+        let year_pos = result.find("year").unwrap();
+        let pages_pos = result.find("pages").unwrap();
+        let volume_pos = result.find("volume").unwrap();
+        let abstract_pos = result.find("abstract").unwrap();
+        // All required before all optional
+        assert!(author_pos < pages_pos, "author before pages");
+        assert!(journal_pos < pages_pos, "journal before pages");
+        assert!(title_pos < pages_pos, "title before pages");
+        assert!(year_pos < pages_pos, "year before pages");
+        // All optional before nonstandard
+        assert!(pages_pos < abstract_pos, "pages before abstract");
+        assert!(volume_pos < abstract_pos, "volume before abstract");
+    }
+
+    #[test]
+    fn test_normalize_blank_lines_no_change() {
+        // One blank line (2 newlines) is preserved
+        let s = "entry1\n\nentry2\n".to_string();
+        assert_eq!(normalize_blank_lines(s.clone()), s);
+    }
+
+    #[test]
+    fn test_normalize_blank_lines_triple_collapses() {
+        let s = "a\n\n\nb".to_string();
+        assert_eq!(normalize_blank_lines(s), "a\n\nb");
+    }
+
+    #[test]
+    fn test_normalize_blank_lines_many_collapses() {
+        let s = "a\n\n\n\n\n\nb".to_string();
+        assert_eq!(normalize_blank_lines(s), "a\n\nb");
+    }
+
+    #[test]
+    fn test_normalize_blank_lines_no_newlines_unchanged() {
+        let s = "hello world".to_string();
+        assert_eq!(normalize_blank_lines(s.clone()), s);
+    }
+
+    #[test]
+    fn test_normalize_blank_lines_empty_string() {
+        assert_eq!(normalize_blank_lines(String::new()), "");
+    }
+
+    #[test]
+    fn test_write_bib_file_bibpreamble() {
+        let raw = RawBibFile {
+            items: vec![RawItem::BibPreamble("\"hello\"".to_string())],
+        };
+        assert_eq!(write_bib_file(&raw), "@Preamble{\"hello\"}");
+    }
+
+    #[test]
+    fn test_write_bib_file_stringdef() {
+        let raw = RawBibFile {
+            items: vec![RawItem::StringDef {
+                name: "mystr".to_string(),
+                raw_value: "{value}".to_string(),
+            }],
+        };
+        assert_eq!(write_bib_file(&raw), "@String{mystr = {value}}");
+    }
+
+    #[test]
+    fn test_write_bib_file_comment() {
+        let raw = RawBibFile {
+            items: vec![RawItem::Comment { raw_text: "@Comment{groups stuff}".to_string() }],
+        };
+        assert_eq!(write_bib_file(&raw), "@Comment{groups stuff}");
+    }
+
+    #[test]
+    fn test_write_bib_file_multiple_items() {
+        let raw = RawBibFile {
+            items: vec![
+                RawItem::Preamble("% header\n".to_string()),
+                RawItem::Entry(RawEntry {
+                    entry_type: "Article".into(),
+                    citation_key: "k".into(),
+                    fields: vec![],
+                    align_width: 0,
+                    trailing_comma: false,
+                    raw_text: "@Article{k,\n}\n".to_string(),
+                }),
+                RawItem::Comment { raw_text: "@Comment{x}".to_string() },
+            ],
+        };
+        let result = write_bib_file(&raw);
+        assert!(result.starts_with("% header\n"));
+        assert!(result.contains("@Article{k,"));
+        assert!(result.ends_with("@Comment{x}"));
+    }
+
+    #[test]
+    fn test_format_field_value_all_months() {
+        for m in &["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"] {
+            assert_eq!(format_field_value("month", m), *m, "month {}", m);
+        }
+    }
 }

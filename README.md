@@ -11,7 +11,7 @@ A terminal UI BibTeX manager written in Rust. Designed as a lightweight, keyboar
 
 - Fast fuzzy search across all fields with field-specific syntax (`author:smith year:2020`)
 - JabRef-compatible group tree (static and keyword groups)
-- Byte-perfect BibTeX round-tripping — formatting is preserved for unmodified entries
+- Byte-perfect BibTeX round-tripping — formatting is preserved for unmodified entries; on save, fields are alphabetized within required / optional / nonstandard subgroups for consistent ordering
 - Vim-style navigation throughout
 - Entry CRUD: add, edit, duplicate, delete with undo (`u`)
 - Template-based citation key generation
@@ -27,7 +27,9 @@ A terminal UI BibTeX manager written in Rust. Designed as a lightweight, keyboar
 - Validate command (`v`) dry-runs all save actions and shows which fields would change, without modifying the file
 - Full-screen help modal (`?`) with complete keyboard reference
 - Scrollable filename-sync preview dialog confirms file renames before they are applied
-- Import entries from a DOI, URL, or local PDF file (`I` or `:import <doi-or-url-or-path>`): queries Crossref for metadata, with extensible publisher-specific scrapers (ANS, Taylor & Francis); automatically downloads an open-access PDF via Unpaywall when available; extracts DOI from local PDFs and sets the file attachment directly
+- Import entries from a DOI, URL, or local PDF file (`I` or `:import <doi-or-url-or-path>`): queries Crossref for metadata, with extensible publisher-specific scrapers (ANS, Taylor & Francis); automatically downloads an open-access PDF via Unpaywall when available; extracts DOI from local PDFs and sets the file attachment directly; citation key is generated immediately from the configured template
+- Per-file attachment management in the detail view: each attached file appears as its own navigable row; `e`/`Enter` edits the path, `A` adds a new attachment, `d` removes an individual file
+- URL fields preserve percent-encoding (e.g. `%20`) on save
 
 ## Requirements
 
@@ -269,7 +271,9 @@ display:
 
 save:
   align_fields: true                      # align field values to a column on save
-  field_order: jabref                     # jabref | alphabetical
+  field_order: alphabetical               # alphabetical (default) | jabref
+                                          # alphabetical sorts within required / optional /
+                                          # nonstandard subgroups on every save
   sync_filenames: false                   # rename attached files to match citation key on save
                                           # (preview dialog shown before applying)
   save_action_abbreviate_journal: false   # populate journal_abbrev (ISO 4) and journal_full
@@ -325,7 +329,7 @@ PDF candidates are tried in order (Unpaywall OA → publisher PDF → ANS direct
 cargo test
 ```
 
-All 636 tests should pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, journal abbreviation, TUI component state machines, config loading, and import pipeline).
+All 700 tests should pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, journal abbreviation, TUI component state machines, config loading, and import pipeline).
 
 Coverage analysis runs automatically in CI via `cargo-llvm-cov`. To run locally:
 
