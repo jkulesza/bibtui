@@ -117,6 +117,7 @@ fn map_detail_key(key: KeyEvent, last_key: Option<char>) -> Option<Action> {
         }
         KeyCode::Char('e') | KeyCode::Char('i') | KeyCode::Enter => Some(Action::EditField),
         KeyCode::Char('a') => Some(Action::AddField),
+        KeyCode::Char('A') => Some(Action::AddFileAttachment),
         KeyCode::Char('d') => Some(Action::DeleteField),
         KeyCode::Char('T') => Some(Action::TitlecaseField),
         KeyCode::Char('N') => Some(Action::NormalizeAuthor),

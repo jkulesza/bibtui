@@ -9,10 +9,11 @@ use crate::bib::model::Entry;
 use crate::config::schema::CustomFieldGroup;
 use crate::tui::theme::Theme;
 use crate::util::latex::render_latex;
+use crate::util::open::parse_file_field;
 use crate::util::titlecase::strip_case_braces;
 
-/// A single row in the detail view — either a non-selectable category header
-/// or an editable field.
+/// A single row in the detail view — either a non-selectable category header,
+/// an editable field, or one file within a multi-file attachment.
 #[derive(Debug, Clone)]
 pub enum DisplayItem {
     Header(String),
@@ -20,6 +21,15 @@ pub enum DisplayItem {
         name: String,
         value: String,
         category: FieldCategory,
+    },
+    /// One file within a `file` field. Selectable; `o` opens this specific file.
+    FileEntry {
+        /// 0-based index into the parsed file list.
+        index: usize,
+        /// The full raw `file` field value (all files combined), used for editing.
+        raw_field: String,
+        /// Human-readable label for this specific file.
+        label: String,
     },
 }
 
@@ -45,7 +55,9 @@ impl EntryDetailState {
         let display_fields = build_display_items(entry, &field_groups);
         let mut state = ListState::default();
         // Start on the first selectable (non-header) item
-        let first = display_fields.iter().position(|i| matches!(i, DisplayItem::Field { .. }));
+        let first = display_fields.iter().position(|i| {
+            matches!(i, DisplayItem::Field { .. } | DisplayItem::FileEntry { .. })
+        });
         state.select(first);
         EntryDetailState {
             list_state: state,
@@ -72,26 +84,29 @@ impl EntryDetailState {
         let mut new = (current + delta).clamp(0, count as i32 - 1) as usize;
 
         // Skip header rows in the direction of movement; if the edge is reached,
-        // scan the other direction so we always land on a Field.
+        // scan the other direction so we always land on a selectable item.
+        let is_selectable = |item: &DisplayItem| {
+            matches!(item, DisplayItem::Field { .. } | DisplayItem::FileEntry { .. })
+        };
         let direction = if delta >= 0 { 1i32 } else { -1i32 };
         loop {
-            if let DisplayItem::Field { .. } = &self.display_fields[new] {
+            if is_selectable(&self.display_fields[new]) {
                 break;
             }
             let candidate = new as i32 + direction;
             if candidate < 0 || candidate >= count as i32 {
-                // Edge reached; try scanning the other way to find a Field.
+                // Edge reached; try scanning the other way to find a selectable item.
                 let rev = -direction;
                 let mut rev_pos = new as i32 + rev;
                 while rev_pos >= 0 && rev_pos < count as i32 {
-                    if let DisplayItem::Field { .. } = &self.display_fields[rev_pos as usize] {
+                    if is_selectable(&self.display_fields[rev_pos as usize]) {
                         new = rev_pos as usize;
                         break;
                     }
                     rev_pos += rev;
                 }
-                if !matches!(&self.display_fields[new], DisplayItem::Field { .. }) {
-                    new = current as usize; // no fields at all; stay put
+                if !is_selectable(&self.display_fields[new]) {
+                    new = current as usize; // no selectable items; stay put
                 }
                 break;
             }
@@ -100,24 +115,39 @@ impl EntryDetailState {
         self.select(new);
     }
 
-    /// Jump to the first selectable field.
+    /// Jump to the first selectable item.
     pub fn move_to_top(&mut self) {
-        if let Some(idx) = self.display_fields.iter().position(|i| matches!(i, DisplayItem::Field { .. })) {
+        if let Some(idx) = self.display_fields.iter().position(|i| {
+            matches!(i, DisplayItem::Field { .. } | DisplayItem::FileEntry { .. })
+        }) {
             self.select(idx);
         }
     }
 
-    /// Jump to the last selectable field.
+    /// Jump to the last selectable item.
     pub fn move_to_bottom(&mut self) {
-        if let Some(idx) = self.display_fields.iter().rposition(|i| matches!(i, DisplayItem::Field { .. })) {
+        if let Some(idx) = self.display_fields.iter().rposition(|i| {
+            matches!(i, DisplayItem::Field { .. } | DisplayItem::FileEntry { .. })
+        }) {
             self.select(idx);
         }
     }
 
     /// Return (field_name, field_value) for the currently selected item, if it is a Field.
+    /// For `FileEntry` rows, returns `("file", raw_field)` so edits affect the whole field.
     pub fn selected_field(&self) -> Option<(&str, &str)> {
         match self.display_fields.get(self.selected()) {
             Some(DisplayItem::Field { name, value, .. }) => Some((name, value)),
+            Some(DisplayItem::FileEntry { raw_field, .. }) => Some(("file", raw_field)),
+            _ => None,
+        }
+    }
+
+    /// If the currently selected item is a `FileEntry`, return its 0-based index
+    /// within the parsed file list. Returns `None` for regular fields and headers.
+    pub fn selected_file_index(&self) -> Option<usize> {
+        match self.display_fields.get(self.selected()) {
+            Some(DisplayItem::FileEntry { index, .. }) => Some(*index),
             _ => None,
         }
     }
@@ -233,22 +263,14 @@ fn build_display_items(entry: &Entry, field_groups: &[CustomFieldGroup]) -> Vec<
     if !required_fields.is_empty() {
         result.push(DisplayItem::Header("Required:".to_string()));
         for (name, value) in required_fields {
-            result.push(DisplayItem::Field {
-                name,
-                value,
-                category: FieldCategory::Required,
-            });
+            push_field_or_files(&mut result, name, value, FieldCategory::Required);
         }
     }
 
     if !optional_fields.is_empty() {
         result.push(DisplayItem::Header("Optional:".to_string()));
         for (name, value) in optional_fields {
-            result.push(DisplayItem::Field {
-                name,
-                value,
-                category: FieldCategory::Optional,
-            });
+            push_field_or_files(&mut result, name, value, FieldCategory::Optional);
         }
     }
 
@@ -257,11 +279,7 @@ fn build_display_items(entry: &Entry, field_groups: &[CustomFieldGroup]) -> Vec<
         if !fields.is_empty() {
             result.push(DisplayItem::Header(format!("{}:", group_name)));
             for (name, value) in fields {
-                result.push(DisplayItem::Field {
-                    name,
-                    value,
-                    category: FieldCategory::Custom(group_name.clone()),
-                });
+                push_field_or_files(&mut result, name, value, FieldCategory::Custom(group_name.clone()));
             }
         }
     }
@@ -269,15 +287,37 @@ fn build_display_items(entry: &Entry, field_groups: &[CustomFieldGroup]) -> Vec<
     if !other_fields.is_empty() {
         result.push(DisplayItem::Header("Other:".to_string()));
         for (name, value) in other_fields {
-            result.push(DisplayItem::Field {
-                name,
-                value,
-                category: FieldCategory::Other,
-            });
+            push_field_or_files(&mut result, name, value, FieldCategory::Other);
         }
     }
 
     result
+}
+
+/// Push a `DisplayItem` for the given field.  When the field is `file` and
+/// the value contains at least one parseable file entry, emit one
+/// `FileEntry` row per file (so each attachment is shown and navigable
+/// individually).  All other fields emit a single `Field` row.
+fn push_field_or_files(
+    result: &mut Vec<DisplayItem>,
+    name: String,
+    value: String,
+    category: FieldCategory,
+) {
+    if name.eq_ignore_ascii_case("file") && !value.is_empty() {
+        let files = parse_file_field(&value);
+        if !files.is_empty() {
+            for (i, f) in files.iter().enumerate() {
+                result.push(DisplayItem::FileEntry {
+                    index: i,
+                    raw_field: value.clone(),
+                    label: f.label(),
+                });
+            }
+            return;
+        }
+    }
+    result.push(DisplayItem::Field { name, value, category });
 }
 
 #[cfg(test)]
@@ -696,7 +736,7 @@ pub fn render_entry_detail(
         .border_style(theme.border)
         .title(format!(" {} ", entry.citation_key))
         .title_bottom(
-            Line::from(" [e]dit  [a]dd  [d]el  [T]itlecase  [N]orm author  [o]pen file  [w]eb  [Tab] groups  [c]itekey  [Esc] back ")
+            Line::from(" [e]dit  [a]dd field  [A]dd file  [d]el  [T]itlecase  [N]orm author  [o]pen file  [w]eb  [Tab] groups  [c]itekey  [Esc] back ")
                 .style(theme.label),
         );
 
@@ -731,6 +771,10 @@ pub fn render_entry_detail(
         .max()
         .unwrap_or(0);
 
+    // Determine the label "file" width for FileEntry rows so they align
+    // with Field rows (but don't inflate max_name_len beyond real field names).
+    let file_name_len = "file".len();
+
     let items: Vec<ListItem> = state
         .display_fields
         .iter()
@@ -762,6 +806,13 @@ pub fn render_entry_detail(
                     Span::styled(display_value, value_style),
                 ]))
             }
+            DisplayItem::FileEntry { label, .. } => {
+                let padding = " ".repeat(max_name_len.saturating_sub(file_name_len));
+                ListItem::new(Line::from(vec![
+                    Span::styled(format!("    file{} : ↳ ", padding), theme.label),
+                    Span::styled(label.clone(), theme.value),
+                ]))
+            }
         })
         .collect();
 
@@ -780,14 +831,18 @@ pub fn render_entry_detail(
     let list = List::new(items).highlight_style(theme.selected);
     f.render_stateful_widget(list, chunks[1], &mut state.list_state);
 
-    // Preview pane: show full value of selected field with wrapping
-    let (preview_label, preview_text) = match state.selected_field() {
-        Some((name, value)) if !value.is_empty() => {
+    // Preview pane: show full value of selected field with wrapping.
+    // For FileEntry rows, show the label of the specific file being highlighted.
+    let (preview_label, preview_text) = match state.display_fields.get(state.selected()) {
+        Some(DisplayItem::FileEntry { label, .. }) => {
+            (" file ".to_string(), label.clone())
+        }
+        Some(DisplayItem::Field { name, value, .. }) if !value.is_empty() => {
             let text = apply_display_pipeline(value, show_braces, render_latex_enabled);
             (format!(" {} ", name), text)
         }
-        Some((name, _)) => (format!(" {} ", name), "(empty)".to_string()),
-        None => (" Value ".to_string(), String::new()),
+        Some(DisplayItem::Field { name, .. }) => (format!(" {} ", name), "(empty)".to_string()),
+        _ => (" Value ".to_string(), String::new()),
     };
     let preview_block = Block::default()
         .borders(Borders::TOP)

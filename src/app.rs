@@ -57,6 +57,7 @@ pub enum Action {
     CloseDetail,
     EditField,
     AddField,
+    AddFileAttachment,
     DeleteField,
     EditGroups,
     RegenCitekey,
@@ -239,6 +240,10 @@ enum PendingAction {
     /// Deleting an entry that has multiple local files; FileDeleteSelect lets
     /// the user choose which files to also remove.
     DeleteEntryWithFileSelect { entry_key: String, files: Vec<std::path::PathBuf> },
+    /// Waiting for the user to provide a path for a new file attachment.
+    AddFileAttachment { entry_key: String },
+    /// Waiting for the user to edit the path of the file at `index` in the `file` field.
+    EditFileAttachment { entry_key: String, index: usize },
 }
 
 impl App {
@@ -485,6 +490,7 @@ impl App {
                 self.mode = InputMode::Editing;
                 // (completions start empty; they populate as the user types a prefix)
             }
+            Action::AddFileAttachment => self.start_add_file_attachment(),
             Action::DeleteField => self.delete_field(),
             Action::EditGroups => self.start_edit_groups(),
             Action::RegenCitekey => self.regen_citekey(),
@@ -985,6 +991,19 @@ impl App {
     // ── Field editing ──
 
     fn start_edit_field(&mut self) {
+        // When a FileEntry row is selected, edit just that file's path.
+        if let Some(idx) = self.detail_state.as_ref().and_then(|d| d.selected_file_index()) {
+            let key = match self.detail_entry_key.clone() { Some(k) => k, None => return };
+            let file_value = self.database.entries.get(&key)
+                .and_then(|e| e.fields.get("file").cloned())
+                .unwrap_or_default();
+            let files = parse_file_field(&file_value);
+            let current_path = files.get(idx).map(|f| f.path.as_str()).unwrap_or("");
+            self.field_editor_state = Some(FieldEditorState::for_path("File path", current_path));
+            self.pending_action = Some(PendingAction::EditFileAttachment { entry_key: key, index: idx });
+            self.mode = InputMode::Editing;
+            return;
+        }
         if let Some(ref detail) = self.detail_state {
             if let Some((field_name, field_value)) = detail.selected_field() {
                 self.field_editor_state =
@@ -993,6 +1012,13 @@ impl App {
                 self.update_field_completions();
             }
         }
+    }
+
+    fn start_add_file_attachment(&mut self) {
+        let key = match self.detail_entry_key.clone() { Some(k) => k, None => return };
+        self.field_editor_state = Some(FieldEditorState::for_path("New file path", ""));
+        self.pending_action = Some(PendingAction::AddFileAttachment { entry_key: key });
+        self.mode = InputMode::Editing;
     }
 
     fn confirm_edit(&mut self) {
@@ -1117,7 +1143,11 @@ impl App {
         }
 
         // Edit field group fields ─────────────────────────────────────────────
-        if let Some(PendingAction::EditFieldGroupFields { index }) = self.pending_action.take() {
+        if matches!(self.pending_action, Some(PendingAction::EditFieldGroupFields { .. })) {
+            let index = match self.pending_action.take() {
+                Some(PendingAction::EditFieldGroupFields { index }) => index,
+                _ => return,
+            };
             let fields_csv = self.field_editor_state.as_ref()
                 .map(|e| e.value.clone()).unwrap_or_default();
             self.field_editor_state = None;
@@ -1131,7 +1161,11 @@ impl App {
         }
 
         // Rename a field group ────────────────────────────────────────────────
-        if let Some(PendingAction::RenameFieldGroup { index }) = self.pending_action.take() {
+        if matches!(self.pending_action, Some(PendingAction::RenameFieldGroup { .. })) {
+            let index = match self.pending_action.take() {
+                Some(PendingAction::RenameFieldGroup { index }) => index,
+                _ => return,
+            };
             let name = self.field_editor_state.as_ref()
                 .map(|e| e.value.trim().to_string()).unwrap_or_default();
             self.field_editor_state = None;
@@ -1142,6 +1176,114 @@ impl App {
                     s.apply_to_config(&mut self.config);
                 }
                 self.sync_runtime_from_config();
+            }
+            return;
+        }
+
+        // Add a new file attachment ───────────────────────────────────────────
+        if matches!(self.pending_action, Some(PendingAction::AddFileAttachment { .. })) {
+            let entry_key = match self.pending_action.take() {
+                Some(PendingAction::AddFileAttachment { entry_key }) => entry_key,
+                _ => return,
+            };
+            let path_str = self.field_editor_state.as_ref()
+                .map(|e| e.value.trim().to_string()).unwrap_or_default();
+            self.field_editor_state = None;
+            self.mode = InputMode::Detail;
+            if !path_str.is_empty() {
+                let abs_path = PathBuf::from(expand_tilde(&path_str));
+                let file_type = abs_path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .map(|e| e.to_uppercase())
+                    .unwrap_or_default();
+                // Store a path relative to the JabRef fileDirectory (same convention
+                // used by the import pipeline).  Falls back to absolute if the file
+                // is outside that directory or canonicalization fails.
+                let file_dir = effective_file_dir(
+                    &self.bib_path,
+                    self.database.jabref_meta.file_directory.as_deref(),
+                );
+                let stored_path = crate::util::open::make_relative(&file_dir, &abs_path)
+                    .to_string_lossy()
+                    .into_owned();
+                let current = self.database.entries.get(&entry_key)
+                    .and_then(|e| e.fields.get("file").cloned())
+                    .unwrap_or_default();
+                let mut files = parse_file_field(&current);
+                files.push(crate::util::open::ParsedFile {
+                    description: String::new(),
+                    path: stored_path,
+                    file_type,
+                });
+                let new_value = serialize_file_field(&files);
+                self.push_undo(UndoItem::FieldChanged {
+                    entry_key: entry_key.clone(),
+                    field_name: "file".to_string(),
+                    old_value: if current.is_empty() { None } else { Some(current) },
+                });
+                if let Some(entry) = self.database.entries.get_mut(&entry_key) {
+                    entry.fields.insert("file".to_string(), new_value);
+                    entry.dirty = true;
+                    let snapshot = entry.clone();
+                    if let Some(ref mut detail) = self.detail_state {
+                        detail.refresh(&snapshot);
+                    }
+                }
+            }
+            return;
+        }
+
+        // Edit the path of a specific file attachment ─────────────────────────
+        if matches!(self.pending_action, Some(PendingAction::EditFileAttachment { .. })) {
+            let (entry_key, file_idx) = match self.pending_action.take() {
+                Some(PendingAction::EditFileAttachment { entry_key, index }) => (entry_key, index),
+                _ => return,
+            };
+            let path_str = self.field_editor_state.as_ref()
+                .map(|e| e.value.trim().to_string()).unwrap_or_default();
+            self.field_editor_state = None;
+            self.mode = InputMode::Detail;
+            if !path_str.is_empty() {
+                let abs_path = PathBuf::from(expand_tilde(&path_str));
+                let file_dir = effective_file_dir(
+                    &self.bib_path,
+                    self.database.jabref_meta.file_directory.as_deref(),
+                );
+                let stored_path = crate::util::open::make_relative(&file_dir, &abs_path)
+                    .to_string_lossy()
+                    .into_owned();
+                let current = self.database.entries.get(&entry_key)
+                    .and_then(|e| e.fields.get("file").cloned())
+                    .unwrap_or_default();
+                let mut files = parse_file_field(&current);
+                if let Some(f) = files.get_mut(file_idx) {
+                    let ext = abs_path
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .map(|e| e.to_uppercase())
+                        .unwrap_or_default();
+                    f.path = stored_path;
+                    if !ext.is_empty() && f.file_type.is_empty() {
+                        f.file_type = ext;
+                    }
+                }
+                let new_value = serialize_file_field(&files);
+                if new_value != current {
+                    self.push_undo(UndoItem::FieldChanged {
+                        entry_key: entry_key.clone(),
+                        field_name: "file".to_string(),
+                        old_value: Some(current),
+                    });
+                    if let Some(entry) = self.database.entries.get_mut(&entry_key) {
+                        entry.fields.insert("file".to_string(), new_value);
+                        entry.dirty = true;
+                        let snapshot = entry.clone();
+                        if let Some(ref mut detail) = self.detail_state {
+                            detail.refresh(&snapshot);
+                        }
+                    }
+                }
             }
             return;
         }
@@ -1215,6 +1357,12 @@ impl App {
     }
 
     fn delete_field(&mut self) {
+        // When a FileEntry row is selected, remove just that file from the field.
+        if let Some(file_idx) = self.detail_state.as_ref().and_then(|d| d.selected_file_index()) {
+            self.delete_file_attachment(file_idx);
+            return;
+        }
+
         let field_name_opt = self
             .detail_state
             .as_ref()
@@ -1240,6 +1388,39 @@ impl App {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    fn delete_file_attachment(&mut self, index: usize) {
+        let key = match self.detail_entry_key.clone() { Some(k) => k, None => return };
+        let file_value = match self.database.entries.get(&key)
+            .and_then(|e| e.fields.get("file")).cloned()
+        {
+            Some(v) if !v.is_empty() => v,
+            _ => return,
+        };
+        let mut files = parse_file_field(&file_value);
+        if index >= files.len() {
+            return;
+        }
+        files.remove(index);
+        let new_value = serialize_file_field(&files);
+        self.push_undo(UndoItem::FieldChanged {
+            entry_key: key.clone(),
+            field_name: "file".to_string(),
+            old_value: Some(file_value),
+        });
+        if let Some(entry) = self.database.entries.get_mut(&key) {
+            if new_value.is_empty() {
+                entry.fields.shift_remove("file");
+            } else {
+                entry.fields.insert("file".to_string(), new_value);
+            }
+            entry.dirty = true;
+            let snapshot = entry.clone();
+            if let Some(ref mut detail) = self.detail_state {
+                detail.refresh(&snapshot);
             }
         }
     }
@@ -1565,11 +1746,26 @@ impl App {
             return;
         }
 
+        // If in detail mode with a specific FileEntry row selected, open that file directly.
+        let selected_idx = self.detail_state.as_ref().and_then(|d| d.selected_file_index());
+
+        let bib_dir = effective_file_dir(
+            &self.bib_path,
+            self.database.jabref_meta.file_directory.as_deref(),
+        );
+
+        if let Some(idx) = selected_idx {
+            if let Some(f) = files.get(idx) {
+                let path = resolve_file_path(&f.path, &bib_dir);
+                match open_path(&path) {
+                    Ok(()) => self.status_message = Some(format!("Opening {}", path.display())),
+                    Err(e) => self.status_message = Some(format!("Error: {}", e)),
+                }
+                return;
+            }
+        }
+
         if files.len() == 1 {
-            let bib_dir = effective_file_dir(
-                &self.bib_path,
-                self.database.jabref_meta.file_directory.as_deref(),
-            );
             let path = resolve_file_path(&files[0].path, &bib_dir);
             match open_path(&path) {
                 Ok(()) => self.status_message = Some(format!("Opening {}", path.display())),
@@ -1936,7 +2132,9 @@ impl App {
             | Some(PendingAction::EditFieldGroupFields { .. })
             | Some(PendingAction::RenameFieldGroup { .. })
             | Some(PendingAction::NewFile)
-            | Some(PendingAction::ImportUrl) => {
+            | Some(PendingAction::ImportUrl)
+            | Some(PendingAction::AddFileAttachment { .. })
+            | Some(PendingAction::EditFileAttachment { .. }) => {
                 // These are confirmed through confirm_edit(), not this path
             }
             None => {
@@ -2165,6 +2363,8 @@ impl App {
                 | Some(PendingAction::ImportSettings)
                 | Some(PendingAction::NewFile)
                 | Some(PendingAction::ImportUrl)
+                | Some(PendingAction::AddFileAttachment { .. })
+                | Some(PendingAction::EditFileAttachment { .. })
         );
         if !is_path_edit {
             return;
