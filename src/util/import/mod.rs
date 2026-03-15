@@ -121,4 +121,38 @@ mod tests {
     fn test_doi_to_filename_special_chars_replaced() {
         assert_eq!(doi_to_filename("10.1234/foo:bar(baz)"), "10_1234_foo_bar_baz_.pdf");
     }
+
+    #[test]
+    fn test_imported_entry_new() {
+        use indexmap::IndexMap;
+        let mut fields = IndexMap::new();
+        fields.insert("title".to_string(), "My Paper".to_string());
+        fields.insert("year".to_string(), "2023".to_string());
+
+        let entry = ImportedEntry::new("article", fields.clone());
+        assert_eq!(entry.entry_type, "article");
+        assert_eq!(entry.fields["title"], "My Paper");
+        assert_eq!(entry.fields["year"], "2023");
+        assert!(entry.pdf_urls.is_empty());
+        assert!(entry.pdf_path.is_none());
+        assert!(entry.pdf_error.is_none());
+    }
+
+    #[test]
+    fn test_import_error_display_network() {
+        let e = ImportError::Network("timeout".to_string());
+        assert_eq!(e.to_string(), "Network error: timeout");
+    }
+
+    #[test]
+    fn test_import_error_display_parse() {
+        let e = ImportError::Parse("bad json".to_string());
+        assert_eq!(e.to_string(), "Parse error: bad json");
+    }
+
+    #[test]
+    fn test_import_error_display_no_match() {
+        let e = ImportError::NoMatch("https://example.com".to_string());
+        assert_eq!(e.to_string(), "No fetcher matched: https://example.com");
+    }
 }

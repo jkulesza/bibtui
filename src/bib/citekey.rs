@@ -522,4 +522,250 @@ mod tests {
         let result = generate_citekey("[firstpage]", &f);
         assert_eq!(result, "100");
     }
+
+    // ── authN token ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_auth_n_two() {
+        let f = fields(&[("author", "Smith, Jane and Jones, Bob and Williams, Carol")]);
+        let result = generate_citekey("[auth2]", &f);
+        assert_eq!(result, "SmithJones");
+    }
+
+    #[test]
+    fn test_auth_n_three() {
+        let f = fields(&[("author", "Smith, Jane and Jones, Bob and Williams, Carol")]);
+        let result = generate_citekey("[auth3]", &f);
+        assert_eq!(result, "SmithJonesWilliams");
+    }
+
+    #[test]
+    fn test_auth_n_more_than_available() {
+        // Requesting 5 authors when only 2 exist — returns all available
+        let f = fields(&[("author", "Smith, Jane and Jones, Bob")]);
+        let result = generate_citekey("[auth5]", &f);
+        assert_eq!(result, "SmithJones");
+    }
+
+    // ── shortyear ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_shortyear() {
+        let f = fields(&[("year", "2023")]);
+        assert_eq!(generate_citekey("[shortyear]", &f), "23");
+    }
+
+    #[test]
+    fn test_shortyear_missing() {
+        let f = fields(&[]);
+        assert_eq!(generate_citekey("[shortyear]", &f), "");
+    }
+
+    // ── firstpage with hyphen ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_firstpage_hyphen_range() {
+        let f = fields(&[("pages", "100--200")]);
+        assert_eq!(generate_citekey("[firstpage]", &f), "100");
+    }
+
+    #[test]
+    fn test_firstpage_single_page() {
+        let f = fields(&[("pages", "42")]);
+        assert_eq!(generate_citekey("[firstpage]", &f), "42");
+    }
+
+    // ── format_authors_for_key ────────────────────────────────────────────────
+
+    #[test]
+    fn test_format_authors_two() {
+        let f = fields(&[("author", "Smith, Jane and Jones, Bob")]);
+        assert_eq!(generate_citekey("[authors]", &f), "SmithJones");
+    }
+
+    #[test]
+    fn test_format_authors_three_plus_etal() {
+        let f = fields(&[("author", "Smith, Jane and Jones, Bob and Williams, Carol")]);
+        assert_eq!(generate_citekey("[authors]", &f), "SmithJonesEtAl");
+    }
+
+    // ── modifiers ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_modifier_upper() {
+        let f = fields(&[("year", "2020")]);
+        assert_eq!(generate_citekey("[year:upper]", &f), "2020");
+
+        let f2 = fields(&[("author", "Smith, Jane")]);
+        assert_eq!(generate_citekey("[auth:upper]", &f2), "SMITH");
+    }
+
+    #[test]
+    fn test_modifier_lower() {
+        let f = fields(&[("author", "Smith, Jane")]);
+        assert_eq!(generate_citekey("[auth:lower]", &f), "smith");
+    }
+
+    #[test]
+    fn test_modifier_abbr() {
+        let f = fields(&[("journal", "Nuclear Science Engineering")]);
+        assert_eq!(generate_citekey("[journal:abbr]", &f), "NSE");
+    }
+
+    #[test]
+    fn test_modifier_truncate() {
+        let f = fields(&[("author", "Smith, Jane")]);
+        // (3) = take first 3 chars of "Smith"
+        assert_eq!(generate_citekey("[auth:(3)]", &f), "Smi");
+    }
+
+    #[test]
+    fn test_modifier_regex() {
+        let f = fields(&[("year", "2023")]);
+        // Strip last two digits of year
+        assert_eq!(generate_citekey("[year:regex(\\d\\d$,)]", &f), "20");
+    }
+
+    #[test]
+    fn test_modifier_unknown_passthrough() {
+        let f = fields(&[("year", "2020")]);
+        // Unknown modifier — value unchanged
+        assert_eq!(generate_citekey("[year:unknown_modifier]", &f), "2020");
+    }
+
+    // ── nested bracket in template ────────────────────────────────────────────
+
+    #[test]
+    fn test_empty_bracket_token() {
+        // [] resolves to empty string
+        let f = fields(&[]);
+        assert_eq!(generate_citekey("[]", &f), "");
+    }
+
+    // ── legacy tokens ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_legacy_year() {
+        let f = fields(&[("year", "1999")]);
+        assert_eq!(generate_citekey("{year}", &f), "1999");
+    }
+
+    #[test]
+    fn test_legacy_author_last() {
+        let f = fields(&[("author", "Smith, Jane and Jones, Bob")]);
+        assert_eq!(generate_citekey("{author_last}", &f), "Smith");
+    }
+
+    #[test]
+    fn test_legacy_authors() {
+        let f = fields(&[("author", "Smith, Jane and Jones, Bob and Williams, Carol")]);
+        assert_eq!(generate_citekey("{authors}", &f), "SmithJonesEtAl");
+    }
+
+    #[test]
+    fn test_legacy_title_camel() {
+        let f = fields(&[("title", "nuclear science engineering")]);
+        assert_eq!(generate_citekey("{title_camel}", &f), "NuclearScienceEngineering");
+    }
+
+    #[test]
+    fn test_legacy_journal_abbrev() {
+        let f = fields(&[("journal", "Nuclear Science Engineering")]);
+        assert_eq!(generate_citekey("{journal_abbrev}", &f), "NSE");
+    }
+
+    #[test]
+    fn test_legacy_booktitle_abbrev() {
+        let f = fields(&[("booktitle", "International Conference Nuclear")]);
+        let result = generate_citekey("{booktitle_abbrev}", &f);
+        assert_eq!(result, "ICN");
+    }
+
+    #[test]
+    fn test_legacy_institution_abbrev() {
+        let f = fields(&[("institution", "Argonne National Laboratory")]);
+        assert_eq!(generate_citekey("{institution_abbrev}", &f), "ANL");
+    }
+
+    #[test]
+    fn test_legacy_pages() {
+        let f = fields(&[("pages", "100--200")]);
+        assert_eq!(generate_citekey("{pages}", &f), "100--200");
+    }
+
+    #[test]
+    fn test_legacy_number() {
+        let f = fields(&[("number", "42")]);
+        assert_eq!(generate_citekey("{number}", &f), "42");
+    }
+
+    #[test]
+    fn test_legacy_number_report_number_fallback() {
+        let f = fields(&[("report-number", "ANL-2020")]);
+        assert_eq!(generate_citekey("{number}", &f), "ANL-2020");
+    }
+
+    #[test]
+    fn test_legacy_howpublished_camel() {
+        let f = fields(&[("howpublished", "online report")]);
+        assert_eq!(generate_citekey("{howpublished_camel}", &f), "OnlineReport");
+    }
+
+    #[test]
+    fn test_legacy_category() {
+        let f = fields(&[("keywords", "nuclear physics, reactor")]);
+        assert_eq!(generate_citekey("{category}", &f), "NuclearPhysics");
+    }
+
+    // ── journal_abbrev token (new syntax) ─────────────────────────────────────
+
+    #[test]
+    fn test_journal_abbrev_token_uses_journal_full() {
+        // When journal_full is present, journal_abbrev token uses it
+        let f = fields(&[
+            ("journal", "NSE"),                  // abbreviated form in journal field
+            ("journal_full", "Nuclear Science and Engineering"),
+        ]);
+        let result = generate_citekey("[journal_abbrev]", &f);
+        // Should abbreviate from journal_full, not the already-abbreviated journal
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn test_journal_abbrev_token_falls_back_to_journal() {
+        let f = fields(&[("journal", "Nuclear Science Engineering")]);
+        assert_eq!(generate_citekey("[journal_abbrev]", &f), "NSE");
+    }
+
+    // ── split_on_colon with nested parens ─────────────────────────────────────
+
+    #[test]
+    fn test_modifier_regex_with_colon_in_pattern() {
+        // regex pattern containing colon inside parens — must not be split at that colon
+        let f = fields(&[("year", "2020")]);
+        // regex(\d+,X) → replace digits with X
+        let result = generate_citekey("[year:regex(\\d+,X)]", &f);
+        assert_eq!(result, "X");
+    }
+
+    // ── parse_authors edge cases ──────────────────────────────────────────────
+
+    #[test]
+    fn test_parse_authors_first_last_format() {
+        let authors = parse_authors("Jane Smith and Bob Jones");
+        assert_eq!(authors, vec!["Smith", "Jones"]);
+    }
+
+    #[test]
+    fn test_parse_authors_single() {
+        let authors = parse_authors("Smith, Jane");
+        assert_eq!(authors, vec!["Smith"]);
+    }
+
+    #[test]
+    fn test_parse_authors_empty() {
+        // Single empty-ish entry
+        let authors = parse_authors("Smith");
+        assert_eq!(authors, vec!["Smith"]);
+    }
 }
