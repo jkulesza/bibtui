@@ -58,6 +58,7 @@ pub fn render_help(f: &mut Frame, area: Rect, _state: &HelpState, theme: &Theme)
                 ("y y",             "yank cite key"),
                 ("Space",           "citation preview"),
                 ("v",               "validate (preview save)"),
+                ("I",               "import entry from DOI, URL, or PDF file"),
                 ("u",               "undo"),
                 ("o / w",           "open file / web"),
                 ("B / L",           "toggle braces / LaTeX"),
@@ -70,10 +71,13 @@ pub fn render_help(f: &mut Frame, area: Rect, _state: &HelpState, theme: &Theme)
         (
             "Commands  ( : )",
             &[
-                (":w",           "save"),
-                (":q",           "quit"),
-                (":q!",          "force quit"),
-                (":sort <field>","sort by field"),
+                (":w",              "save"),
+                (":q",              "quit"),
+                (":q!",             "force quit"),
+                (":sort <field>",   "sort by field"),
+                (":group <name>",   "filter to group"),
+                (":search <query>", "apply search"),
+                (":import <doi/url>","import from DOI/URL"),
             ],
         ),
     ];

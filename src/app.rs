@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::mpsc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -117,6 +118,8 @@ pub enum Action {
     // Validate
     Validate,
     CloseValidateResults,
+    // Import
+    ImportEntry,
     // Help
     CloseHelp,
 }
@@ -201,6 +204,10 @@ pub struct App {
     /// point has been pushed off the end of the capped stack (i.e. it can
     /// never be reached by undoing).
     save_generation: Option<usize>,
+
+    // Import
+    /// Receives the result of a background DOI/URL import fetch.
+    pending_import: Option<mpsc::Receiver<crate::util::import::ImportResult>>,
 }
 
 #[derive(Debug)]
@@ -224,6 +231,8 @@ enum PendingAction {
     /// No bib file was given on the command line; waiting for the user to
     /// supply a path for the new library before we can do anything else.
     NewFile,
+    /// Waiting for the user to type a DOI or URL to import.
+    ImportUrl,
 }
 
 impl App {
@@ -279,6 +288,7 @@ impl App {
             deleted_raw_indices: Vec::new(),
             undo_stack: Vec::new(),
             save_generation: Some(0),
+            pending_import: None,
         };
 
         Ok(app)
@@ -333,6 +343,7 @@ impl App {
             deleted_raw_indices: Vec::new(),
             undo_stack: Vec::new(),
             save_generation: Some(0),
+            pending_import: None,
         };
 
         Ok(app)
@@ -349,6 +360,26 @@ impl App {
             if let Some(event) = poll_event(Duration::from_millis(100))? {
                 self.handle_event(event);
                 needs_redraw = true;
+            }
+            // Poll background import task
+            if self.pending_import.is_some() {
+                match self.pending_import.as_ref().unwrap().try_recv() {
+                    Ok(result) => {
+                        self.pending_import = None;
+                        self.handle_import_result(result);
+                        needs_redraw = true;
+                    }
+                    Err(mpsc::TryRecvError::Empty) => {
+                        // Still working; redraw to show "Fetching…" status
+                        needs_redraw = true;
+                    }
+                    Err(mpsc::TryRecvError::Disconnected) => {
+                        self.pending_import = None;
+                        self.status_message =
+                            Some("Import failed: fetcher thread disconnected".to_string());
+                        needs_redraw = true;
+                    }
+                }
             }
         }
         Ok(())
@@ -661,6 +692,9 @@ impl App {
                 });
             }
             Action::Undo => self.undo(),
+
+            // ── Import ──
+            Action::ImportEntry => self.start_import_entry(),
 
             // ── Settings ──
             Action::EnterSettings => {
@@ -1002,6 +1036,22 @@ impl App {
             self.mode = InputMode::Settings;
             if !path_str.is_empty() {
                 self.export_settings(&path_str);
+            }
+            return;
+        }
+
+        // Import entry from DOI/URL ───────────────────────────────────────────
+        if matches!(self.pending_action, Some(PendingAction::ImportUrl)) {
+            let doi_or_url = self
+                .field_editor_state
+                .as_ref()
+                .map(|e| e.value.trim().to_string())
+                .unwrap_or_default();
+            self.field_editor_state = None;
+            self.pending_action = None;
+            self.mode = InputMode::Normal;
+            if !doi_or_url.is_empty() {
+                self.spawn_import(doi_or_url);
             }
             return;
         }
@@ -1665,6 +1715,26 @@ impl App {
                     self.config.display.default_sort.field, dir
                 ));
             }
+            _ if cmd.starts_with("import ") => {
+                let doi_or_url = cmd["import ".len()..].trim().to_string();
+                if !doi_or_url.is_empty() {
+                    self.spawn_import(doi_or_url);
+                }
+            }
+            _ if cmd.starts_with("group ") => {
+                let group_name = cmd["group ".len()..].trim().to_string();
+                if !group_name.is_empty() {
+                    self.apply_group_filter(&group_name);
+                }
+            }
+            _ if cmd.starts_with("search ") => {
+                let query = cmd["search ".len()..].trim().to_string();
+                if !query.is_empty() {
+                    self.search_bar_state.query = query.clone();
+                    self.update_search();
+                    self.status_message = Some(format!("Search: {}", query));
+                }
+            }
             _ => {
                 self.status_message = Some(format!("Unknown command: {}", cmd));
             }
@@ -1759,7 +1829,8 @@ impl App {
             | Some(PendingAction::AddFieldGroup)
             | Some(PendingAction::EditFieldGroupFields { .. })
             | Some(PendingAction::RenameFieldGroup { .. })
-            | Some(PendingAction::NewFile) => {
+            | Some(PendingAction::NewFile)
+            | Some(PendingAction::ImportUrl) => {
                 // These are confirmed through confirm_edit(), not this path
             }
             None => {
@@ -1987,6 +2058,7 @@ impl App {
             Some(PendingAction::ExportSettings)
                 | Some(PendingAction::ImportSettings)
                 | Some(PendingAction::NewFile)
+                | Some(PendingAction::ImportUrl)
         );
         if !is_path_edit {
             return;
@@ -2987,6 +3059,184 @@ impl App {
             .jabref_meta
             .unknown_meta
             .insert("grouping".to_string(), serialized);
+    }
+
+    // ── Import ────────────────────────────────────────────────────────────────
+
+    /// Open a field-editor prompt asking the user to enter a DOI, URL, or local PDF path.
+    fn start_import_entry(&mut self) {
+        self.field_editor_state = Some(
+            crate::tui::components::field_editor::FieldEditorState::for_path(
+                "DOI, URL, or PDF file path",
+                "",
+            ),
+        );
+        self.pending_action = Some(PendingAction::ImportUrl);
+        self.mode = InputMode::Editing;
+    }
+
+    /// Spawn a background thread to fetch the entry, storing the receiver for polling.
+    fn spawn_import(&mut self, doi_or_url: String) {
+        if self.pending_import.is_some() {
+            self.status_message =
+                Some("Import already in progress — please wait".to_string());
+            return;
+        }
+        let bib_dir = effective_file_dir(
+            &self.bib_path,
+            self.database.jabref_meta.file_directory.as_deref(),
+        );
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let mut result = crate::util::import::fetch(&doi_or_url);
+            // If the fetcher already resolved a local PDF (e.g. PdfFetcher), skip download.
+            // Otherwise try each URL candidate in order; stop on first successful download.
+            if let Ok(ref mut entry) = result {
+                if entry.pdf_path.is_none() && !entry.pdf_urls.is_empty() {
+                    let doi = entry.fields.get("doi").cloned().unwrap_or_else(|| "import".to_string());
+                    let mut last_err: Option<String> = None;
+                    for pdf_url in &entry.pdf_urls.clone() {
+                        match crate::util::import::download_pdf(pdf_url, &bib_dir, &doi) {
+                            Ok(path) => {
+                                entry.pdf_path = Some(path);
+                                last_err = None;
+                                break;
+                            }
+                            Err(e) => {
+                                last_err = Some(e.to_string());
+                            }
+                        }
+                    }
+                    entry.pdf_error = last_err;
+                }
+            }
+            let _ = tx.send(result);
+        });
+        self.pending_import = Some(rx);
+        self.status_message = Some("Fetching…".to_string());
+    }
+
+    /// Handle the result of a completed background import fetch.
+    fn handle_import_result(&mut self, result: crate::util::import::ImportResult) {
+        match result {
+            Ok(imported) => {
+                let entry_type = EntryType::from_str(&imported.entry_type);
+
+                // Generate a preliminary key; citekey regen can be done from detail view
+                let temp_key = imported
+                    .fields
+                    .get("doi")
+                    .map(|d| format!("import_{}", d.replace('/', "_").replace('.', "_")))
+                    .unwrap_or_else(|| "imported_entry".to_string());
+
+                let mut fields = imported.fields;
+
+                // Titlecase the title and wrap in braces to protect case in BibTeX
+                if let Some(raw_title) = fields.get("title").cloned() {
+                    let titled = crate::util::titlecase::apply_titlecase(
+                        &raw_title,
+                        &self.config.titlecase.ignore_words,
+                        &self.config.titlecase.stop_words,
+                    );
+                    fields.insert("title".to_string(), format!("{{{}}}", titled));
+                }
+
+                // Normalise imported URL fields (percent-decode, strip trailing slash)
+                for url_field in &["url", "doi"] {
+                    if let Some(v) = fields.get(*url_field).cloned() {
+                        let cleaned = cleanup_url(&v);
+                        if cleaned != v {
+                            fields.insert(url_field.to_string(), cleaned);
+                        }
+                    }
+                }
+
+                // Set the `file` field using a path relative to the effective file
+                // directory (JabRef fileDirectory if set, otherwise the bib parent).
+                if let Some(ref pdf_path) = imported.pdf_path {
+                    let file_dir = effective_file_dir(
+                        &self.bib_path,
+                        self.database.jabref_meta.file_directory.as_deref(),
+                    );
+                    let rel = crate::util::open::make_relative(&file_dir, pdf_path);
+                    fields.insert(
+                        "file".to_string(),
+                        format!(":{}:PDF", rel.to_string_lossy()),
+                    );
+                }
+
+                let entry = Entry {
+                    entry_type,
+                    citation_key: temp_key.clone(),
+                    fields,
+                    group_memberships: Vec::new(),
+                    raw_index: usize::MAX,
+                    dirty: true,
+                };
+
+                // If the key already exists, make it unique
+                let key = if self.database.entries.contains_key(&temp_key) {
+                    let mut n = 2;
+                    loop {
+                        let k = format!("{}_{}", temp_key, n);
+                        if !self.database.entries.contains_key(&k) {
+                            break k;
+                        }
+                        n += 1;
+                    }
+                } else {
+                    temp_key
+                };
+
+                let mut entry = entry;
+                entry.citation_key = key.clone();
+
+                self.database.entries.insert(key.clone(), entry);
+                self.push_undo(UndoItem::EntryAdded { entry_key: key.clone() });
+                self.sorted_keys = sort_entries(&self.database.entries, &self.config);
+                self.dirty = true;
+
+                // Open detail view
+                self.detail_entry_key = Some(key.clone());
+                if let Some(e) = self.database.entries.get(&key) {
+                    self.detail_state =
+                        Some(EntryDetailState::new(e, self.config.field_groups.clone()));
+                }
+                self.mode = InputMode::Detail;
+                self.status_message = if let Some(ref pdf_err) = imported.pdf_error {
+                    Some(format!(
+                        "Imported entry (PDF download failed: {}) — press 'c' to regenerate citation key",
+                        pdf_err
+                    ))
+                } else if imported.pdf_path.is_some() {
+                    Some("Imported entry with PDF — press 'c' to regenerate citation key".to_string())
+                } else {
+                    Some("Imported entry — press 'c' to regenerate citation key".to_string())
+                };
+            }
+            Err(e) => {
+                self.status_message = Some(format!("Import failed: {}", e));
+            }
+        }
+    }
+
+    /// Filter the entry list to a named group (used by `:group <name>` command).
+    fn apply_group_filter(&mut self, group_name: &str) {
+        if let Some(node) = find_group_node(&self.database.groups.root, group_name) {
+            let entries: Vec<&Entry> = self
+                .sorted_keys
+                .iter()
+                .filter_map(|k| self.database.entries.get(k))
+                .collect();
+            let indices = filter_by_group(&entries, node);
+            self.search_bar_state.result_count = indices.len();
+            self.filtered_indices = Some(indices);
+            self.group_tree_state.active_group = Some(group_name.to_string());
+            self.entry_list_state.select(0);
+            self.status_message = Some(format!("Group: {}", group_name));
+        } else {
+            self.status_message = Some(format!("Group not found: {}", group_name));
+        }
     }
 }
 

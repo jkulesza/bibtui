@@ -27,6 +27,7 @@ A terminal UI BibTeX manager written in Rust. Designed as a lightweight, keyboar
 - Validate command (`v`) dry-runs all save actions and shows which fields would change, without modifying the file
 - Full-screen help modal (`?`) with complete keyboard reference
 - Scrollable filename-sync preview dialog confirms file renames before they are applied
+- Import entries from a DOI, URL, or local PDF file (`I` or `:import <doi-or-url-or-path>`): queries Crossref for metadata, with extensible publisher-specific scrapers (ANS, Taylor & Francis); automatically downloads an open-access PDF via Unpaywall when available; extracts DOI from local PDFs and sets the file attachment directly
 
 ## Requirements
 
@@ -101,6 +102,7 @@ bibtui --config ~/dotfiles/bibtui.yaml references.bib
 | `B` | Toggle case-protecting brace display |
 | `L` | Toggle LaTeX rendering (accents, math, dashes) |
 | `v` | Validate: dry-run save actions, show what would change |
+| `I` | Import entry from DOI, URL, or local PDF file |
 | `S` | Open settings editor |
 | `u` | Undo last change |
 | `:` | Open command palette |
@@ -161,9 +163,9 @@ standard BibTeX abbreviations (`jan`–`dec`). Use `←`/`→` to step one month
 press `Tab` to cycle through matches. Any recognized form (`january`, `1`, `Jan`, etc.)
 is normalized to the three-letter abbreviation on save.
 
-Path dialogs (settings export/import) support `Tab` completion: the first press fills
-the longest common prefix of all matches; subsequent presses cycle through candidates.
-Leading `~` is expanded to the home directory.
+Path dialogs (settings export/import, and the import entry dialog) support `Tab`
+completion: the first press fills the longest common prefix of all matches; subsequent
+presses cycle through candidates. Leading `~` is expanded to the home directory.
 
 ### Settings editor (`S`)
 
@@ -199,6 +201,7 @@ Open with `:` from the entry list.
 | `:sort` | Toggle sort direction |
 | `:group <name>` | Filter to a named group |
 | `:search <query>` | Apply a search query |
+| `:import <doi-or-url-or-path>` | Import entry from DOI, URL, or local PDF file |
 
 Example: `:sort year`, `:sort author`, `:sort title`, `:sort citation_key`
 
@@ -291,13 +294,35 @@ field_groups:
 
 See `bibtui.yaml.example` for all options including columns, citekey templates, and save normalization.
 
+## Import
+
+Press `I` from the entry list (or run `:import` from the command palette) to import an entry. The input accepts:
+
+- **Bare DOI** — `10.1080/00295639.2025.2483123`
+- **DOI URL** — `https://doi.org/10.1080/...` or `http://dx.doi.org/10.1080/...`
+- **Publisher URL** — e.g. `https://www.tandfonline.com/doi/abs/10.1080/...` or `https://www.ans.org/pubs/...`
+- **Local PDF file** — `/path/to/paper.pdf` or a relative path; `Tab` completes filesystem paths
+
+The import pipeline (in priority order):
+
+1. **PdfFetcher** — for local `.pdf` files: scans the first 200 KB and last 50 KB of raw bytes for a DOI (labeled patterns like `doi:`, `doi.org/`, XMP `prism:doi`, and bare `10.XXXX/...` patterns), then looks up the DOI via Crossref. The PDF path is set as the file attachment directly — no download needed.
+2. **AnsFetcher** — for `ans.org` article URLs: scrapes the page for metadata and PDF URL candidates.
+3. **TandFOnlineFetcher** — for `tandfonline.com` URLs: extracts the DOI from the URL path or page metadata.
+4. **CrossrefFetcher** — general fallback for any bare DOI or `doi.org` URL.
+
+After metadata is fetched, the pipeline:
+- Corrects the `publisher` field when Crossref reports a distributor instead of the society publisher (e.g. ANS journals distributed by Taylor & Francis are corrected to "American Nuclear Society", identified by DOI prefix `10.13182/`, ISSN, or journal name).
+- Queries [Unpaywall](https://unpaywall.org/) for a legal open-access PDF URL and, if found, prepends it to the download candidate list.
+
+PDF candidates are tried in order (Unpaywall OA → publisher PDF → ANS direct → T&F PDF) until one succeeds. The `file` field is written as a relative path from the JabRef `fileDirectory` when that metadata is present.
+
 ## Running Tests
 
 ```sh
 cargo test
 ```
 
-All 540 tests should pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, journal abbreviation, TUI component state machines, and config loading).
+All 636 tests should pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, journal abbreviation, TUI component state machines, config loading, and import pipeline).
 
 Coverage analysis runs automatically in CI via `cargo-llvm-cov`. To run locally:
 

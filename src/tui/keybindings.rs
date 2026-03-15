@@ -81,6 +81,7 @@ fn map_normal_key(key: KeyEvent, last_key: Option<char>) -> Option<Action> {
         KeyCode::Char('?') => Some(Action::ShowHelp),
         KeyCode::Char('S') => Some(Action::EnterSettings),
         KeyCode::Char('v') => Some(Action::Validate),
+        KeyCode::Char('I') => Some(Action::ImportEntry),
         _ => None,
     }
 }
@@ -267,6 +268,7 @@ mod tests {
         assert_eq!(map_key(key(KeyCode::Char('S')), &InputMode::Normal, None), Some(Action::EnterSettings));
         assert_eq!(map_key(key(KeyCode::Char('?')), &InputMode::Normal, None), Some(Action::ShowHelp));
         assert_eq!(map_key(key(KeyCode::Char(':')), &InputMode::Normal, None), Some(Action::EnterCommand));
+        assert_eq!(map_key(key(KeyCode::Char('I')), &InputMode::Normal, None), Some(Action::ImportEntry));
     }
 
     #[test]

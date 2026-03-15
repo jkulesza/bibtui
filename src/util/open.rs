@@ -125,6 +125,43 @@ pub fn effective_file_dir(bib_path: &Path, file_directory: Option<&str>) -> Path
     }
 }
 
+/// Compute a relative path from `base_dir` to `target`.
+///
+/// Both paths are canonicalized first so symlinks and `..` components are
+/// resolved.  Falls back to the absolute `target` path if canonicalization
+/// fails (e.g. when the file does not yet exist on disk).
+pub fn make_relative(base_dir: &Path, target: &Path) -> PathBuf {
+    let base = base_dir.canonicalize().unwrap_or_else(|_| base_dir.to_path_buf());
+    let tgt = target.canonicalize().unwrap_or_else(|_| target.to_path_buf());
+
+    let base_parts: Vec<_> = base.components().collect();
+    let tgt_parts: Vec<_> = tgt.components().collect();
+
+    let common = base_parts
+        .iter()
+        .zip(tgt_parts.iter())
+        .take_while(|(a, b)| a == b)
+        .count();
+
+    let ups = base_parts.len() - common;
+    let mut rel = PathBuf::new();
+    for _ in 0..ups {
+        rel.push("..");
+    }
+    for part in &tgt_parts[common..] {
+        rel.push(part);
+    }
+
+    if rel.as_os_str().is_empty() {
+        // Same path — use the filename only
+        tgt.file_name()
+            .map(PathBuf::from)
+            .unwrap_or(tgt)
+    } else {
+        rel
+    }
+}
+
 /// Resolve a (possibly relative) file path against the directory of the .bib file.
 pub fn resolve_file_path(path: &str, bib_dir: &Path) -> PathBuf {
     let p = PathBuf::from(path);
@@ -330,5 +367,55 @@ mod tests {
         let files = parse_file_field(r"Desc:path\;with\;semi.pdf:PDF");
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].path, "path;with;semi.pdf");
+    }
+
+    // ── make_relative ─────────────────────────────────────────────────────────
+    // canonicalize falls back to to_path_buf() for non-existent paths, so
+    // these tests exercise the component-based logic directly.
+
+    #[test]
+    fn test_make_relative_sibling() {
+        // PDF is in the same directory as the base
+        let rel = make_relative(
+            Path::new("/home/user/papers"),
+            Path::new("/home/user/papers/foo.pdf"),
+        );
+        assert_eq!(rel, PathBuf::from("foo.pdf"));
+    }
+
+    #[test]
+    fn test_make_relative_subdirectory() {
+        let rel = make_relative(
+            Path::new("/home/user/papers"),
+            Path::new("/home/user/papers/2024/foo.pdf"),
+        );
+        assert_eq!(rel, PathBuf::from("2024/foo.pdf"));
+    }
+
+    #[test]
+    fn test_make_relative_parent() {
+        // PDF is one level above the base directory
+        let rel = make_relative(
+            Path::new("/home/user/papers"),
+            Path::new("/home/user/foo.pdf"),
+        );
+        assert_eq!(rel, PathBuf::from("../foo.pdf"));
+    }
+
+    #[test]
+    fn test_make_relative_sibling_directory() {
+        // base = /home/user/bib, target = /home/user/pdfs/foo.pdf
+        let rel = make_relative(
+            Path::new("/home/user/bib"),
+            Path::new("/home/user/pdfs/foo.pdf"),
+        );
+        assert_eq!(rel, PathBuf::from("../pdfs/foo.pdf"));
+    }
+
+    #[test]
+    fn test_make_relative_no_common_prefix() {
+        // /home/alice/bib → up 3 (bib, alice, home) → down into /data/pdfs/foo.pdf
+        let rel = make_relative(Path::new("/home/alice/bib"), Path::new("/data/pdfs/foo.pdf"));
+        assert_eq!(rel, PathBuf::from("../../../data/pdfs/foo.pdf"));
     }
 }
