@@ -20,7 +20,7 @@ use crate::tui::components::help::HelpState;
 use crate::tui::components::validate_results::{Violation, ValidateResultsState};
 use crate::util::citation::format_citation;
 use crate::bib::parser::{build_database, parse_bib_file};
-use crate::bib::writer::{serialize_entry, write_bib_file};
+use crate::bib::writer::{normalize_blank_lines, serialize_entry, write_bib_file};
 use crate::config::schema::Config;
 use crate::search::engine::SearchEngine;
 use crate::search::filter::filter_by_group;
@@ -2687,8 +2687,8 @@ impl App {
         // Update raw file for dirty entries
         self.sync_dirty_entries();
 
-        // Write
-        let output = write_bib_file(&self.database.raw_file);
+        // Write (normalise blank lines so no more than one blank line appears anywhere)
+        let output = normalize_blank_lines(write_bib_file(&self.database.raw_file));
         match std::fs::write(&self.bib_path, &output) {
             Ok(()) => {
                 self.save_generation = Some(self.undo_stack.len());
@@ -3052,6 +3052,9 @@ impl App {
                         .position(|item| matches!(item, RawItem::Comment { .. }))
                         .unwrap_or(self.database.raw_file.items.len());
 
+                    // Insert: blank line, entry, blank line (before @Comment).
+                    // normalize_blank_lines will collapse any excess, ensuring exactly
+                    // one blank line on each side of the new entry.
                     self.database.raw_file.items.insert(
                         insert_pos,
                         RawItem::Preamble("\n".to_string()),
@@ -3066,6 +3069,10 @@ impl App {
                             trailing_comma: true,
                             raw_text: serialized,
                         }),
+                    );
+                    self.database.raw_file.items.insert(
+                        insert_pos + 2,
+                        RawItem::Preamble("\n".to_string()),
                     );
                 }
             }
