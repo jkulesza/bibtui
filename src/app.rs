@@ -2443,6 +2443,47 @@ impl App {
                     }
                 }
             }
+
+            // 11. Abbreviate journal — simulate sync of journal, journal_full, journal_abbrev
+            if cfg.save_action_abbreviate_journal {
+                let journal_current = field_state.get("journal").cloned()
+                    .or_else(|| entry.fields.get("journal").cloned())
+                    .unwrap_or_default();
+
+                if !journal_current.is_empty() {
+                    let full = entry.fields
+                        .get("journal_full")
+                        .filter(|v| !v.is_empty())
+                        .cloned()
+                        .unwrap_or_else(|| journal_current.clone());
+
+                    let abbrev = crate::util::journal::abbreviate_journal(
+                        &full, &cfg.journal_abbreviations,
+                    );
+                    let preferred = if cfg.journal_field_content == "abbreviated" {
+                        abbrev.clone()
+                    } else {
+                        full.clone()
+                    };
+
+                    for (field_name, new_val, orig_key) in [
+                        ("journal_full",   &full,      "journal_full"),
+                        ("journal_abbrev", &abbrev,    "journal_abbrev"),
+                        ("journal",        &preferred, "journal"),
+                    ] {
+                        let orig = entry.fields.get(orig_key).cloned().unwrap_or_default();
+                        if *new_val != orig {
+                            violations.push(Violation {
+                                entry_key: key.clone(),
+                                field: field_name.to_string(),
+                                old_value: orig,
+                                new_value: new_val.clone(),
+                                action_name: "abbreviate_journal",
+                            });
+                        }
+                    }
+                }
+            }
         }
 
         violations
@@ -2551,6 +2592,41 @@ impl App {
             if cfg.save_action_normalize_names_of_persons {
                 for f in NAMES.iter().copied() {
                     apply!(f, crate::util::author::normalize_author_names);
+                }
+            }
+
+            // 11. Abbreviate journal name — sync journal, journal_full, journal_abbrev
+            if cfg.save_action_abbreviate_journal {
+                if let Some(journal_val) = entry.fields.get("journal").cloned() {
+                    if !journal_val.is_empty() {
+                        // journal_full is the source of truth; fall back to journal on first run
+                        let full = entry.fields
+                            .get("journal_full")
+                            .filter(|v| !v.is_empty())
+                            .cloned()
+                            .unwrap_or_else(|| journal_val.clone());
+
+                        let abbrev = crate::util::journal::abbreviate_journal(
+                            &full, &cfg.journal_abbreviations,
+                        );
+                        let preferred = if cfg.journal_field_content == "abbreviated" {
+                            abbrev.clone()
+                        } else {
+                            full.clone()
+                        };
+
+                        let needs_update =
+                            entry.fields.get("journal_full").map_or(true, |v| v != &full)
+                            || entry.fields.get("journal_abbrev").map_or(true, |v| v != &abbrev)
+                            || entry.fields.get("journal").map_or(true, |v| v != &preferred);
+
+                        if needs_update {
+                            entry.fields.insert("journal_full".to_string(), full);
+                            entry.fields.insert("journal_abbrev".to_string(), abbrev);
+                            entry.fields.insert("journal".to_string(), preferred);
+                            changed = true;
+                        }
+                    }
                 }
             }
 
@@ -2928,6 +3004,10 @@ fn action_label_for_field(field: &str, cfg: &crate::config::schema::SaveConfig) 
         {
             "normalize_names"
         }
+        "journal_full" | "journal_abbrev" if cfg.save_action_abbreviate_journal => {
+            "abbreviate_journal"
+        }
+        "journal" if cfg.save_action_abbreviate_journal => "abbreviate_journal",
         _ => {
             // For text fields the first applicable action wins (same order as apply_save_actions)
             if cfg.save_action_unicode_to_latex {

@@ -74,6 +74,7 @@ pub fn render_main_screen(f: &mut Frame, app: &mut App) {
             app.show_braces,
             app.render_latex,
             app.config.display.abbreviate_authors,
+            true, // Journal column always shows abbreviated form
             &bib_dir,
         );
     } else {
@@ -88,6 +89,7 @@ pub fn render_main_screen(f: &mut Frame, app: &mut App) {
             app.show_braces,
             app.render_latex,
             app.config.display.abbreviate_authors,
+            true, // Journal column always shows abbreviated form
             &bib_dir,
         );
     }

@@ -10,6 +10,7 @@ use crate::bib::model::Entry;
 use crate::config::schema::{ColumnConfig, ColumnWidth};
 use crate::tui::theme::Theme;
 use crate::util::author::abbreviate_authors;
+use crate::util::journal::abbreviate_journal;
 use crate::util::latex::render_latex;
 use crate::util::open::{parse_file_field, resolve_file_path};
 use crate::util::titlecase::strip_case_braces;
@@ -70,53 +71,53 @@ mod tests {
     #[test]
     fn test_get_field_value_dirty() {
         let e = make_entry("k", true, &[]);
-        assert_eq!(get_field_value(&e, "dirty", false), "●");
+        assert_eq!(get_field_value(&e, "dirty", false, false), "●");
         let e2 = make_entry("k", false, &[]);
-        assert_eq!(get_field_value(&e2, "dirty", false), " ");
+        assert_eq!(get_field_value(&e2, "dirty", false, false), " ");
     }
 
     #[test]
     fn test_get_field_value_entrytype() {
         let e = make_entry("k", false, &[]);
-        assert_eq!(get_field_value(&e, "entrytype", false), "Article");
-        assert_eq!(get_field_value(&e, "type", false), "Article");
+        assert_eq!(get_field_value(&e, "entrytype", false, false), "Article");
+        assert_eq!(get_field_value(&e, "type", false, false), "Article");
     }
 
     #[test]
     fn test_get_field_value_citation_key() {
         let e = make_entry("Smith2020", false, &[]);
-        assert_eq!(get_field_value(&e, "citation_key", false), "Smith2020");
-        assert_eq!(get_field_value(&e, "key", false), "Smith2020");
-        assert_eq!(get_field_value(&e, "citekey", false), "Smith2020");
+        assert_eq!(get_field_value(&e, "citation_key", false, false), "Smith2020");
+        assert_eq!(get_field_value(&e, "key", false, false), "Smith2020");
+        assert_eq!(get_field_value(&e, "citekey", false, false), "Smith2020");
     }
 
     #[test]
     fn test_get_field_value_web_indicator() {
         let e = make_entry("k", false, &[("doi", "10.1234/x")]);
-        assert!(get_field_value(&e, "web_indicator", false) != " ");
+        assert!(get_field_value(&e, "web_indicator", false, false) != " ");
         let e2 = make_entry("k", false, &[]);
-        assert_eq!(get_field_value(&e2, "web_indicator", false), " ");
+        assert_eq!(get_field_value(&e2, "web_indicator", false, false), " ");
     }
 
     #[test]
     fn test_get_field_value_author_abbreviated() {
         let e = make_entry("k", false, &[("author", "Smith, J. and Doe, J. and Brown, K.")]);
-        let abbr = get_field_value(&e, "author", true);
+        let abbr = get_field_value(&e, "author", true, false);
         assert!(abbr.contains("et al"));
     }
 
     #[test]
     fn test_get_field_value_author_not_abbreviated() {
         let e = make_entry("k", false, &[("author", "Smith, J.")]);
-        let full = get_field_value(&e, "author", false);
+        let full = get_field_value(&e, "author", false, false);
         assert_eq!(full, "Smith, J.");
     }
 
     #[test]
     fn test_get_field_value_arbitrary() {
         let e = make_entry("k", false, &[("note", "important")]);
-        assert_eq!(get_field_value(&e, "note", false), "important");
-        assert_eq!(get_field_value(&e, "missing", false), "");
+        assert_eq!(get_field_value(&e, "note", false, false), "important");
+        assert_eq!(get_field_value(&e, "missing", false, false), "");
     }
 
     #[test]
@@ -136,6 +137,78 @@ mod tests {
         let s = apply_display_pipeline("caf{\\'e}", false, true);
         assert!(s.contains('é') || s == "café" || !s.contains('{'));
     }
+
+    // ── Journal column ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_get_field_value_journal_raw_when_not_abbreviated() {
+        let e = make_entry("k", false, &[("journal", "Nuclear Science and Engineering")]);
+        assert_eq!(
+            get_field_value(&e, "journal", false, false),
+            "Nuclear Science and Engineering"
+        );
+    }
+
+    #[test]
+    fn test_get_field_value_journal_abbreviated_on_the_fly() {
+        let e = make_entry("k", false, &[("journal", "Nuclear Science and Engineering")]);
+        // ISO 4 abbreviation computed on the fly; no journal_abbrev field needed
+        assert_eq!(get_field_value(&e, "journal", false, true), "Nucl. Sci. Eng.");
+    }
+
+    #[test]
+    fn test_get_field_value_journal_uses_journal_full_as_source() {
+        // journal holds the ISO 4 form (journal_field_content = "abbreviated"),
+        // but journal_full has the canonical full name.  The display must use
+        // journal_full so the column is stable regardless of what journal holds.
+        let e = make_entry(
+            "k",
+            false,
+            &[
+                ("journal", "Nucl. Sci. Eng."),
+                ("journal_full", "Nuclear Science and Engineering"),
+            ],
+        );
+        assert_eq!(get_field_value(&e, "journal", false, true), "Nucl. Sci. Eng.");
+    }
+
+    #[test]
+    fn test_get_field_value_journal_booktitle_fallback_when_not_abbreviated() {
+        // No journal field → fall back to booktitle when abbreviation is off
+        let e = make_entry("k", false, &[("booktitle", "Proceedings of ICML")]);
+        assert_eq!(
+            get_field_value(&e, "journal", false, false),
+            "Proceedings of ICML"
+        );
+    }
+
+    #[test]
+    fn test_get_field_value_journal_booktitle_abbreviated() {
+        // No journal or journal_full → abbreviate booktitle on the fly
+        let e = make_entry("k", false, &[("booktitle", "Proceedings of ICML")]);
+        let result = get_field_value(&e, "journal", false, true);
+        // "Proceedings" → "Proc.", "of" → dropped, "ICML" → kept
+        assert_eq!(result, "Proc. ICML");
+    }
+
+    #[test]
+    fn test_get_field_value_journal_empty_when_no_fields() {
+        let e = make_entry("k", false, &[]);
+        assert_eq!(get_field_value(&e, "journal", false, false), "");
+        assert_eq!(get_field_value(&e, "journal", false, true), "");
+    }
+
+    #[test]
+    fn test_get_field_value_title() {
+        let e = make_entry("k", false, &[("title", "My Paper")]);
+        assert_eq!(get_field_value(&e, "title", false, false), "My Paper");
+    }
+
+    #[test]
+    fn test_get_field_value_year() {
+        let e = make_entry("k", false, &[("year", "2024")]);
+        assert_eq!(get_field_value(&e, "year", false, false), "2024");
+    }
 }
 
 pub fn render_entry_list(
@@ -149,6 +222,7 @@ pub fn render_entry_list(
     show_braces: bool,
     render_latex_enabled: bool,
     abbreviate_authors_enabled: bool,
+    abbreviate_journal_enabled: bool,
     bib_dir: &Path,
 ) {
     let total_width = area.width.saturating_sub(2); // borders
@@ -218,7 +292,7 @@ pub fn render_entry_list(
                     if col.field == "file_indicator" {
                         return file_indicator_cell(entry, bib_dir);
                     }
-                    let raw = get_field_value(entry, &col.field, abbreviate_authors_enabled);
+                    let raw = get_field_value(entry, &col.field, abbreviate_authors_enabled, abbreviate_journal_enabled);
                     let value = apply_display_pipeline(&raw, show_braces, render_latex_enabled);
                     Cell::from(value)
                 })
@@ -274,7 +348,7 @@ fn file_indicator_cell(entry: &Entry, bib_dir: &Path) -> Cell<'static> {
     }
 }
 
-fn get_field_value(entry: &Entry, field: &str, abbreviate_authors_enabled: bool) -> String {
+fn get_field_value(entry: &Entry, field: &str, abbreviate_authors_enabled: bool, abbreviate_journal_enabled: bool) -> String {
     match field {
         "dirty" => if entry.dirty { "●".to_string() } else { " ".to_string() },
         "web_indicator" => {
@@ -290,7 +364,22 @@ fn get_field_value(entry: &Entry, field: &str, abbreviate_authors_enabled: bool)
         }
         "title" => entry.title_display(),
         "year" => entry.year_display(),
-        "journal" => entry.journal_display(),
+        "journal" => {
+            if abbreviate_journal_enabled {
+                // Use journal_full as the canonical source (present after a save),
+                // fall back to journal, then booktitle. Abbreviate on the fly so
+                // the result is correct even without a stored journal_abbrev field.
+                let full = entry.fields.get("journal_full")
+                    .filter(|v| !v.is_empty())
+                    .or_else(|| entry.fields.get("journal"))
+                    .or_else(|| entry.fields.get("booktitle"))
+                    .cloned()
+                    .unwrap_or_default();
+                abbreviate_journal(&full, &indexmap::IndexMap::new())
+            } else {
+                entry.journal_display()
+            }
+        }
         _ => entry.fields.get(field).cloned().unwrap_or_default(),
     }
 }

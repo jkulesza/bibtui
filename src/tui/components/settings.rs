@@ -358,6 +358,30 @@ impl SettingsState {
                 value: SettingValue::Bool(config.save.save_action_unicode_to_latex),
                 default: SettingValue::Bool(defaults.save.save_action_unicode_to_latex),
             },
+            SettingItem {
+                id: "save_actions.abbreviate_journal".into(),
+                label: "abbreviate_journal".into(),
+                description: "On save, populate journal_abbrev (ISO 4) and journal_full companion fields \
+                              and rewrite journal per journal_field_content. \
+                              The Journal column always displays the abbreviated form when available.".into(),
+                value: SettingValue::Bool(config.save.save_action_abbreviate_journal),
+                default: SettingValue::Bool(defaults.save.save_action_abbreviate_journal),
+            },
+            SettingItem {
+                id: "save_actions.journal_field_content".into(),
+                label: "journal_field_content".into(),
+                description: "Controls what the journal field holds after the abbreviate_journal save action: \
+                              \"full\" keeps the full name in journal; \
+                              \"abbreviated\" stores the ISO 4 form instead.".into(),
+                value: SettingValue::Choice {
+                    options: &["full", "abbreviated"],
+                    index: if config.save.journal_field_content == "abbreviated" { 1 } else { 0 },
+                },
+                default: SettingValue::Choice {
+                    options: &["full", "abbreviated"],
+                    index: if defaults.save.journal_field_content == "abbreviated" { 1 } else { 0 },
+                },
+            },
         ];
 
         // ── Citekey Templates (one item per standard entry type) ──
@@ -397,7 +421,7 @@ impl SettingsState {
         //                                20  theme.header_fg
         //                                21  theme.search_match
         //                                22  theme.border_color
-        //  Save Actions (23–32):
+        //  Save Actions (23–33):
         //                                23  escape_underscores
         //                                24  escape_ampersands
         //                                25  cleanup_url
@@ -408,7 +432,9 @@ impl SettingsState {
         //                                30  normalize_page_numbers
         //                                31  ordinals_to_superscript
         //                                32  unicode_to_latex
-        //                                33+ citekey templates
+        //                                33  abbreviate_journal
+        //  Display (continued):          34  journal_field_content
+        //                                35+ citekey templates
         let mut rows: Vec<SettingRow> = vec![
             SettingRow::Section("General"),
             SettingRow::Item(11), // bib_file
@@ -421,6 +447,7 @@ impl SettingsState {
             SettingRow::Item(4),  // render_latex
             SettingRow::Item(5),  // show_braces
             SettingRow::Item(6),  // abbreviate_authors
+            SettingRow::Item(34), // journal_field_content
             SettingRow::Item(13), // default_sort.field
             SettingRow::Item(14), // default_sort.ascending
             SettingRow::Section("Save"),
@@ -438,6 +465,7 @@ impl SettingsState {
             SettingRow::Item(30), // normalize_page_numbers
             SettingRow::Item(31), // ordinals_to_superscript
             SettingRow::Item(32), // unicode_to_latex
+            SettingRow::Item(33), // abbreviate_journal
             SettingRow::Section("Citation"),
             SettingRow::Item(10), // style
             SettingRow::Section("Titlecase"),
@@ -771,6 +799,14 @@ impl SettingsState {
                 }
                 "save_actions.unicode_to_latex" => {
                     if let SettingValue::Bool(v) = item.value { config.save.save_action_unicode_to_latex = v; }
+                }
+                "save_actions.abbreviate_journal" => {
+                    if let SettingValue::Bool(v) = item.value { config.save.save_action_abbreviate_journal = v; }
+                }
+                "save_actions.journal_field_content" => {
+                    if let SettingValue::Choice { options, index } = &item.value {
+                        config.save.journal_field_content = options[*index].to_string();
+                    }
                 }
                 "theme.selected_bg"  => { if let SettingValue::Str(v) = &item.value { config.theme.selected_bg  = v.clone(); } }
                 "theme.selected_fg"  => { if let SettingValue::Str(v) = &item.value { config.theme.selected_fg  = v.clone(); } }

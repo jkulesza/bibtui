@@ -21,6 +21,7 @@ A terminal UI BibTeX manager written in Rust. Designed as a lightweight, keyboar
 - Citation preview popup (`Space`) with DOI/URL link, formatted in IEEEtranN style
 - LaTeX markup rendered to Unicode for display (`L` to toggle)
 - Assigned groups shown in the entry detail header alongside the entry type
+- ISO 4 journal abbreviation: the Journal column always shows the abbreviated form; a save action syncs `journal_full` and `journal_abbrev` companion fields
 - Configurable columns, sort, theme, and citekey templates via YAML
 - In-TUI settings editor (`S`) with live config import/export, `Tab`-completion path dialogs, and field group management
 - Validate command (`v`) dry-runs all save actions and shows which fields would change, without modifying the file
@@ -250,6 +251,12 @@ display:
   show_braces: false                      # show/hide case-protecting {braces}; toggle with B
   render_latex: true                      # render LaTeX → Unicode for display; toggle with L
   abbreviate_authors: true                # abbreviate author lists in entry list
+  journal_field_content: full             # what the journal field holds after the
+                                          # abbreviate_journal save action:
+                                          #   full        — full journal name
+                                          #   abbreviated — ISO 4 abbreviation
+                                          # (the Journal column always shows the
+                                          #  abbreviated form regardless of this setting)
   default_sort:
     field: citation_key
     ascending: true
@@ -259,6 +266,9 @@ save:
   field_order: jabref                     # jabref | alphabetical
   sync_filenames: false                   # rename attached files to match citation key on save
                                           # (preview dialog shown before applying)
+  save_action_abbreviate_journal: false   # populate journal_abbrev (ISO 4) and journal_full
+                                          # companion fields on save; rewrite journal per
+                                          # journal_field_content (display/settings)
 
 titlecase:
   ignore_words: [MCNP, OpenMC]           # words kept verbatim by the T title-case command
@@ -287,7 +297,7 @@ See `bibtui.yaml.example` for all options including columns, citekey templates, 
 cargo test
 ```
 
-All 514 tests should pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, TUI component state machines, and config loading).
+All 540 tests should pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, journal abbreviation, TUI component state machines, and config loading).
 
 Coverage analysis runs automatically in CI via `cargo-llvm-cov`. To run locally:
 

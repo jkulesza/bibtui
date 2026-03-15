@@ -172,6 +172,19 @@ fn resolve_token(name: &str, fields: &IndexMap<String, String>) -> String {
             .unwrap_or_default(),
 
         "journal"     => fields.get("journal").map(|s| clean_braces(s)).unwrap_or_default(),
+
+        "journal_abbrev" => {
+            // Use journal_full as the source of truth when present (so the acronym
+            // is consistent whether journal holds the full name or the ISO 4 form).
+            // Fall back to journal if journal_full is absent.
+            let name = fields.get("journal_full")
+                .filter(|v| !v.is_empty())
+                .or_else(|| fields.get("journal"))
+                .map(|s| clean_braces(s))
+                .unwrap_or_default();
+            abbreviate(&name)
+        }
+
         "booktitle"   => fields.get("booktitle").map(|s| clean_braces(s)).unwrap_or_default(),
         "volume"      => fields.get("volume").cloned().unwrap_or_default(),
 
@@ -286,7 +299,14 @@ fn resolve_legacy_token(token: &str, fields: &IndexMap<String, String>) -> Strin
             .get("title")
             .map(|t| to_camel_case(&clean_braces(t)))
             .unwrap_or_default(),
-        "journal_abbrev"     => fields.get("journal").map(|j| abbreviate(j)).unwrap_or_default(),
+        "journal_abbrev"     => {
+            let name = fields.get("journal_full")
+                .filter(|v| !v.is_empty())
+                .or_else(|| fields.get("journal"))
+                .map(|s| clean_braces(s))
+                .unwrap_or_default();
+            abbreviate(&name)
+        }
         "booktitle_abbrev"   => fields.get("booktitle").map(|b| abbreviate(b)).unwrap_or_default(),
         "institution_abbrev" => fields.get("institution").map(|i| abbreviate(i)).unwrap_or_default(),
         "pages"              => fields.get("pages").cloned().unwrap_or_default(),

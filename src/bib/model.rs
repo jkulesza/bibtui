@@ -343,6 +343,18 @@ mod tests {
     }
 
     #[test]
+    fn test_entry_journal_display_empty_when_neither() {
+        let e = make_entry(&[]);
+        assert_eq!(e.journal_display(), "");
+    }
+
+    #[test]
+    fn test_entry_journal_display_prefers_journal_over_booktitle() {
+        let e = make_entry(&[("journal", "Nature"), ("booktitle", "Some Book")]);
+        assert_eq!(e.journal_display(), "Nature");
+    }
+
+    #[test]
     fn test_raw_field_value_braced() {
         assert_eq!(RawFieldValue::Braced("hello".to_string()).to_string_value(), "hello");
     }

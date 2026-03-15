@@ -152,6 +152,14 @@ pub struct SaveConfig {
     pub save_action_ordinals_to_superscript: bool,
     /// Convert Unicode characters to their LaTeX equivalents (`é` → `{\'e}`).
     pub save_action_unicode_to_latex: bool,
+    /// Create/sync `journal_abbrev` (ISO 4) and `journal_full` companion fields,
+    /// and rewrite `journal` per `journal_field_content`. Default: false.
+    pub save_action_abbreviate_journal: bool,
+    /// Controls what the `journal` field holds after the abbreviation save action.
+    /// `"full"` (default) — journal field holds the full name; `"abbreviated"` — journal field holds the ISO 4 abbrev.
+    pub journal_field_content: String,
+    /// User-supplied full-name → abbreviation overrides (case-insensitive).
+    pub journal_abbreviations: IndexMap<String, String>,
 }
 
 impl Default for SaveConfig {
@@ -170,6 +178,9 @@ impl Default for SaveConfig {
             save_action_normalize_page_numbers: true,
             save_action_ordinals_to_superscript: true,
             save_action_unicode_to_latex: true,
+            save_action_abbreviate_journal: false,
+            journal_field_content: "full".to_string(),
+            journal_abbreviations: IndexMap::new(),
         }
     }
 }
