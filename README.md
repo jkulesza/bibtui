@@ -30,6 +30,7 @@ A terminal UI BibTeX manager written in Rust. Designed as a lightweight, keyboar
 - Import entries from a DOI, URL, or local PDF file (`I` or `:import <doi-or-url-or-path>`): queries Crossref for metadata, with extensible publisher-specific scrapers (ANS, Taylor & Francis); automatically downloads an open-access PDF via Unpaywall when available; extracts DOI from local PDFs and sets the file attachment directly; citation key is generated immediately from the configured template
 - Per-file attachment management in the detail view: each attached file appears as its own navigable row; `e`/`Enter` edits the path, `A` adds a new attachment, `d` removes an individual file
 - URL fields preserve percent-encoding (e.g. `%20`) on save
+- `w` fetches DOI/URL from Crossref via metadata (title, author, year) when none is present, in both the entry list and detail view; only sets `url` when it is distinct from the DOI
 
 ## Requirements
 
@@ -138,7 +139,7 @@ The detail header shows the entry type and its currently assigned groups.
 | `T` | Convert selected field to title case |
 | `N` | Normalize author names to "Last, First" form |
 | `o` | Open attached file(s) in OS default viewer |
-| `w` | Open DOI / URL in default browser |
+| `w` | Open DOI / URL in default browser; if none exists, fetches DOI from metadata via Crossref |
 | `Tab` | Edit entry's group assignments |
 | `c` | Regenerate citation key from template |
 | `B` | Toggle case-protecting brace display |
@@ -329,7 +330,7 @@ PDF candidates are tried in order (Unpaywall OA → publisher PDF → ANS direct
 cargo test
 ```
 
-All 700 tests should pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, journal abbreviation, TUI component state machines, config loading, and import pipeline).
+All 715 tests should pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, journal abbreviation, TUI component state machines, config loading, and import pipeline).
 
 Coverage analysis runs automatically in CI via `cargo-llvm-cov`. To run locally:
 

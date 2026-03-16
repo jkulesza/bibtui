@@ -78,6 +78,7 @@ The annotated example is at `bibtui.yaml.example`. A local `bibtui.yaml` in the 
 
 - **NEVER commit** unless explicitly told to do so.
 - **Before committing**, update `README.md` to reflect any relevant changes.
+- **NEVER push** even if I tell you to.
 - **Version bumps**: bump the minor version (e.g., 0.1.x → 0.2.0) unless instructed to do otherwise.
 
 ## Code Conventions

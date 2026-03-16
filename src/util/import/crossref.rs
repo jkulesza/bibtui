@@ -59,6 +59,98 @@ impl Fetcher for CrossrefFetcher {
     }
 }
 
+/// Search Crossref for a DOI matching the given metadata.
+///
+/// Returns `(doi, url)` for the best-scoring result, or an error string if
+/// nothing useful was found.
+pub fn search_by_metadata(
+    title: &str,
+    author: &str,
+    year: &str,
+) -> Result<(String, String), String> {
+    if title.trim().is_empty() && author.trim().is_empty() {
+        return Err("Need at least a title or author to search".to_string());
+    }
+
+    // Build bibliographic query: combine all available metadata
+    let bib_query = [title, author, year]
+        .iter()
+        .filter(|s| !s.trim().is_empty())
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    let mut url = format!(
+        "https://api.crossref.org/works?query.bibliographic={}&rows=3&select=DOI,URL,score,title,author,published-print,published-online,issued",
+        urlencoding_simple(&bib_query)
+    );
+
+    // Add structured filters when we have them — improves precision
+    if !author.trim().is_empty() {
+        url.push_str(&format!("&query.author={}", urlencoding_simple(author)));
+    }
+
+    let response = ureq::get(&url)
+        .set(
+            "User-Agent",
+            "bibtui/0.1 (https://github.com/jkulesza/bibtui; mailto:user@example.com)",
+        )
+        .call()
+        .map_err(|e| format!("Network error: {}", e))?;
+
+    let json: serde_json::Value = response
+        .into_json()
+        .map_err(|e| format!("Parse error: {}", e))?;
+
+    let items = json["message"]["items"]
+        .as_array()
+        .ok_or_else(|| "Unexpected response format".to_string())?;
+
+    if items.is_empty() {
+        return Err("No results found".to_string());
+    }
+
+    // Pick the highest-scoring result
+    let best = items
+        .iter()
+        .max_by(|a, b| {
+            let sa = a["score"].as_f64().unwrap_or(0.0);
+            let sb = b["score"].as_f64().unwrap_or(0.0);
+            sa.partial_cmp(&sb).unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .unwrap(); // items is non-empty
+
+    let doi = best["DOI"]
+        .as_str()
+        .ok_or_else(|| "Result has no DOI".to_string())?
+        .to_string();
+
+    let url_field = best["URL"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+
+    Ok((doi, url_field))
+}
+
+/// Minimal percent-encoding for URL query parameter values.
+/// Encodes spaces as `+` and escapes characters not safe in query strings.
+fn urlencoding_simple(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() * 2);
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9'
+            | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
+            b' ' => out.push('+'),
+            _ => {
+                out.push('%');
+                out.push_str(&format!("{:02X}", b));
+            }
+        }
+    }
+    out
+}
+
 fn parse_crossref_work(
     work: &serde_json::Value,
     doi: &str,
@@ -223,6 +315,34 @@ fn strip_jats(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_urlencoding_simple_plain() {
+        assert_eq!(urlencoding_simple("hello"), "hello");
+    }
+
+    #[test]
+    fn test_urlencoding_simple_spaces() {
+        assert_eq!(urlencoding_simple("hello world"), "hello+world");
+    }
+
+    #[test]
+    fn test_urlencoding_simple_special_chars() {
+        let result = urlencoding_simple("a&b=c");
+        assert!(result.contains('%'), "result: {}", result);
+        assert!(!result.contains('&'), "result: {}", result);
+    }
+
+    #[test]
+    fn test_urlencoding_simple_alphanumeric_unchanged() {
+        let s = "ABCabc123-_.~";
+        assert_eq!(urlencoding_simple(s), s);
+    }
+
+    #[test]
+    fn test_urlencoding_simple_empty() {
+        assert_eq!(urlencoding_simple(""), "");
+    }
 
     #[test]
     fn test_extract_doi_bare() {
@@ -447,5 +567,21 @@ mod tests {
             strip_jats("<jats:sec><jats:title>Intro</jats:title><jats:p>Text.</jats:p></jats:sec>"),
             "IntroText."
         );
+    }
+
+    // ── search_by_metadata early-return (no network) ──────────────────────────
+
+    #[test]
+    fn test_search_by_metadata_empty_title_and_author_returns_err() {
+        let result = search_by_metadata("", "", "2020");
+        assert!(result.is_err());
+        let msg = result.unwrap_err();
+        assert!(msg.contains("title") || msg.contains("author"), "msg: {}", msg);
+    }
+
+    #[test]
+    fn test_search_by_metadata_whitespace_title_and_author_returns_err() {
+        let result = search_by_metadata("   ", "\t", "");
+        assert!(result.is_err());
     }
 }

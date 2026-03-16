@@ -99,7 +99,7 @@ pub fn render_help(f: &mut Frame, area: Rect, _state: &HelpState, theme: &Theme)
                 ("N",            "normalize author"),
                 ("c",            "regenerate cite key"),
                 ("Tab",          "assign groups"),
-                ("o / w",        "open file / web"),
+                ("o / w",        "open file / web (w fetches DOI if absent)"),
                 ("B / L",        "toggle braces / LaTeX"),
                 ("u",            "undo"),
                 ("Esc",          "back to list"),

@@ -209,6 +209,8 @@ pub struct App {
     // Import
     /// Receives the result of a background DOI/URL import fetch.
     pending_import: Option<mpsc::Receiver<crate::util::import::ImportResult>>,
+    /// Background DOI-from-metadata lookup: (entry_key, receiver of (doi, url) or error).
+    pending_doi_fetch: Option<(String, mpsc::Receiver<Result<(String, String), String>>)>,
 }
 
 #[derive(Debug)]
@@ -300,6 +302,7 @@ impl App {
             undo_stack: Vec::new(),
             save_generation: Some(0),
             pending_import: None,
+            pending_doi_fetch: None,
         };
 
         Ok(app)
@@ -355,6 +358,7 @@ impl App {
             undo_stack: Vec::new(),
             save_generation: Some(0),
             pending_import: None,
+            pending_doi_fetch: None,
         };
 
         Ok(app)
@@ -388,6 +392,31 @@ impl App {
                         self.pending_import = None;
                         self.status_message =
                             Some("Import failed: fetcher thread disconnected".to_string());
+                        needs_redraw = true;
+                    }
+                }
+            }
+            // Poll background DOI-from-metadata lookup
+            if self.pending_doi_fetch.is_some() {
+                let result = self
+                    .pending_doi_fetch
+                    .as_ref()
+                    .unwrap()
+                    .1
+                    .try_recv();
+                match result {
+                    Ok(fetch_result) => {
+                        let entry_key = self.pending_doi_fetch.take().unwrap().0;
+                        self.handle_doi_fetch_result(entry_key, fetch_result);
+                        needs_redraw = true;
+                    }
+                    Err(mpsc::TryRecvError::Empty) => {
+                        needs_redraw = true;
+                    }
+                    Err(mpsc::TryRecvError::Disconnected) => {
+                        self.pending_doi_fetch = None;
+                        self.status_message =
+                            Some("DOI lookup failed: thread disconnected".to_string());
                         needs_redraw = true;
                     }
                 }
@@ -1811,7 +1840,9 @@ impl App {
 
         match urls.len() {
             0 => {
-                self.status_message = Some("No DOI or URL for this entry".to_string());
+                // No DOI/URL — fetch one from metadata instead
+                self.start_fetch_doi();
+                return;
             }
             1 => {
                 let url = urls.remove(0).1;
@@ -3545,6 +3576,110 @@ impl App {
         }
     }
 
+    /// Start a background metadata→DOI lookup for the current entry (detail view or list selection).
+    fn start_fetch_doi(&mut self) {
+        let entry_key = match self.action_entry_key() {
+            Some(k) => k,
+            None => {
+                self.status_message = Some("No entry selected".to_string());
+                return;
+            }
+        };
+
+        if self.pending_doi_fetch.is_some() {
+            self.status_message = Some("DOI lookup already in progress".to_string());
+            return;
+        }
+
+        let entry = match self.database.entries.get(&entry_key) {
+            Some(e) => e,
+            None => return,
+        };
+
+        let title  = entry.fields.get("title").cloned().unwrap_or_default();
+        let author = entry.fields.get("author").cloned().unwrap_or_default();
+        let year   = entry.fields.get("year").cloned().unwrap_or_default();
+
+        if title.trim().is_empty() && author.trim().is_empty() {
+            self.status_message =
+                Some("Entry needs at least a title or author to search".to_string());
+            return;
+        }
+
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let result = crate::util::import::crossref::search_by_metadata(
+                &title, &author, &year,
+            );
+            let _ = tx.send(result);
+        });
+
+        self.pending_doi_fetch = Some((entry_key, rx));
+        self.status_message = Some("Searching for DOI…".to_string());
+    }
+
+    /// Apply the result of a metadata→DOI lookup to the entry.
+    fn handle_doi_fetch_result(
+        &mut self,
+        entry_key: String,
+        result: Result<(String, String), String>,
+    ) {
+        match result {
+            Ok((doi, url)) => {
+                let mut changed = false;
+
+                // Only set url if it carries information beyond the DOI itself
+                // (Crossref often returns https://doi.org/<doi> as the URL, which is redundant).
+                let url_is_distinct = !url.is_empty()
+                    && crate::util::import::crossref::CrossrefFetcher::extract_doi(&url)
+                        .map_or(true, |extracted| extracted != doi);
+                let effective_url = if url_is_distinct { url.as_str() } else { "" };
+
+                // Update doi and url fields, recording undo for each changed field.
+                for (field, new_val) in [("doi", doi.as_str()), ("url", effective_url)] {
+                    if new_val.is_empty() {
+                        continue;
+                    }
+                    let old = self.database.entries.get(&entry_key)
+                        .and_then(|e| e.fields.get(field).cloned());
+                    if old.as_deref() == Some(new_val) {
+                        continue; // No change
+                    }
+                    self.push_undo(UndoItem::FieldChanged {
+                        entry_key: entry_key.clone(),
+                        field_name: field.to_string(),
+                        old_value: old,
+                    });
+                    if let Some(entry) = self.database.entries.get_mut(&entry_key) {
+                        entry.fields.insert(field.to_string(), new_val.to_string());
+                        entry.dirty = true;
+                    }
+                    changed = true;
+                }
+
+                if changed {
+                    // Refresh the detail view if this entry is still open
+                    if self.detail_entry_key.as_deref() == Some(entry_key.as_str()) {
+                        if let Some(entry) = self.database.entries.get(&entry_key) {
+                            let entry_clone = entry.clone();
+                            if let Some(ref mut detail) = self.detail_state {
+                                detail.refresh(&entry_clone);
+                            }
+                        }
+                    }
+                    self.dirty = true;
+                    self.status_message = Some(format!("Found DOI: {}", doi));
+                } else {
+                    self.status_message =
+                        Some(format!("DOI already up-to-date: {}", doi));
+                }
+            }
+            Err(e) => {
+                self.status_message = Some(format!("DOI lookup failed: {}", e));
+            }
+        }
+    }
+
     /// Filter the entry list to a named group (used by `:group <name>` command).
     fn apply_group_filter(&mut self, group_name: &str) {
         if let Some(node) = find_group_node(&self.database.groups.root, group_name) {
@@ -5261,5 +5396,131 @@ mod tests {
         cfg.display.show_groups = false;
         let app = App::new(path, cfg).unwrap();
         assert!(!app.show_groups, "App::new should honour config.display.show_groups");
+    }
+
+    // ── handle_doi_fetch_result ──────────────────────────────────────────────
+
+    #[test]
+    fn test_handle_doi_fetch_result_sets_doi_field() {
+        let (mut app, _tmp) = make_app();
+        // Open detail on Smith2020
+        app.handle_action(Action::OpenDetail);
+        let key = app.detail_entry_key.clone().unwrap();
+
+        app.handle_doi_fetch_result(
+            key.clone(),
+            Ok(("10.1234/test".to_string(), "https://doi.org/10.1234/test".to_string())),
+        );
+
+        let entry = app.database.entries.get(&key).unwrap();
+        assert_eq!(entry.fields.get("doi").map(String::as_str), Some("10.1234/test"));
+        // URL is redundant (same DOI), so it should NOT be set
+        assert!(entry.fields.get("url").is_none() || entry.fields["url"].is_empty(),
+            "redundant DOI URL should not be stored in url field");
+    }
+
+    #[test]
+    fn test_handle_doi_fetch_result_sets_distinct_url() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::OpenDetail);
+        let key = app.detail_entry_key.clone().unwrap();
+
+        app.handle_doi_fetch_result(
+            key.clone(),
+            Ok((
+                "10.1234/test".to_string(),
+                "https://publisher.example.com/article/42".to_string(),
+            )),
+        );
+
+        let entry = app.database.entries.get(&key).unwrap();
+        assert_eq!(entry.fields.get("doi").map(String::as_str), Some("10.1234/test"));
+        assert_eq!(
+            entry.fields.get("url").map(String::as_str),
+            Some("https://publisher.example.com/article/42")
+        );
+    }
+
+    #[test]
+    fn test_handle_doi_fetch_result_marks_entry_dirty() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::OpenDetail);
+        let key = app.detail_entry_key.clone().unwrap();
+        assert!(!app.database.entries[&key].dirty);
+
+        app.handle_doi_fetch_result(key.clone(), Ok(("10.5555/x".to_string(), String::new())));
+
+        assert!(app.database.entries[&key].dirty);
+        assert!(app.dirty);
+    }
+
+    #[test]
+    fn test_handle_doi_fetch_result_already_up_to_date() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::OpenDetail);
+        let key = app.detail_entry_key.clone().unwrap();
+
+        // Set doi first
+        app.database.entries.get_mut(&key).unwrap()
+            .fields.insert("doi".to_string(), "10.1234/test".to_string());
+
+        app.handle_doi_fetch_result(
+            key.clone(),
+            Ok(("10.1234/test".to_string(), String::new())),
+        );
+
+        // Should report already-up-to-date, not set dirty
+        let msg = app.status_message.as_deref().unwrap_or("");
+        assert!(msg.contains("already") || msg.contains("up-to-date"),
+            "expected already-up-to-date message, got: {}", msg);
+    }
+
+    #[test]
+    fn test_handle_doi_fetch_result_error_sets_status() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::OpenDetail);
+        let key = app.detail_entry_key.clone().unwrap();
+
+        app.handle_doi_fetch_result(key, Err("Network error: timeout".to_string()));
+
+        let msg = app.status_message.as_deref().unwrap_or("");
+        assert!(msg.contains("failed") || msg.contains("Network"), "msg: {}", msg);
+    }
+
+    #[test]
+    fn test_handle_doi_fetch_result_pushes_undo() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::OpenDetail);
+        let key = app.detail_entry_key.clone().unwrap();
+        let before = app.undo_stack.len();
+
+        app.handle_doi_fetch_result(key, Ok(("10.9999/z".to_string(), String::new())));
+
+        assert!(app.undo_stack.len() > before, "undo record should have been pushed");
+    }
+
+    #[test]
+    fn test_start_fetch_doi_no_entry_selected() {
+        let (mut app, _tmp) = make_app();
+        // No entry selected in list (deselect by going to empty state) — use a
+        // fresh app with no selection driven via filtered_indices
+        app.filtered_indices = Some(vec![]); // empty filtered list → no selection
+        app.start_fetch_doi();
+        // Should set a status message and not panic
+        assert!(app.status_message.is_some());
+        assert!(app.pending_doi_fetch.is_none());
+    }
+
+    #[test]
+    fn test_start_fetch_doi_spawns_background_task() {
+        let (mut app, _tmp) = make_app();
+        // Select first entry which has title+author
+        app.handle_action(Action::OpenDetail);
+        assert!(app.pending_doi_fetch.is_none());
+        app.start_fetch_doi();
+        assert!(app.pending_doi_fetch.is_some(), "background fetch should be pending");
+        assert!(app.status_message.as_deref().unwrap_or("").contains("earch") ||
+                app.status_message.as_deref().unwrap_or("").contains("etch"),
+                "status: {:?}", app.status_message);
     }
 }
