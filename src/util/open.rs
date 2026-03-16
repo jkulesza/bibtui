@@ -418,4 +418,77 @@ mod tests {
         let rel = make_relative(Path::new("/home/alice/bib"), Path::new("/data/pdfs/foo.pdf"));
         assert_eq!(rel, PathBuf::from("../../../data/pdfs/foo.pdf"));
     }
+
+    // ── split_semicolons edge cases ─────────────────────────────────────────
+
+    #[test]
+    fn test_split_semicolons_trailing_backslash() {
+        // Backslash not followed by ';' or ':' is kept as-is
+        let parts = split_semicolons(r"path\to\file");
+        assert_eq!(parts, vec![r"path\to\file"]);
+    }
+
+    #[test]
+    fn test_split_semicolons_escaped_semicolon_keeps_one_part() {
+        let parts = split_semicolons(r"a\;b");
+        assert_eq!(parts.len(), 1);
+        assert_eq!(parts[0], "a;b");
+    }
+
+    #[test]
+    fn test_split_semicolons_two_parts() {
+        let parts = split_semicolons("a;b");
+        assert_eq!(parts, vec!["a", "b"]);
+    }
+
+    // ── split_colons edge cases ─────────────────────────────────────────────
+
+    #[test]
+    fn test_split_colons_backslash_not_before_colon() {
+        // Backslash followed by a non-colon char is kept literally
+        let parts = split_colons(r"desc:path\nfile.pdf:PDF");
+        assert_eq!(parts[0], "desc");
+        assert_eq!(parts[1], r"path\nfile.pdf");
+        assert_eq!(parts[2], "PDF");
+    }
+
+    #[test]
+    fn test_split_colons_stops_at_third_part() {
+        // Only first 2 colons split; rest goes into part 3
+        let parts = split_colons("a:b:c:d:e");
+        assert_eq!(parts, vec!["a", "b", "c:d:e"]);
+    }
+
+    #[test]
+    fn test_split_colons_escaped_colon_in_path() {
+        let parts = split_colons(r"desc:path\:with\:colons.pdf:PDF");
+        assert_eq!(parts[0], "desc");
+        assert_eq!(parts[1], "path:with:colons.pdf");
+        assert_eq!(parts[2], "PDF");
+    }
+
+    // ── parse_file_field edge cases ─────────────────────────────────────────
+
+    #[test]
+    fn test_parse_file_field_whitespace_only() {
+        let files = parse_file_field("   ;   ;   ");
+        assert!(files.is_empty());
+    }
+
+    #[test]
+    fn test_parse_file_field_only_two_parts() {
+        // Segment has only 1 colon: description + path, no file_type
+        let files = parse_file_field("desc:file.pdf");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].description, "desc");
+        assert_eq!(files[0].path, "file.pdf");
+        assert_eq!(files[0].file_type, "");
+    }
+
+    #[test]
+    fn test_parse_file_field_single_part_skipped() {
+        // Only one colon-split part (no path) → skipped
+        let files = parse_file_field("just-a-description");
+        assert!(files.is_empty());
+    }
 }

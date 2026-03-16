@@ -635,6 +635,25 @@ mod tests {
     //    test_cursor_home_end_name, but add explicit coverage for the method ──
 
     #[test]
+    fn test_for_path_sets_is_path_and_cursor() {
+        let e = FieldEditorState::for_path("Select file", "/tmp/default.pdf");
+        assert_eq!(e.field_name, "Select file");
+        assert_eq!(e.value, "/tmp/default.pdf");
+        assert_eq!(e.cursor, "/tmp/default.pdf".len());
+        assert!(e.is_path);
+        assert!(!e.is_new);
+        assert!(!e.editing_name);
+    }
+
+    #[test]
+    fn test_for_path_empty_default() {
+        let e = FieldEditorState::for_path("Pick file", "");
+        assert_eq!(e.value, "");
+        assert_eq!(e.cursor, 0);
+        assert!(e.is_path);
+    }
+
+    #[test]
     fn test_advance_phase_sets_editing_name_false() {
         let mut e = FieldEditorState::new_field();
         e.push_char('m');

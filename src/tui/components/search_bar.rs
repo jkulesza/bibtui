@@ -143,4 +143,53 @@ mod tests {
         assert_eq!(s.cursor, 0);
         assert_eq!(s.result_count, 0);
     }
+
+    #[test]
+    fn test_push_char_at_start() {
+        let mut s = SearchBarState::new();
+        s.push_char('b');
+        s.push_char('c');
+        s.cursor = 0;
+        s.push_char('a');
+        assert_eq!(s.query, "abc");
+        assert_eq!(s.cursor, 1);
+    }
+
+    #[test]
+    fn test_push_char_in_middle() {
+        let mut s = SearchBarState::new();
+        s.push_char('a');
+        s.push_char('c');
+        s.cursor = 1; // between 'a' and 'c'
+        s.push_char('b');
+        assert_eq!(s.query, "abc");
+        assert_eq!(s.cursor, 2);
+    }
+
+    #[test]
+    fn test_backspace_mid_cursor() {
+        let mut s = SearchBarState::new();
+        s.push_char('h');
+        s.push_char('e');
+        s.push_char('l');
+        s.push_char('l');
+        s.push_char('o');
+        s.cursor = 3; // after "hel"
+        s.backspace();
+        assert_eq!(s.query, "helo");
+        assert_eq!(s.cursor, 2);
+    }
+
+    #[test]
+    fn test_backspace_mid_cursor_multibyte() {
+        let mut s = SearchBarState::new();
+        s.push_char('h');
+        s.push_char('é'); // 2-byte
+        s.push_char('y');
+        // cursor is at end (4: 1 + 2 + 1)
+        s.cursor = 3; // after 'h' and 'é', before 'y'
+        s.backspace();
+        assert_eq!(s.query, "hy");
+        assert_eq!(s.cursor, 1);
+    }
 }

@@ -219,6 +219,55 @@ mod tests {
         let state = GroupTreeState::new(&tree);
         assert_eq!(state.flat_items.len(), 2); // All Entries + Physics only
     }
+
+    #[test]
+    fn test_selected_item_empty_tree() {
+        // A tree whose root has no children (flat_items = just root, index 0)
+        // shouldn't return None normally, but test that selected() works at boundary.
+        let tree = GroupTree::default();
+        let mut state = GroupTreeState::new(&tree);
+        // Force list_state to have no selection
+        state.list_state.select(None);
+        // selected() falls back to 0, flat_items.get(0) = root item
+        let item = state.selected_item();
+        assert!(item.is_some());
+    }
+
+    #[test]
+    fn test_refresh_clamps_out_of_bounds_selection() {
+        let tree = make_tree_with_child(); // 3 items
+        let mut state = GroupTreeState::new(&tree);
+        state.select(2); // last item ("Nuclear")
+        // Refresh with a smaller tree (only 1 item)
+        let small_tree = GroupTree::default();
+        state.refresh(&small_tree);
+        assert_eq!(state.flat_items.len(), 1);
+        // Selection should clamp to last valid index (0)
+        assert_eq!(state.selected(), 0);
+    }
+
+    #[test]
+    fn test_refresh_preserves_valid_selection() {
+        let tree = make_tree_with_child(); // 3 items
+        let mut state = GroupTreeState::new(&tree);
+        state.select(1); // "Physics"
+        // Refresh with same tree
+        let tree2 = make_tree_with_child();
+        state.refresh(&tree2);
+        assert_eq!(state.flat_items.len(), 3);
+        assert_eq!(state.selected(), 1); // still on "Physics"
+    }
+
+    #[test]
+    fn test_set_entry_count_no_match() {
+        let tree = make_tree_with_child();
+        let mut state = GroupTreeState::new(&tree);
+        state.set_entry_count("NonExistent", 10);
+        // No item should have a count set
+        for item in &state.flat_items {
+            assert!(item.entry_count.is_none());
+        }
+    }
 }
 
 pub fn render_group_tree(

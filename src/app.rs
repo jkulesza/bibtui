@@ -1830,6 +1830,14 @@ impl App {
             .filter(|v| !v.trim().is_empty())
             .map(|v| v.trim().to_string());
 
+        let isbn_url = entry.fields.get("isbn")
+            .filter(|v| !v.trim().is_empty())
+            .map(|v| {
+                // Strip spaces and hyphens to get a clean ISBN for the URL
+                let clean: String = v.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
+                format!("https://openlibrary.org/search?isbn={}", clean)
+            });
+
         let mut urls: Vec<(String, String)> = Vec::new(); // (label, url)
         if let Some(u) = doi_url {
             urls.push((format!("DOI: {}", u), u));
@@ -1837,10 +1845,13 @@ impl App {
         if let Some(u) = raw_url {
             urls.push((format!("URL: {}", u), u.clone()));
         }
+        if let Some(u) = isbn_url {
+            urls.push(("ISBN (openlibrary.org)".to_string(), u));
+        }
 
         match urls.len() {
             0 => {
-                // No DOI/URL — fetch one from metadata instead
+                // No DOI/URL/ISBN — fetch one from metadata instead
                 self.start_fetch_doi();
                 return;
             }
@@ -5522,5 +5533,89 @@ mod tests {
         assert!(app.status_message.as_deref().unwrap_or("").contains("earch") ||
                 app.status_message.as_deref().unwrap_or("").contains("etch"),
                 "status: {:?}", app.status_message);
+    }
+
+    // ── open_web / ISBN ──────────────────────────────────────────────────────
+
+    const ISBN_BIB: &str = r#"@Book{Gottschling2016,
+  author    = {Gottschling, Peter},
+  publisher = {Addison-Wesley},
+  title     = {{Discovering Modern C++}},
+  year      = {2016},
+  isbn      = {978-0-13-679847-7},
+  url       = {https://www.oreilly.com/library/view/discovering-modern-c/9780136798477},
+}
+"#;
+
+    fn make_isbn_app() -> (App, NamedTempFile) {
+        let mut tmp = NamedTempFile::new().unwrap();
+        write!(tmp, "{}", ISBN_BIB).unwrap();
+        tmp.flush().unwrap();
+        let path = tmp.path().to_path_buf();
+        let app = App::new(path, default_config()).unwrap();
+        (app, tmp)
+    }
+
+    #[test]
+    fn test_open_web_isbn_and_url_shows_picker() {
+        // Entry has both isbn and url — expect a picker dialog with 2 options.
+        let (mut app, _tmp) = make_isbn_app();
+        app.handle_action(Action::OpenWeb);
+        assert_eq!(app.mode, InputMode::Dialog, "should enter dialog mode for picker");
+        match &app.pending_action {
+            Some(PendingAction::OpenWeb(urls)) => {
+                assert_eq!(urls.len(), 2, "should have URL and ISBN options");
+                let isbn_url = urls.iter().find(|u| u.contains("openlibrary.org"));
+                assert!(isbn_url.is_some(), "isbn openlibrary.org URL should be in list");
+                // ISBN digits stripped of hyphens/spaces, using search endpoint
+                assert!(isbn_url.unwrap().contains("search?isbn=9780136798477"),
+                    "openlibrary URL should use search endpoint with clean ISBN: {}", isbn_url.unwrap());
+            }
+            other => panic!("expected PendingAction::OpenWeb, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_open_web_isbn_hyphenated_strips_cleanly() {
+        // Verify the ISBN "978-0-13-679847-7" is normalized to "9780136798477".
+        let (mut app, _tmp) = make_isbn_app();
+        app.handle_action(Action::OpenWeb);
+        if let Some(PendingAction::OpenWeb(urls)) = &app.pending_action {
+            let isbn_url = urls.iter().find(|u| u.contains("openlibrary.org")).unwrap();
+            // Should not contain hyphens in the URL
+            assert!(!isbn_url.contains('-'), "hyphens should be stripped from ISBN URL: {}", isbn_url);
+        }
+    }
+
+    #[test]
+    fn test_open_web_isbn_with_doi_shows_picker_not_fetch() {
+        // Entry has isbn + doi — 2 URL candidates → picker dialog, no browser opened,
+        // no DOI fetch started. This verifies isbn generates a URL candidate without
+        // triggering the browser-opening single-URL path.
+        const ISBN_DOI_BIB: &str = r#"@Book{IsbnDoi2020,
+  author    = {Author, Test},
+  title     = {{Test Book}},
+  year      = {2020},
+  isbn      = {9781234567890},
+  doi       = {10.1234/test},
+}
+"#;
+        let mut tmp = NamedTempFile::new().unwrap();
+        write!(tmp, "{}", ISBN_DOI_BIB).unwrap();
+        tmp.flush().unwrap();
+        let path = tmp.path().to_path_buf();
+        let mut app = App::new(path, default_config()).unwrap();
+        app.handle_action(Action::OpenWeb);
+        // Picker shown (2 URLs: doi + isbn) — no browser opened, no DOI fetch
+        assert_eq!(app.mode, InputMode::Dialog, "should show picker for doi + isbn");
+        assert!(app.pending_doi_fetch.is_none(),
+            "should not start DOI fetch when isbn/doi already provide URLs");
+        if let Some(PendingAction::OpenWeb(urls)) = &app.pending_action {
+            assert_eq!(urls.len(), 2);
+            assert!(urls.iter().any(|u| u.contains("openlibrary.org")),
+                "isbn openlibrary URL should be present");
+        } else {
+            panic!("expected PendingAction::OpenWeb");
+        }
     }
 }

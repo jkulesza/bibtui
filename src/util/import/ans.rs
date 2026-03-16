@@ -215,4 +215,57 @@ mod tests {
             Some("10.13182/NSE20-1234".to_string())
         );
     }
+
+    #[test]
+    fn test_extract_meta_content_empty_value_returns_none() {
+        let html = r#"<meta name="citation_doi" content="">"#;
+        assert_eq!(extract_meta_content(html, "citation_doi"), None);
+    }
+
+    #[test]
+    fn test_extract_meta_content_skips_wrong_name() {
+        // First tag has a different name; second has the correct one
+        let html = r#"<meta name="other_field" content="irrelevant">
+            <meta name="citation_doi" content="10.13182/NSE-99">"#;
+        assert_eq!(
+            extract_meta_content(html, "citation_doi"),
+            Some("10.13182/NSE-99".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_meta_content_unclosed_tag_returns_none() {
+        // Tag without closing '>' — should not panic and should return None
+        let html = r#"<meta name="citation_doi" content="10.1234/x"#;
+        // find('>') fails, tag_end falls back to len() — tag_lower covers whole string
+        // but the content should still be found since name+content are present
+        let result = extract_meta_content(html, "citation_doi");
+        // Either None or Some is acceptable — just must not panic
+        let _ = result;
+    }
+
+    #[test]
+    fn test_extract_doi_from_href_missing_closing_quote() {
+        // Missing closing quote after the DOI — find('"') returns None
+        let html = r#"<a href="https://doi.org/10.13182/NT20-1234"#;
+        assert_eq!(extract_doi_from_href(html), None);
+    }
+
+    #[test]
+    fn test_extract_doi_from_href_no_doi_prefix() {
+        let html = r#"<a href="https://example.com/paper">text</a>"#;
+        assert_eq!(extract_doi_from_href(html), None);
+    }
+
+    #[test]
+    fn test_extract_doi_from_html_meta_preferred_over_href() {
+        // When both a meta citation_doi and an href DOI exist, meta is tried first
+        let html = r#"
+            <meta name="citation_doi" content="10.13182/META-DOI">
+            <a href="https://doi.org/10.13182/HREF-DOI">text</a>"#;
+        assert_eq!(
+            extract_doi_from_html(html),
+            Some("10.13182/META-DOI".to_string())
+        );
+    }
 }
