@@ -148,6 +148,8 @@ pub struct SaveConfig {
     pub save_action_normalize_names_of_persons: bool,
     /// Normalise page ranges to double-hyphen format (`1-5` → `1--5`).
     pub save_action_normalize_page_numbers: bool,
+    /// Strip hyphens/spaces from ISBN fields and uppercase the check digit.
+    pub save_action_normalize_isbn: bool,
     /// Convert ordinal suffixes to LaTeX superscripts (`1st` → `1\textsuperscript{st}`).
     pub save_action_ordinals_to_superscript: bool,
     /// Convert Unicode characters to their LaTeX equivalents (`é` → `{\'e}`).
@@ -176,6 +178,7 @@ impl Default for SaveConfig {
             save_action_normalize_month: true,
             save_action_normalize_names_of_persons: true,
             save_action_normalize_page_numbers: true,
+            save_action_normalize_isbn: true,
             save_action_ordinals_to_superscript: true,
             save_action_unicode_to_latex: true,
             save_action_abbreviate_journal: false,

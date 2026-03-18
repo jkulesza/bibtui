@@ -345,6 +345,13 @@ impl SettingsState {
                 default: SettingValue::Bool(defaults.save.save_action_normalize_page_numbers),
             },
             SettingItem {
+                id: "save_actions.normalize_isbn".into(),
+                label: "normalize_isbn".into(),
+                description: "Strip hyphens/spaces from ISBN fields and uppercase the check digit on save.".into(),
+                value: SettingValue::Bool(config.save.save_action_normalize_isbn),
+                default: SettingValue::Bool(defaults.save.save_action_normalize_isbn),
+            },
+            SettingItem {
                 id: "save_actions.ordinals_to_superscript".into(),
                 label: "ordinals_to_superscript".into(),
                 description: "Convert ordinal suffixes to LaTeX superscripts on save (1st → 1\\textsuperscript{st}).".into(),
@@ -421,7 +428,7 @@ impl SettingsState {
         //                                20  theme.header_fg
         //                                21  theme.search_match
         //                                22  theme.border_color
-        //  Save Actions (23–33):
+        //  Save Actions (23–34):
         //                                23  escape_underscores
         //                                24  escape_ampersands
         //                                25  cleanup_url
@@ -430,11 +437,12 @@ impl SettingsState {
         //                                28  normalize_month
         //                                29  normalize_names_of_persons
         //                                30  normalize_page_numbers
-        //                                31  ordinals_to_superscript
-        //                                32  unicode_to_latex
-        //                                33  abbreviate_journal
-        //  Display (continued):          34  journal_field_content
-        //                                35+ citekey templates
+        //                                31  normalize_isbn
+        //                                32  ordinals_to_superscript
+        //                                33  unicode_to_latex
+        //                                34  abbreviate_journal
+        //  Display (continued):          35  journal_field_content
+        //                                36+ citekey templates
         let mut rows: Vec<SettingRow> = vec![
             SettingRow::Section("General"),
             SettingRow::Item(11), // bib_file
@@ -447,7 +455,7 @@ impl SettingsState {
             SettingRow::Item(4),  // render_latex
             SettingRow::Item(5),  // show_braces
             SettingRow::Item(6),  // abbreviate_authors
-            SettingRow::Item(34), // journal_field_content
+            SettingRow::Item(35), // journal_field_content
             SettingRow::Item(13), // default_sort.field
             SettingRow::Item(14), // default_sort.ascending
             SettingRow::Section("Save"),
@@ -463,9 +471,10 @@ impl SettingsState {
             SettingRow::Item(28), // normalize_month
             SettingRow::Item(29), // normalize_names_of_persons
             SettingRow::Item(30), // normalize_page_numbers
-            SettingRow::Item(31), // ordinals_to_superscript
-            SettingRow::Item(32), // unicode_to_latex
-            SettingRow::Item(33), // abbreviate_journal
+            SettingRow::Item(31), // normalize_isbn
+            SettingRow::Item(32), // ordinals_to_superscript
+            SettingRow::Item(33), // unicode_to_latex
+            SettingRow::Item(34), // abbreviate_journal
             SettingRow::Section("Citation"),
             SettingRow::Item(10), // style
             SettingRow::Section("Titlecase"),
@@ -793,6 +802,9 @@ impl SettingsState {
                 }
                 "save_actions.normalize_page_numbers" => {
                     if let SettingValue::Bool(v) = item.value { config.save.save_action_normalize_page_numbers = v; }
+                }
+                "save_actions.normalize_isbn" => {
+                    if let SettingValue::Bool(v) = item.value { config.save.save_action_normalize_isbn = v; }
                 }
                 "save_actions.ordinals_to_superscript" => {
                     if let SettingValue::Bool(v) = item.value { config.save.save_action_ordinals_to_superscript = v; }

@@ -9,8 +9,8 @@ use indexmap::IndexMap;
 use crate::bib::citekey::generate_citekey;
 use crate::bib::normalize::{
     cleanup_url, escape_ampersands, escape_underscores, latex_cleanup,
-    normalize_date, normalize_month, normalize_page_numbers, ordinals_to_superscript,
-    unicode_to_latex,
+    normalize_date, normalize_isbn, normalize_month, normalize_page_numbers,
+    ordinals_to_superscript, unicode_to_latex,
 };
 use crate::bib::jabref::serialize_group_tree;
 use crate::bib::model::*;
@@ -2779,7 +2779,7 @@ impl App {
                 .iter()
                 .copied()
                 .chain(NAMES.iter().copied())
-                .chain(["url", "date", "month", "pages"])
+                .chain(["url", "date", "month", "pages", "isbn"])
                 .collect();
 
             for &f in &relevant {
@@ -2842,7 +2842,11 @@ impl App {
             if cfg.save_action_normalize_page_numbers {
                 transform!("pages", normalize_page_numbers);
             }
-            // 10. Normalise person names
+            // 10. Normalise ISBN
+            if cfg.save_action_normalize_isbn {
+                transform!("isbn", normalize_isbn);
+            }
+            // 11. Normalise person names
             if cfg.save_action_normalize_names_of_persons {
                 for f in NAMES.iter().copied() {
                     transform!(f, crate::util::author::normalize_author_names);
@@ -2864,7 +2868,7 @@ impl App {
                 }
             }
 
-            // 11. Abbreviate journal — simulate sync of journal, journal_full, journal_abbrev
+            // 12. Abbreviate journal — simulate sync of journal, journal_full, journal_abbrev
             if cfg.save_action_abbreviate_journal {
                 let journal_current = field_state.get("journal").cloned()
                     .or_else(|| entry.fields.get("journal").cloned())
@@ -3008,7 +3012,12 @@ impl App {
                 apply!("pages", normalize_page_numbers);
             }
 
-            // 10. Normalise person names
+            // 10. Normalise ISBN
+            if cfg.save_action_normalize_isbn {
+                apply!("isbn", normalize_isbn);
+            }
+
+            // 11. Normalise person names
             if cfg.save_action_normalize_names_of_persons {
                 for f in NAMES.iter().copied() {
                     apply!(f, crate::util::author::normalize_author_names);
@@ -3719,6 +3728,7 @@ fn action_label_for_field(field: &str, cfg: &crate::config::schema::SaveConfig) 
         "date" if cfg.save_action_normalize_date => "normalize_date",
         "month" if cfg.save_action_normalize_month => "normalize_month",
         "pages" if cfg.save_action_normalize_page_numbers => "normalize_pages",
+        "isbn" if cfg.save_action_normalize_isbn => "normalize_isbn",
         "author" | "editor" | "editora" | "editorb" | "editorc"
         | "bookauthor" | "translator"
             if cfg.save_action_normalize_names_of_persons =>

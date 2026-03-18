@@ -466,6 +466,43 @@ static UNICODE_TO_LATEX: &[(char, &str)] = &[
     ('ż', "{\\.z}"), ('Ż', "{\\.Z}"),
 ];
 
+/// Normalize an ISBN field value to a clean, hyphen-free canonical form.
+///
+/// Strips all hyphens, spaces, and other non-alphanumeric characters, then
+/// uppercases the result (so the ISBN-10 check digit `x` becomes `X`).
+/// Returns the normalised string when the result is a structurally valid
+/// ISBN-10 or ISBN-13; otherwise returns the original value unchanged so
+/// that unusual or free-form values are never silently corrupted.
+///
+/// Accepts any common notation:
+/// - `978-0-374-52837-9`  →  `9780374528379`
+/// - `0-374-52837-3`      →  `0374528373`
+/// - `019 853 453 X`      →  `019853453X`
+/// - `9780374528379`      →  `9780374528379`  (already canonical)
+pub fn normalize_isbn(value: &str) -> String {
+    let s: String = value
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect::<String>()
+        .to_uppercase();
+
+    let valid = match s.len() {
+        10 => {
+            // ISBN-10: first 9 chars are digits; last char is a digit or 'X'.
+            s[..9].chars().all(|c| c.is_ascii_digit())
+                && matches!(s.as_bytes()[9], b'0'..=b'9' | b'X')
+        }
+        13 => {
+            // ISBN-13: all digits, prefix 978 or 979.
+            s.chars().all(|c| c.is_ascii_digit())
+                && (s.starts_with("978") || s.starts_with("979"))
+        }
+        _ => false,
+    };
+
+    if valid { s } else { value.to_string() }
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -799,5 +836,86 @@ mod tests {
     #[test]
     fn test_unicode_to_latex_ascii_passthrough() {
         assert_eq!(unicode_to_latex("plain ASCII text"), "plain ASCII text");
+    }
+
+    // ── normalize_isbn ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_normalize_isbn13_bare_unchanged() {
+        assert_eq!(normalize_isbn("9780374528379"), "9780374528379");
+    }
+
+    #[test]
+    fn test_normalize_isbn13_hyphens_stripped() {
+        assert_eq!(normalize_isbn("978-0-374-52837-9"), "9780374528379");
+    }
+
+    #[test]
+    fn test_normalize_isbn13_spaces_stripped() {
+        assert_eq!(normalize_isbn("978 0 374 52837 9"), "9780374528379");
+    }
+
+    #[test]
+    fn test_normalize_isbn13_mixed_stripped() {
+        assert_eq!(normalize_isbn("978-0 374-52837 9"), "9780374528379");
+    }
+
+    #[test]
+    fn test_normalize_isbn13_979_prefix() {
+        assert_eq!(normalize_isbn("979-10-323-0942-1"), "9791032309421");
+    }
+
+    #[test]
+    fn test_normalize_isbn10_bare_unchanged() {
+        assert_eq!(normalize_isbn("0374528373"), "0374528373");
+    }
+
+    #[test]
+    fn test_normalize_isbn10_hyphens_stripped() {
+        assert_eq!(normalize_isbn("0-374-52837-3"), "0374528373");
+    }
+
+    #[test]
+    fn test_normalize_isbn10_check_x_uppercase() {
+        assert_eq!(normalize_isbn("019853453X"), "019853453X");
+    }
+
+    #[test]
+    fn test_normalize_isbn10_check_x_lowercase_uppercased() {
+        assert_eq!(normalize_isbn("019853453x"), "019853453X");
+    }
+
+    #[test]
+    fn test_normalize_isbn10_with_hyphens_and_x() {
+        assert_eq!(normalize_isbn("0-19-853453-X"), "019853453X");
+    }
+
+    #[test]
+    fn test_normalize_isbn_invalid_returns_original() {
+        // 11 digits — not a valid ISBN
+        assert_eq!(normalize_isbn("12345678901"), "12345678901");
+    }
+
+    #[test]
+    fn test_normalize_isbn_invalid_prefix_returns_original() {
+        // 13 digits but starts with 123 (not 978/979)
+        assert_eq!(normalize_isbn("1234567890123"), "1234567890123");
+    }
+
+    #[test]
+    fn test_normalize_isbn_empty_returns_empty() {
+        assert_eq!(normalize_isbn(""), "");
+    }
+
+    #[test]
+    fn test_normalize_isbn_non_isbn_text_returned_unchanged() {
+        assert_eq!(normalize_isbn("not-an-isbn"), "not-an-isbn");
+    }
+
+    #[test]
+    fn test_normalize_isbn_already_canonical_is_idempotent() {
+        let isbn = "9780374528379";
+        assert_eq!(normalize_isbn(isbn), isbn);
+        assert_eq!(normalize_isbn(&normalize_isbn(isbn)), isbn);
     }
 }
