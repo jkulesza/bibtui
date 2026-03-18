@@ -145,4 +145,95 @@ mod tests {
         assert_eq!(c.input, "");
         assert_eq!(c.cursor, 0);
     }
+
+    // ── ghost_text ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_ghost_text_empty_when_no_sort_prefix() {
+        let mut c = CommandPaletteState::new();
+        c.completions = vec!["year".to_string()];
+        c.input = "w".to_string();
+        c.cursor = 1;
+        assert_eq!(c.ghost_text(), "");
+    }
+
+    #[test]
+    fn test_ghost_text_empty_when_no_completions() {
+        let mut c = CommandPaletteState::new();
+        c.input = "sort y".to_string();
+        c.cursor = 6;
+        assert_eq!(c.ghost_text(), "");
+    }
+
+    #[test]
+    fn test_ghost_text_returns_suffix_of_completion() {
+        let mut c = CommandPaletteState::new();
+        c.input = "sort y".to_string();
+        c.cursor = 6;
+        c.completions = vec!["year".to_string()];
+        c.completion_idx = 0;
+        assert_eq!(c.ghost_text(), "ear");
+    }
+
+    #[test]
+    fn test_ghost_text_empty_when_typed_equals_completion() {
+        let mut c = CommandPaletteState::new();
+        c.input = "sort year".to_string();
+        c.cursor = 9;
+        c.completions = vec!["year".to_string()];
+        c.completion_idx = 0;
+        assert_eq!(c.ghost_text(), "");
+    }
+
+    #[test]
+    fn test_ghost_text_empty_when_typed_longer_than_completion() {
+        let mut c = CommandPaletteState::new();
+        c.input = "sort yearx".to_string();
+        c.cursor = 10;
+        c.completions = vec!["year".to_string()];
+        c.completion_idx = 0;
+        assert_eq!(c.ghost_text(), "");
+    }
+
+    #[test]
+    fn test_ghost_text_partial_match_returns_suffix() {
+        // command_palette ghost_text derives partial from input text, not cursor
+        let mut c = CommandPaletteState::new();
+        c.input = "sort ye".to_string();
+        c.cursor = 5;
+        c.completions = vec!["year".to_string()];
+        c.completion_idx = 0;
+        assert_eq!(c.ghost_text(), "ar");
+    }
+
+    #[test]
+    fn test_ghost_text_uses_completion_idx() {
+        let mut c = CommandPaletteState::new();
+        c.input = "sort y".to_string();
+        c.cursor = 6;
+        c.completions = vec!["volume".to_string(), "year".to_string()];
+        c.completion_idx = 1; // "year"
+        assert_eq!(c.ghost_text(), "ear");
+    }
+
+    #[test]
+    fn test_ghost_text_empty_when_completion_does_not_start_with_partial() {
+        let mut c = CommandPaletteState::new();
+        c.input = "sort au".to_string();
+        c.cursor = 7;
+        c.completions = vec!["year".to_string()];
+        c.completion_idx = 0;
+        assert_eq!(c.ghost_text(), "");
+    }
+
+    #[test]
+    fn test_clear_resets_completions() {
+        let mut c = CommandPaletteState::new();
+        c.push_char('s');
+        c.completions = vec!["year".to_string()];
+        c.completion_idx = 1;
+        c.clear();
+        assert!(c.completions.is_empty());
+        assert_eq!(c.completion_idx, 0);
+    }
 }

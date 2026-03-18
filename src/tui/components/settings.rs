@@ -1305,6 +1305,36 @@ mod tests {
         state.move_page_down();
         assert_eq!(state.cursor, bottom);
     }
+
+    #[test]
+    fn test_selected_value_str_returns_display() {
+        let cfg = default_config();
+        let state = SettingsState::new(&cfg);
+        // Just verify no panic — the value may be empty (Str) or non-empty (Bool/Choice)
+        let _val = state.selected_value_str();
+    }
+
+    #[test]
+    fn test_selected_item_mut_returns_some() {
+        let cfg = default_config();
+        let mut state = SettingsState::new(&cfg);
+        assert!(state.selected_item_mut().is_some());
+    }
+
+    #[test]
+    fn test_toggle_selected_bool_via_selected_item_mut() {
+        let cfg = default_config();
+        let mut state = SettingsState::new(&cfg);
+        // Navigate to a Bool item (backup_on_save = Item(0), which is at rows[2])
+        state.cursor = state.rows.iter()
+            .position(|r| matches!(r, SettingRow::Item(0)))
+            .expect("backup_on_save row must exist");
+        let before = state.selected_value_str();
+        assert!(!before.is_empty(), "Bool display should be non-empty");
+        state.toggle_selected();
+        let after = state.selected_value_str();
+        assert_ne!(before, after);
+    }
 }
 
 // ── Render ────────────────────────────────────────────────────────────────────

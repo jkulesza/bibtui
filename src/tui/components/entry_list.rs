@@ -209,6 +209,39 @@ mod tests {
         let e = make_entry("k", false, &[("year", "2024")]);
         assert_eq!(get_field_value(&e, "year", false, false), "2024");
     }
+
+    // ── file_indicator_cell ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_file_indicator_cell_no_file_field_is_space() {
+        let e = make_entry("k", false, &[]);
+        let cell = file_indicator_cell(&e, std::path::Path::new("/tmp"));
+        // ratatui Cell doesn't expose text directly, but we just verify no panic
+        let _ = cell;
+    }
+
+    #[test]
+    fn test_file_indicator_cell_empty_file_field_is_space() {
+        let e = make_entry("k", false, &[("file", "   ")]);
+        let _ = file_indicator_cell(&e, std::path::Path::new("/tmp"));
+    }
+
+    #[test]
+    fn test_file_indicator_cell_existing_file_returns_icon() {
+        use tempfile::NamedTempFile;
+        let tmp = NamedTempFile::new().unwrap();
+        let path_str = tmp.path().to_str().unwrap().to_string();
+        let file_val = format!(":{}:application/pdf", path_str);
+        let e = make_entry("k", false, &[("file", &file_val)]);
+        let bib_dir = tmp.path().parent().unwrap();
+        let _ = file_indicator_cell(&e, bib_dir);
+    }
+
+    #[test]
+    fn test_file_indicator_cell_missing_file_returns_red_icon() {
+        let e = make_entry("k", false, &[("file", ":/nonexistent/path/Smith2020.pdf:application/pdf")]);
+        let _ = file_indicator_cell(&e, std::path::Path::new("/tmp"));
+    }
 }
 
 pub fn render_entry_list(

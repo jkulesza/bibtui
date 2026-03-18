@@ -202,4 +202,46 @@ mod tests {
         apply_publisher_corrections(&mut e);
         assert_eq!(e.fields["publisher"], "American Nuclear Society");
     }
+
+    #[test]
+    fn test_correction_ans_issn_nt_electronic() {
+        let mut e = make_entry(None, Some("1943-7471"), None, Some("T&F"));
+        apply_publisher_corrections(&mut e);
+        assert_eq!(e.fields["publisher"], "American Nuclear Society");
+    }
+
+    #[test]
+    fn test_correction_ans_issn_fst_electronic() {
+        let mut e = make_entry(None, Some("1943-7641"), None, Some("T&F"));
+        apply_publisher_corrections(&mut e);
+        assert_eq!(e.fields["publisher"], "American Nuclear Society");
+    }
+
+    #[test]
+    fn test_correction_ans_issn_trans_print() {
+        let mut e = make_entry(None, Some("0003-018X"), None, Some("T&F"));
+        apply_publisher_corrections(&mut e);
+        assert_eq!(e.fields["publisher"], "American Nuclear Society");
+    }
+
+    #[test]
+    fn test_correction_ans_issn_trans_electronic() {
+        let mut e = make_entry(None, Some("1943-7714"), None, Some("T&F"));
+        apply_publisher_corrections(&mut e);
+        assert_eq!(e.fields["publisher"], "American Nuclear Society");
+    }
+
+    #[test]
+    fn test_correction_ans_journal_fst() {
+        let mut e = make_entry(None, None, Some("Fusion Science and Technology"), Some("T&F"));
+        apply_publisher_corrections(&mut e);
+        assert_eq!(e.fields["publisher"], "American Nuclear Society");
+    }
+
+    #[test]
+    fn test_correction_ans_journal_transactions() {
+        let mut e = make_entry(None, None, Some("Transactions of the American Nuclear Society"), Some("T&F"));
+        apply_publisher_corrections(&mut e);
+        assert_eq!(e.fields["publisher"], "American Nuclear Society");
+    }
 }
