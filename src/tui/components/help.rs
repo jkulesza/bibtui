@@ -77,7 +77,7 @@ pub fn render_help(f: &mut Frame, area: Rect, _state: &HelpState, theme: &Theme)
                 (":sort <field>",   "sort by field"),
                 (":group <name>",   "filter to group"),
                 (":search <query>", "apply search"),
-                (":import <doi/url>","import from DOI/URL"),
+                (":import <doi/isbn/url>","import from DOI, ISBN, or URL"),
             ],
         ),
     ];

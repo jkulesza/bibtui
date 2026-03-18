@@ -1,16 +1,18 @@
 use super::ans::AnsFetcher;
 use super::crossref::CrossrefFetcher;
 use super::fetcher::Fetcher;
+use super::isbn::IsbnFetcher;
 use super::pdf::PdfFetcher;
 use super::tandfonline::TandFOnlineFetcher;
 use super::{ImportedEntry, ImportError};
 
 /// The ordered list of fetchers tried in sequence.
-/// PdfFetcher first (local file paths), then publisher-specific scrapers,
-/// then Crossref as the general DOI/URL fallback.
+/// PdfFetcher first (local file paths), then ISBN (books via OpenLibrary),
+/// then publisher-specific scrapers, then Crossref as the general DOI/URL fallback.
 fn fetchers() -> Vec<Box<dyn Fetcher>> {
     vec![
         Box::new(PdfFetcher),
+        Box::new(IsbnFetcher),
         Box::new(AnsFetcher),
         Box::new(TandFOnlineFetcher),
         Box::new(CrossrefFetcher),

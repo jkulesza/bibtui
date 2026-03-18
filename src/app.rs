@@ -3425,7 +3425,7 @@ impl App {
     fn start_import_entry(&mut self) {
         self.field_editor_state = Some(
             crate::tui::components::field_editor::FieldEditorState::for_path(
-                "DOI, URL, or PDF file path",
+                "DOI, ISBN, URL, or PDF file path",
                 "",
             ),
         );

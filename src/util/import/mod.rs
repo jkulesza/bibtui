@@ -1,6 +1,7 @@
 pub mod ans;
 pub mod crossref;
 pub mod fetcher;
+pub mod isbn;
 pub mod pdf;
 pub mod pipeline;
 pub mod tandfonline;

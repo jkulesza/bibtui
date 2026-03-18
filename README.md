@@ -33,6 +33,7 @@ A terminal UI BibTeX manager written in Rust. Designed as a lightweight, keyboar
 - `w` fetches DOI/URL from Crossref via metadata (title, author, year) when none is present, in both the entry list and detail view; only sets `url` when it is distinct from the DOI; when multiple links are available (DOI, URL, ISBN) a picker dialog is shown
 - `w` opens an OpenLibrary search (`openlibrary.org/search?isbn=…`) for entries with an `isbn` field but no DOI or URL
 - HTTPS requests (DOI/URL fetch, Crossref, Unpaywall) use the OS native TLS stack so corporate VPN certificate authorities are trusted automatically
+- Import books by ISBN-10 or ISBN-13 (`I` or `:import <isbn>`): fetches metadata from OpenLibrary; accepts any common notation (bare digits, hyphens, spaces, mixed); stores ISBN-13 when available, falls back to ISBN-10
 
 ## Requirements
 
@@ -332,7 +333,7 @@ PDF candidates are tried in order (Unpaywall OA → publisher PDF → ANS direct
 cargo test
 ```
 
-All 765 tests should pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, journal abbreviation, TUI component state machines, config loading, and import pipeline).
+All 805 tests should pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, journal abbreviation, TUI component state machines, config loading, and import pipeline).
 
 Coverage analysis runs automatically in CI via `cargo-llvm-cov`. To run locally:
 
