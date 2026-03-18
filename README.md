@@ -28,13 +28,12 @@ A terminal UI BibTeX manager written in Rust. Designed as a lightweight, keyboar
 - Full-screen help modal (`?`) with complete keyboard reference
 - Scrollable filename-sync preview dialog confirms file renames before they are applied
 - Import entries from a DOI, URL, or local PDF file (`I` or `:import <doi-or-url-or-path>`): queries Crossref for metadata, with extensible publisher-specific scrapers (ANS, Taylor & Francis); automatically downloads an open-access PDF via Unpaywall when available; extracts DOI from local PDFs and sets the file attachment directly; citation key is generated immediately from the configured template
+- Import books by ISBN-10 or ISBN-13 (`I` or `:import <isbn>`): fetches metadata from OpenLibrary; accepts any common notation (bare digits, hyphens, spaces, mixed); stores ISBN-13 when available, falls back to ISBN-10
 - Per-file attachment management in the detail view: each attached file appears as its own navigable row; `e`/`Enter` edits the path, `A` adds a new attachment, `d` removes an individual file
 - URL fields preserve percent-encoding (e.g. `%20`) on save
 - `w` fetches DOI/URL from Crossref via metadata (title, author, year) when none is present, in both the entry list and detail view; only sets `url` when it is distinct from the DOI; when multiple links are available (DOI, URL, ISBN) a picker dialog is shown
 - `w` opens an OpenLibrary search (`openlibrary.org/search?isbn=…`) for entries with an `isbn` field but no DOI or URL
 - HTTPS requests (DOI/URL fetch, Crossref, Unpaywall) use the OS native TLS stack so corporate VPN certificate authorities are trusted automatically
-- Import books by ISBN-10 or ISBN-13 (`I` or `:import <isbn>`): fetches metadata from OpenLibrary; accepts any common notation (bare digits, hyphens, spaces, mixed); stores ISBN-13 when available, falls back to ISBN-10
-- `save_action_normalize_isbn`: strips hyphens/spaces from `isbn` fields and uppercases the check digit on save (default on)
 
 ## Requirements
 
@@ -109,7 +108,7 @@ bibtui --config ~/dotfiles/bibtui.yaml references.bib
 | `B` | Toggle case-protecting brace display |
 | `L` | Toggle LaTeX rendering (accents, math, dashes) |
 | `v` | Validate: dry-run save actions, show what would change |
-| `I` | Import entry from DOI, URL, or local PDF file |
+| `I` | Import entry from DOI, URL, ISBN, or local PDF file |
 | `S` | Open settings editor |
 | `u` | Undo last change |
 | `:` | Open command palette |
