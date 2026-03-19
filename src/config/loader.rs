@@ -86,4 +86,35 @@ mod tests {
         // Just verify it doesn't panic and returns a usable config.
         let _ = cfg.general.backup_on_save;
     }
+
+    #[test]
+    fn test_load_config_from_yml_extension() {
+        let mut tmp = NamedTempFile::new().unwrap();
+        writeln!(tmp, "general:\n  backup_on_save: false").unwrap();
+        tmp.flush().unwrap();
+        let path = tmp.path().to_str().unwrap();
+        let cfg = load_config(Some(path)).unwrap();
+        // Any valid parse means the file was read successfully.
+        let _ = cfg.general.backup_on_save;
+    }
+
+    #[test]
+    fn test_load_config_minimal_empty_yaml() {
+        // An empty YAML file should deserialise to all defaults.
+        let mut tmp = NamedTempFile::new().unwrap();
+        writeln!(tmp, "").unwrap();
+        tmp.flush().unwrap();
+        let path = tmp.path().to_str().unwrap();
+        let cfg = load_config(Some(path)).unwrap();
+        let default = super::super::schema::Config::default();
+        assert_eq!(cfg.general.backup_on_save, default.general.backup_on_save);
+    }
+
+    #[test]
+    fn test_load_config_nonexistent_cli_path_uses_defaults() {
+        // An explicit CLI path that doesn't exist should fall through to defaults.
+        let cfg = load_config(Some("/tmp/__definitely_does_not_exist_xyz.yaml")).unwrap();
+        let default = super::super::schema::Config::default();
+        assert_eq!(cfg.general.backup_on_save, default.general.backup_on_save);
+    }
 }

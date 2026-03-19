@@ -67,3 +67,49 @@ fn parse_color(hex: &str) -> Color {
         Color::White
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::schema::ThemeConfig;
+
+    #[test]
+    fn test_parse_color_valid_hex() {
+        let c = parse_color("#ff8000");
+        assert_eq!(c, Color::Rgb(0xff, 0x80, 0x00));
+    }
+
+    #[test]
+    fn test_parse_color_black() {
+        let c = parse_color("#000000");
+        assert_eq!(c, Color::Rgb(0, 0, 0));
+    }
+
+    #[test]
+    fn test_parse_color_invalid_no_hash() {
+        let c = parse_color("ff8000");
+        assert_eq!(c, Color::White);
+    }
+
+    #[test]
+    fn test_parse_color_invalid_too_short() {
+        let c = parse_color("#fff");
+        assert_eq!(c, Color::White);
+    }
+
+    #[test]
+    fn test_parse_color_empty() {
+        let c = parse_color("");
+        assert_eq!(c, Color::White);
+    }
+
+    #[test]
+    fn test_theme_default_does_not_panic() {
+        let _theme = Theme::default();
+    }
+
+    #[test]
+    fn test_theme_from_config_does_not_panic() {
+        let _theme = Theme::from_config(&ThemeConfig::default());
+    }
+}

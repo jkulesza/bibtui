@@ -90,6 +90,7 @@ pub enum Action {
     DialogConfirm,
     DialogCancel,
     DialogToggle,
+    DialogYank,
     ShowHelp,
     TitlecaseField,
     ToggleBraces,
@@ -244,6 +245,8 @@ enum PendingAction {
     DeleteEntryWithFileSelect { entry_key: String, files: Vec<std::path::PathBuf> },
     /// Waiting for the user to provide a path for a new file attachment.
     AddFileAttachment { entry_key: String },
+    /// Dismiss a non-interactive message popup (no side effect on confirm).
+    DismissMessage,
     /// Waiting for the user to edit the path of the file at `index` in the `file` field.
     EditFileAttachment { entry_key: String, index: usize },
 }
@@ -453,7 +456,11 @@ impl App {
             _ => None,
         };
 
-        if let Some(action) = map_key(key, &self.mode, last) {
+        let is_message_dialog = matches!(
+            self.dialog_state.as_ref().map(|d| &d.kind),
+            Some(DialogKind::Message { .. })
+        );
+        if let Some(action) = map_key(key, &self.mode, last, is_message_dialog) {
             self.handle_action(action);
         }
     }
@@ -702,6 +709,17 @@ impl App {
             Action::DialogToggle => {
                 if let Some(ref mut dialog) = self.dialog_state {
                     dialog.toggle_selected();
+                }
+            }
+            Action::DialogYank => {
+                if let Some(ref dialog) = self.dialog_state {
+                    if let DialogKind::Message { message, .. } = &dialog.kind {
+                        let text = message.clone();
+                        match crate::util::clipboard::copy_to_clipboard(&text) {
+                            Ok(()) => self.status_message = Some("Error message copied to clipboard".to_string()),
+                            Err(e) => self.status_message = Some(format!("Clipboard error: {}", e)),
+                        }
+                    }
                 }
             }
             Action::ShowHelp => {
@@ -2166,6 +2184,9 @@ impl App {
                 self.save();
                 self.should_quit = true;
             }
+            Some(PendingAction::DismissMessage) => {
+                // Message popup dismissed — nothing to do; mode already reset above.
+            }
             Some(PendingAction::AddGroup { .. })
             | Some(PendingAction::EditSetting { .. })
             | Some(PendingAction::ExportSettings)
@@ -3591,7 +3612,12 @@ impl App {
                 };
             }
             Err(e) => {
-                self.status_message = Some(format!("Import failed: {}", e));
+                self.dialog_state = Some(DialogState::message(
+                    "Import Error",
+                    &format!("Import failed: {}", e),
+                ));
+                self.pending_action = Some(PendingAction::DismissMessage);
+                self.mode = InputMode::Dialog;
             }
         }
     }

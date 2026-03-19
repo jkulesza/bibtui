@@ -918,4 +918,156 @@ mod tests {
         assert_eq!(normalize_isbn(isbn), isbn);
         assert_eq!(normalize_isbn(&normalize_isbn(isbn)), isbn);
     }
+
+    // ── is_iso_date edge cases ────────────────────────────────────────────────
+
+    #[test]
+    fn test_normalize_date_four_part_not_iso() {
+        // A four-part string like "2020-03-15-extra" is not ISO → returned unchanged
+        assert_eq!(normalize_date("2020-03-15-extra"), "2020-03-15-extra");
+    }
+
+    #[test]
+    fn test_normalize_date_non_digit_year() {
+        // "abcd" looks like 4 chars but not digits → not ISO → unchanged
+        assert_eq!(normalize_date("abcd"), "abcd");
+    }
+
+    #[test]
+    fn test_normalize_date_two_part_non_iso_month() {
+        // "2020-3" has a 1-digit month → not ISO → unchanged
+        assert_eq!(normalize_date("2020-3"), "2020-3");
+    }
+
+    // ── normalize_date dot notation edge cases ────────────────────────────────
+
+    #[test]
+    fn test_normalize_date_dot_invalid_month() {
+        // Month=13 is out of range → unchanged
+        assert_eq!(normalize_date("15.13.2020"), "15.13.2020");
+    }
+
+    #[test]
+    fn test_normalize_date_slash_invalid_month() {
+        // Month=0 is out of range → unchanged
+        assert_eq!(normalize_date("0/2020"), "0/2020");
+    }
+
+    #[test]
+    fn test_normalize_date_slash_three_parts_unchanged() {
+        // Three-part slash is not handled → unchanged
+        assert_eq!(normalize_date("3/15/2020"), "3/15/2020");
+    }
+
+    // ── try_parse_month_year zero-year guard ──────────────────────────────────
+
+    #[test]
+    fn test_normalize_date_zero_year_unchanged() {
+        // year=0 fails the y>0 guard → unchanged
+        assert_eq!(normalize_date("March 0"), "March 0");
+    }
+
+    #[test]
+    fn test_normalize_date_invalid_day_unchanged() {
+        // day=0 fails the d>=1 guard → unchanged
+        assert_eq!(normalize_date("March 0 2020"), "March 0 2020");
+    }
+
+    #[test]
+    fn test_normalize_date_four_token_unchanged() {
+        // Four tokens don't match 2 or 3 → unchanged
+        assert_eq!(normalize_date("March 15 2020 extra"), "March 15 2020 extra");
+    }
+
+    // ── escape_underscores multiple ───────────────────────────────────────────
+
+    #[test]
+    fn test_escape_underscores_multiple() {
+        assert_eq!(escape_underscores("a_b_c"), "a\\_b\\_c");
+    }
+
+    #[test]
+    fn test_escape_underscores_leading() {
+        assert_eq!(escape_underscores("_foo"), "\\_foo");
+    }
+
+    // ── escape_ampersands multiple ────────────────────────────────────────────
+
+    #[test]
+    fn test_escape_ampersands_multiple() {
+        assert_eq!(escape_ampersands("a & b & c"), "a \\& b \\& c");
+    }
+
+    // ── latex_cleanup both together ───────────────────────────────────────────
+
+    #[test]
+    fn test_latex_cleanup_combined() {
+        assert_eq!(latex_cleanup("a  b  50% and \\% done"), "a b 50\\% and \\% done");
+    }
+
+    // ── ordinals uppercase suffix ─────────────────────────────────────────────
+
+    #[test]
+    fn test_ordinals_uppercase_suffix() {
+        assert_eq!(
+            ordinals_to_superscript("1ST Conference"),
+            "1\\textsuperscript{st} Conference"
+        );
+    }
+
+    #[test]
+    fn test_ordinals_at_end_of_string() {
+        assert_eq!(
+            ordinals_to_superscript("the 3rd"),
+            "the 3\\textsuperscript{rd}"
+        );
+    }
+
+    #[test]
+    fn test_ordinals_multiple_in_string() {
+        let result = ordinals_to_superscript("1st and 2nd");
+        assert!(result.contains("1\\textsuperscript{st}"));
+        assert!(result.contains("2\\textsuperscript{nd}"));
+    }
+
+    // ── unicode_to_latex remaining accents ────────────────────────────────────
+
+    #[test]
+    fn test_unicode_to_latex_grave() {
+        assert_eq!(unicode_to_latex("à"), "{\\`a}");
+    }
+
+    #[test]
+    fn test_unicode_to_latex_circumflex() {
+        assert_eq!(unicode_to_latex("ê"), "{\\^e}");
+    }
+
+    #[test]
+    fn test_unicode_to_latex_tilde() {
+        assert_eq!(unicode_to_latex("ã"), "{\\~a}");
+    }
+
+    #[test]
+    fn test_unicode_to_latex_cedilla() {
+        assert_eq!(unicode_to_latex("ç"), "{\\c{c}}");
+    }
+
+    #[test]
+    fn test_unicode_to_latex_symbols() {
+        assert_eq!(unicode_to_latex("©"), "\\textcopyright{}");
+        assert_eq!(unicode_to_latex("®"), "\\textregistered{}");
+        assert_eq!(unicode_to_latex("™"), "\\texttrademark{}");
+    }
+
+    #[test]
+    fn test_unicode_to_latex_nonbreaking_space() {
+        assert_eq!(unicode_to_latex("\u{00A0}"), "~");
+    }
+
+    #[test]
+    fn test_unicode_to_latex_unmapped_char_passthrough() {
+        // A character not in the table is passed through as-is.
+        // ☺ (U+263A) has no LaTeX mapping.
+        assert_eq!(unicode_to_latex("☺"), "☺");
+    }
 }

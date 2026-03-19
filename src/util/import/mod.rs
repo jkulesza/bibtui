@@ -156,4 +156,53 @@ mod tests {
         let e = ImportError::NoMatch("https://example.com".to_string());
         assert_eq!(e.to_string(), "No fetcher matched: https://example.com");
     }
+
+    #[test]
+    fn test_fetch_no_match_returns_no_match_error() {
+        // A string that no fetcher handles should give NoMatch.
+        let result = fetch("not-a-doi-or-url-or-file.bib");
+        assert!(matches!(result, Err(ImportError::NoMatch(_))));
+    }
+
+    #[test]
+    fn test_fetch_bare_doi_routes_to_crossref_not_no_match() {
+        // CrossrefFetcher handles bare DOIs; even if the network call fails it
+        // should NOT return NoMatch (it would return Network or Parse).
+        let result = fetch("10.9999/test.2099.9999999");
+        assert!(!matches!(result, Err(ImportError::NoMatch(_))));
+    }
+
+    #[test]
+    fn test_imported_entry_fields_accessible() {
+        let mut fields = IndexMap::new();
+        fields.insert("doi".to_string(), "10.1234/x".to_string());
+        fields.insert("author".to_string(), "Smith, John".to_string());
+        let entry = ImportedEntry::new("article", fields);
+        assert_eq!(entry.fields.get("doi"), Some(&"10.1234/x".to_string()));
+        assert_eq!(entry.fields.get("author"), Some(&"Smith, John".to_string()));
+        assert!(entry.pdf_urls.is_empty());
+        assert!(entry.pdf_path.is_none());
+        assert!(entry.pdf_error.is_none());
+    }
+
+    #[test]
+    fn test_imported_entry_clone() {
+        let mut fields = IndexMap::new();
+        fields.insert("title".to_string(), "My Paper".to_string());
+        let entry = ImportedEntry::new("book", fields);
+        let cloned = entry.clone();
+        assert_eq!(cloned.entry_type, "book");
+        assert_eq!(cloned.fields["title"], "My Paper");
+    }
+
+    #[test]
+    fn test_import_error_variants_are_debug() {
+        let e1 = ImportError::Network("net error".to_string());
+        let e2 = ImportError::Parse("parse error".to_string());
+        let e3 = ImportError::NoMatch("no match".to_string());
+        // Debug formatting must not panic.
+        let _ = format!("{:?}", e1);
+        let _ = format!("{:?}", e2);
+        let _ = format!("{:?}", e3);
+    }
 }

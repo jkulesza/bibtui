@@ -143,4 +143,64 @@ mod tests {
         });
         assert_eq!(filter_by_group(&entries, &node), Vec::<usize>::new());
     }
+
+    #[test]
+    fn test_keyword_group_case_sensitive_match() {
+        let e1 = make_entry("A", &[], &[("keywords", "Reactor Physics")]);
+        let entries = vec![&e1];
+        let node = make_node("Reactor", GroupType::Keyword {
+            field: "keywords".to_string(),
+            search_term: "Reactor".to_string(),
+            case_sensitive: true,
+            regex: false,
+        });
+        assert_eq!(filter_by_group(&entries, &node), vec![0]);
+    }
+
+    /// The author field is checked when the group field is "author" but the
+    /// primary lookup in `e.fields.get("author")` might follow a different
+    /// branch.  Verify that entries whose author contains the search term match.
+    #[test]
+    fn test_keyword_group_author_field_match() {
+        let e1 = make_entry("A", &[], &[("author", "Smith, John and Doe, Jane")]);
+        let e2 = make_entry("B", &[], &[("author", "Brown, Robert")]);
+        let entries = vec![&e1, &e2];
+        let node = make_node("smith", GroupType::Keyword {
+            field: "author".to_string(),
+            search_term: "smith".to_string(),
+            case_sensitive: false,
+            regex: false,
+        });
+        assert_eq!(filter_by_group(&entries, &node), vec![0]);
+    }
+
+    #[test]
+    fn test_keyword_group_author_field_no_author() {
+        // Entry has no author field; group field is "author" → no match.
+        let e1 = make_entry("A", &[], &[("title", "Some Paper")]);
+        let entries = vec![&e1];
+        let node = make_node("smith", GroupType::Keyword {
+            field: "author".to_string(),
+            search_term: "smith".to_string(),
+            case_sensitive: false,
+            regex: false,
+        });
+        assert_eq!(filter_by_group(&entries, &node), Vec::<usize>::new());
+    }
+
+    #[test]
+    fn test_static_group_multiple_memberships() {
+        let e1 = make_entry("A", &["Physics", "Nuclear"], &[]);
+        let e2 = make_entry("B", &["Nuclear"], &[]);
+        let entries = vec![&e1, &e2];
+        let node = make_node("Nuclear", GroupType::Static);
+        assert_eq!(filter_by_group(&entries, &node), vec![0, 1]);
+    }
+
+    #[test]
+    fn test_all_entries_empty_input() {
+        let node = make_node("All Entries", GroupType::AllEntries);
+        let result = filter_by_group(&[], &node);
+        assert!(result.is_empty());
+    }
 }

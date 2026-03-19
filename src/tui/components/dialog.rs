@@ -1,6 +1,6 @@
 use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap};
 use ratatui::Frame;
 
 use crate::tui::theme::Theme;
@@ -28,6 +28,11 @@ pub enum DialogKind {
     FileDeleteSelect {
         title: String,
         files: Vec<(String, bool)>,
+    },
+    /// Non-interactive message popup — shows text and dismisses on Enter/Esc.
+    Message {
+        title: String,
+        message: String,
     },
 }
 
@@ -87,6 +92,17 @@ impl DialogState {
         }
     }
 
+    /// Create a non-interactive message popup (Enter or Esc to dismiss).
+    pub fn message(title: &str, message: &str) -> Self {
+        DialogState {
+            kind: DialogKind::Message {
+                title: title.to_string(),
+                message: message.to_string(),
+            },
+            list_state: ListState::default(),
+        }
+    }
+
     pub fn file_delete_select(title: &str, files: Vec<(String, bool)>) -> Self {
         let mut state = ListState::default();
         if !files.is_empty() {
@@ -113,6 +129,7 @@ impl DialogState {
             DialogKind::GroupAssign { groups } => groups.len(),
             DialogKind::FileSyncPreview { renames } => renames.len(),
             DialogKind::FileDeleteSelect { files, .. } => files.len(),
+            DialogKind::Message { .. } => 1,
         }
     }
 
@@ -129,7 +146,10 @@ impl DialogState {
                     *checked = !*checked;
                 }
             }
-            _ => {}
+            DialogKind::Confirm { .. }
+            | DialogKind::TypePicker { .. }
+            | DialogKind::FileSyncPreview { .. }
+            | DialogKind::Message { .. } => {}
         }
     }
 }
@@ -297,6 +317,88 @@ mod tests {
         d.toggle_selected(); // should not panic
     }
 
+    // ── DialogKind::Message ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_message_option_count() {
+        let d = DialogState::message("Info", "Something happened.");
+        assert_eq!(d.option_count(), 1);
+    }
+
+    #[test]
+    fn test_message_kind() {
+        let d = DialogState::message("My Title", "My message text.");
+        if let DialogKind::Message { title, message } = &d.kind {
+            assert_eq!(title, "My Title");
+            assert_eq!(message, "My message text.");
+        } else {
+            panic!("expected Message kind");
+        }
+    }
+
+    #[test]
+    fn test_message_selected_is_zero() {
+        let d = DialogState::message("T", "M");
+        assert_eq!(d.selected(), 0);
+    }
+
+    #[test]
+    fn test_message_toggle_is_noop() {
+        let mut d = DialogState::message("T", "M");
+        d.toggle_selected(); // must not panic
+    }
+
+    // ── word_wrap_line_count ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_word_wrap_empty_text() {
+        // empty text always returns 1
+        assert_eq!(word_wrap_line_count("", 80), 1);
+    }
+
+    #[test]
+    fn test_word_wrap_zero_width() {
+        // zero width always returns 1 (guard branch)
+        assert_eq!(word_wrap_line_count("hello world", 0), 1);
+    }
+
+    #[test]
+    fn test_word_wrap_single_word_fits() {
+        assert_eq!(word_wrap_line_count("hello", 80), 1);
+    }
+
+    #[test]
+    fn test_word_wrap_exactly_fills_width() {
+        // "abc de" = 6 chars; width = 6 → fits in one line
+        assert_eq!(word_wrap_line_count("abc de", 6), 1);
+    }
+
+    #[test]
+    fn test_word_wrap_long_text_wraps() {
+        // width=5: "hello" fits (col=5), "world" does not (5+1+5>5) → 2 lines
+        assert_eq!(word_wrap_line_count("hello world", 5), 2);
+    }
+
+    #[test]
+    fn test_word_wrap_multiple_lines() {
+        // width=3: "aaa"(3), "bb"(2+1>3 →wrap), "c"(1 fits) → 3 lines
+        assert_eq!(word_wrap_line_count("aaa bb c", 3), 3);
+    }
+
+    #[test]
+    fn test_word_wrap_very_narrow() {
+        // width=1: every word longer than 1 starts on its own line
+        // "a b c" → each word fits at col=1, but space+word overflows
+        // "a": col=1; " b": 1+1+1=3>1 → new line, col=1; " c": same → new line
+        assert_eq!(word_wrap_line_count("a b c", 1), 3);
+    }
+
+    #[test]
+    fn test_word_wrap_single_long_word() {
+        // A single word longer than width still counts as 1 line
+        assert_eq!(word_wrap_line_count("superlongword", 5), 1);
+    }
+
     // ── toggle_selected on GroupAssign cycling ──
 
     #[test]
@@ -406,6 +508,27 @@ mod tests {
     }
 }
 
+/// Estimate the number of lines a text will occupy when word-wrapped to `width` columns.
+fn word_wrap_line_count(text: &str, width: usize) -> usize {
+    if width == 0 || text.is_empty() {
+        return 1;
+    }
+    let mut lines = 1usize;
+    let mut col = 0usize;
+    for word in text.split_whitespace() {
+        let wlen = word.chars().count();
+        if col == 0 {
+            col = wlen;
+        } else if col + 1 + wlen > width {
+            lines += 1;
+            col = wlen;
+        } else {
+            col += 1 + wlen;
+        }
+    }
+    lines
+}
+
 /// Truncate a string to at most `max` display columns, appending `…` when cut.
 fn truncate_to(s: &str, max: usize) -> String {
     if s.chars().count() <= max {
@@ -454,6 +577,7 @@ pub fn render_dialog(f: &mut Frame, area: Rect, state: &mut DialogState, theme: 
             let widest = files.iter().map(|(n, _)| n.chars().count()).max().unwrap_or(0);
             ((widest + 10) as u16).max(44).min(area.width.saturating_sub(4))
         }
+        DialogKind::Message { .. } => 70u16.min(area.width.saturating_sub(4)),
         _ => 40u16.min(area.width.saturating_sub(4)),
     };
     let dialog_height = match &state.kind {
@@ -469,6 +593,13 @@ pub fn render_dialog(f: &mut Frame, area: Rect, state: &mut DialogState, theme: 
         }
         DialogKind::FileDeleteSelect { files, .. } => {
             (files.len() as u16 + 5).min(area.height.saturating_sub(4))
+        }
+        DialogKind::Message { message, .. } => {
+            // inner width = dialog_width minus 2 border columns
+            let inner_w = (dialog_width as usize).saturating_sub(2).max(1);
+            let content_lines = word_wrap_line_count(message, inner_w) as u16;
+            // 2 borders + content + 1 blank separator + 1 hint line
+            (content_lines + 4).max(5).min(area.height.saturating_sub(4))
         }
     };
 
@@ -596,6 +727,22 @@ pub fn render_dialog(f: &mut Frame, area: Rect, state: &mut DialogState, theme: 
                 .highlight_style(theme.selected);
 
             f.render_stateful_widget(list, dialog_area, &mut state.list_state);
+        }
+        DialogKind::Message { title, message } => {
+            let block = Block::default()
+                .borders(Borders::ALL)
+                .border_style(theme.border)
+                .title(format!(" {} ", title))
+                .title_bottom(Line::from(Span::styled(
+                    " Enter/Esc — OK  yy — copy ",
+                    theme.label,
+                )));
+
+            let inner = block.inner(dialog_area);
+            f.render_widget(block, dialog_area);
+
+            let para = Paragraph::new(message.as_str()).wrap(Wrap { trim: true });
+            f.render_widget(para, inner);
         }
     }
 }

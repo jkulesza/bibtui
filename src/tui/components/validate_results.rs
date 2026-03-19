@@ -251,4 +251,60 @@ mod tests {
     fn test_truncate_zero_max_returns_empty() {
         assert_eq!(truncate("hello", 0), "");
     }
+
+    #[test]
+    fn test_truncate_one_char_long_string() {
+        // max=1 but string is longer: saturating_sub(1) = 0, so result is "…"
+        let result = truncate("hello", 1);
+        assert_eq!(result, "…");
+    }
+
+    #[test]
+    fn test_truncate_unicode_counts_chars() {
+        // "élan" = 4 unicode chars; max=3 → truncated
+        let result = truncate("élan", 3);
+        assert!(result.ends_with('…'), "result: {}", result);
+    }
+
+    // ── unique_entry_count with single entry ──────────────────────────────────
+
+    #[test]
+    fn test_unique_entry_count_single() {
+        let v = vec![make_violation("k1", "title")];
+        assert_eq!(unique_entry_count(&v), 1);
+    }
+
+    #[test]
+    fn test_unique_entry_count_all_same_key() {
+        let v = vec![
+            make_violation("k1", "title"),
+            make_violation("k1", "author"),
+            make_violation("k1", "year"),
+        ];
+        assert_eq!(unique_entry_count(&v), 1);
+    }
+
+    // ── scroll clamping ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_scroll_down_clamped_at_max() {
+        let mut s = ValidateResultsState::new(vec![make_violation("k", "f")]);
+        // total_lines=5, inner_height=3 → max_scroll=2
+        s.scroll_down(3, 5);
+        assert_eq!(s.scroll, 1);
+        s.scroll_down(3, 5);
+        assert_eq!(s.scroll, 2);
+        s.scroll_down(3, 5); // should clamp at 2
+        assert_eq!(s.scroll, 2);
+    }
+
+    #[test]
+    fn test_scroll_up_clamped_at_zero() {
+        let mut s = ValidateResultsState::new(vec![make_violation("k", "f")]);
+        s.scroll_down(3, 5);
+        s.scroll_up();
+        assert_eq!(s.scroll, 0);
+        s.scroll_up(); // already 0, should stay 0
+        assert_eq!(s.scroll, 0);
+    }
 }

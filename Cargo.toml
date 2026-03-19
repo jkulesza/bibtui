@@ -1,6 +1,6 @@
 [package]
 name = "bibtui"
-version = "0.26.0"
+version = "0.26.1"
 edition = "2021"
 description = "A terminal UI BibTeX manager"
 license = "BSD-3-Clause"
@@ -22,10 +22,11 @@ regex = "1"
 dirs = "6"
 serde_json = "1"
 
-# Use native-tls (OS cert store) on all platforms except musl, where OpenSSL is
-# unavailable during cross-compilation; musl builds fall back to built-in rustls.
+# Use rustls (default) + native-tls (OS cert store) on non-musl platforms.
+# native-tls alone with default-features=false fails at runtime ("no TLS backend configured").
+# musl builds use rustls only (native-tls requires OpenSSL unavailable in musl cross-compilation).
 [target.'cfg(not(target_env = "musl"))'.dependencies]
-ureq = { version = "2", features = ["json", "native-tls"], default-features = false }
+ureq = { version = "2", features = ["json", "native-tls"] }
 
 [target.'cfg(target_env = "musl")'.dependencies]
 ureq = { version = "2", features = ["json"] }
