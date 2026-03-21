@@ -10,8 +10,8 @@ pub fn fields_for_type(entry_type: &EntryType) -> (Vec<&'static str>, Vec<&'stat
         EntryType::Book => (
             vec!["author", "publisher", "title", "year"],
             vec![
-                "address", "doi", "edition", "isbn", "keywords", "month", "note", "series", "url",
-                "volume",
+                "address", "doi", "edition", "isbn", "keywords", "month", "note", "number",
+                "series", "url", "volume",
             ],
         ),
         EntryType::Booklet => (
