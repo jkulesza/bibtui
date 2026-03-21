@@ -893,7 +893,7 @@ pub fn render_entry_detail(
                     theme.value
                 };
                 let display_value: String = if value.is_empty() {
-                    "·".to_string()
+                    String::new()
                 } else {
                     apply_display_pipeline(value, show_braces, render_latex_enabled)
                 };
