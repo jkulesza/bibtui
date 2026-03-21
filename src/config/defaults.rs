@@ -69,8 +69,8 @@ pub fn default_columns() -> Vec<ColumnConfig> {
         ColumnConfig {
             field: "author".to_string(),
             header: "Author".to_string(),
-            width: ColumnWidth::Percent(25),
-            max_width: Some(40),
+            width: ColumnWidth::Percent(20),
+            max_width: Some(20),
         },
         ColumnConfig {
             field: "title".to_string(),
