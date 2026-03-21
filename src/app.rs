@@ -184,6 +184,7 @@ pub struct App {
     pub command_palette_state: CommandPaletteState,
     pub citation_preview_state: Option<CitationPreviewState>,
     pub settings_state: Option<SettingsState>,
+    pub last_settings_cursor: usize,
     pub validate_results_state: Option<ValidateResultsState>,
     pub help_state: Option<HelpState>,
 
@@ -293,6 +294,7 @@ impl App {
             command_palette_state: CommandPaletteState::new(),
             citation_preview_state: None,
             settings_state: None,
+            last_settings_cursor: 0,
             validate_results_state: None,
             help_state: None,
             search_engine: SearchEngine::new(),
@@ -349,6 +351,7 @@ impl App {
             command_palette_state: CommandPaletteState::new(),
             citation_preview_state: None,
             settings_state: None,
+            last_settings_cursor: 0,
             validate_results_state: None,
             help_state: None,
             search_engine: SearchEngine::new(),
@@ -757,10 +760,18 @@ impl App {
 
             // ── Settings ──
             Action::EnterSettings => {
-                self.settings_state = Some(SettingsState::new(&self.config));
+                let mut s = SettingsState::new(&self.config);
+                let row_count = s.rows.len();
+                if self.last_settings_cursor < row_count {
+                    s.cursor = self.last_settings_cursor;
+                }
+                self.settings_state = Some(s);
                 self.mode = InputMode::Settings;
             }
             Action::ExitSettings => {
+                if let Some(ref s) = self.settings_state {
+                    self.last_settings_cursor = s.cursor;
+                }
                 self.settings_state = None;
                 self.mode = InputMode::Normal;
             }
@@ -4915,6 +4926,20 @@ mod tests {
         let top = app.settings_state.as_ref().unwrap().cursor;
         app.handle_action(Action::SettingsPageUp);
         assert_eq!(app.settings_state.as_ref().unwrap().cursor, top);
+    }
+
+    #[test]
+    fn test_settings_cursor_restored_on_reopen() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::EnterSettings);
+        app.handle_action(Action::SettingsMoveDown);
+        app.handle_action(Action::SettingsMoveDown);
+        let cursor_before = app.settings_state.as_ref().unwrap().cursor;
+        app.handle_action(Action::ExitSettings);
+        assert!(app.settings_state.is_none());
+        app.handle_action(Action::EnterSettings);
+        let cursor_after = app.settings_state.as_ref().unwrap().cursor;
+        assert_eq!(cursor_after, cursor_before, "cursor should be restored on reopen");
     }
 
     // ── Close citation preview ────────────────────────────────────────────────
