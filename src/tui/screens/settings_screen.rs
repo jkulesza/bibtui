@@ -129,16 +129,16 @@ fn render_citekey_help(f: &mut Frame, area: Rect, app: &App) {
         (":abbr",           "first letter each word"),
         (":camel",          "capitalise each word"),
         (":(n)",            "truncate to n chars"),
-        (":regex(pat,repl)","regex find/replace"),
+        (":regex(\"p\",\"r\")", "regex find/replace"),
     ];
 
     let example_rows: &[(&str, &str)] = &[
-        ("[auth][year]",           "→ Smith2020"),
-        ("[auth:upper][year]",     "→ SMITH2020"),
-        ("[journal:abbr]",         "→ NSE"),
-        ("[auth3][year]",          "→ SmithJonesWilliams2020"),
-        ("[title:lower:(8)]",      "→ toward_e"),
-        ("[auth][year:regex(^\\d\\d,,)]", "→ Smith24"),
+        ("[auth][year]",                    "→ Smith2020"),
+        ("[auth:upper][year]",              "→ SMITH2020"),
+        ("[journal:abbr]",                  "→ NSE"),
+        ("[auth3][year]",                   "→ SmithJonesWilliams2020"),
+        ("[title:lower:(8)]",               "→ toward_e"),
+        ("[auth][year:regex(\"^..\",...)]", "→ Smith24"),
     ];
 
     let col2_w = (cols[1].width as usize).saturating_sub(1);

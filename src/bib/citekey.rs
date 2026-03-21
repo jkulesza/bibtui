@@ -7,12 +7,12 @@ use regex::Regex;
 ///
 /// **New `[token]` / `[token:mod1:mod2]` syntax** (JabRef-compatible):
 /// ```text
-/// [auth][year]                   → Smith2020
-/// [auth:upper][year]             → SMITH2020
-/// [journal:abbr]                 → NSE
-/// [title:lower:(20)][year]       → toward_efficient2020  (with regex mod)
-/// [auth3][year]                  → SmithJonesWilliams2020
-/// [auth][year:regex(\d\d$,)]     → strip last two digits of year
+/// [auth][year]                        → Smith2020
+/// [auth:upper][year]                  → SMITH2020
+/// [journal:abbr]                      → NSE
+/// [title:lower:(20)][year]            → toward_efficient2020  (with regex mod)
+/// [auth3][year]                       → SmithJonesWilliams2020
+/// [auth][year:regex("\d\d$", "")]    → strip last two digits of year
 /// ```
 ///
 /// **Legacy `{token}` syntax** (kept for backward compatibility):
@@ -250,12 +250,12 @@ fn resolve_token(name: &str, fields: &IndexMap<String, String>) -> String {
 ///
 /// | Modifier              | Effect                                       |
 /// |-----------------------|----------------------------------------------|
-/// | `upper`               | Convert to uppercase                         |
-/// | `lower`               | Convert to lowercase                         |
-/// | `abbr`                | First letter of each significant word        |
-/// | `camel`               | Capitalise first letter of each word         |
-/// | `(n)`                 | Truncate to first *n* characters             |
-/// | `regex(pattern,repl)` | Regex find-and-replace (repeatable)          |
+/// | `upper`                     | Convert to uppercase                  |
+/// | `lower`                     | Convert to lowercase                  |
+/// | `abbr`                      | First letter of each significant word |
+/// | `camel`                     | Capitalise first letter of each word  |
+/// | `(n)`                       | Truncate to first *n* characters      |
+/// | `regex("pattern","repl")`   | Regex find-and-replace (repeatable)   |
 fn apply_modifier(value: String, modifier: &str) -> String {
     match modifier {
         "upper" => return value.to_uppercase(),
@@ -272,13 +272,13 @@ fn apply_modifier(value: String, modifier: &str) -> String {
         }
     }
 
-    // Regex substitution: regex(pattern,replacement)
+    // Regex substitution: regex("pattern","replacement")
+    // Both arguments must be double-quoted strings.  Backslash-escaped quotes
+    // (e.g. `\"`) are supported within the quoted strings.
     if let Some(args) = modifier.strip_prefix("regex(").and_then(|s| s.strip_suffix(')')) {
-        if let Some(comma) = find_unescaped_comma(args) {
-            let pattern     = &args[..comma];
-            let replacement = &args[comma + 1..];
-            if let Ok(re) = Regex::new(pattern) {
-                return re.replace_all(&value, replacement).to_string();
+        if let Some((pattern, replacement)) = parse_regex_args(args) {
+            if let Ok(re) = Regex::new(&pattern) {
+                return re.replace_all(&value, replacement.as_str()).to_string();
             }
         }
     }
@@ -286,18 +286,47 @@ fn apply_modifier(value: String, modifier: &str) -> String {
     value
 }
 
-/// Index of the first comma in `s` that is not inside parentheses.
-fn find_unescaped_comma(s: &str) -> Option<usize> {
-    let mut depth = 0usize;
-    for (i, c) in s.char_indices() {
-        match c {
-            '(' => depth += 1,
-            ')' if depth > 0 => depth -= 1,
-            ',' if depth == 0 => return Some(i),
-            _ => {}
+/// Parse one double-quoted (or single-quoted) string from the start of `s`,
+/// honouring backslash-escaped quotes within the string.
+///
+/// Returns `(unescaped_content, remainder_after_closing_quote)` or `None` if
+/// `s` does not begin with a quote character.
+fn parse_quoted_arg(s: &str) -> Option<(String, &str)> {
+    let s = s.trim_start();
+    let mut chars = s.char_indices();
+    let (_, quote) = chars.next()?;
+    if quote != '"' && quote != '\'' {
+        return None;
+    }
+    let mut result = String::new();
+    while let Some((i, c)) = chars.next() {
+        if c == '\\' {
+            if let Some((_, next)) = chars.next() {
+                if next == quote {
+                    result.push(next);
+                } else {
+                    result.push('\\');
+                    result.push(next);
+                }
+            }
+        } else if c == quote {
+            return Some((result, &s[i + 1..]));
+        } else {
+            result.push(c);
         }
     }
     None
+}
+
+/// Parse the two quoted arguments inside `regex(...)`.
+///
+/// Expected form (after the outer `regex(` / `)` have been stripped):
+/// `"pattern", "replacement"` — whitespace around the comma is allowed.
+fn parse_regex_args(args: &str) -> Option<(String, String)> {
+    let (pattern, rest) = parse_quoted_arg(args)?;
+    let rest = rest.trim_start().strip_prefix(',')?.trim_start();
+    let (replacement, _) = parse_quoted_arg(rest)?;
+    Some((pattern, replacement))
 }
 
 // ── Legacy {token} resolution ─────────────────────────────────────────────────
@@ -647,7 +676,17 @@ mod tests {
     fn test_modifier_regex() {
         let f = fields(&[("year", "2023")]);
         // Strip last two digits of year
-        assert_eq!(generate_citekey("[year:regex(\\d\\d$,)]", &f), "20");
+        assert_eq!(generate_citekey(r#"[year:regex("\d\d$", "")]"#, &f), "20");
+    }
+
+    #[test]
+    fn test_modifier_regex_quoted_args() {
+        // Quoted args with leading space in pattern — as written in YAML templates
+        let f = fields(&[("loc_call_number", "QA76.9.U83R43 1994")]);
+        assert_eq!(
+            generate_citekey(r#"[loc_call_number:regex(" \d+$", "")]"#, &f),
+            "QA76.9.U83R43"
+        );
     }
 
     #[test]
@@ -767,8 +806,8 @@ mod tests {
     fn test_modifier_regex_with_colon_in_pattern() {
         // regex pattern containing colon inside parens — must not be split at that colon
         let f = fields(&[("year", "2020")]);
-        // regex(\d+,X) → replace digits with X
-        let result = generate_citekey("[year:regex(\\d+,X)]", &f);
+        // regex("\d+", "X") → replace digits with X
+        let result = generate_citekey(r#"[year:regex("\d+", "X")]"#, &f);
         assert_eq!(result, "X");
     }
 

@@ -403,7 +403,7 @@ impl SettingsState {
                     "Citation key template for @{} entries. \
                      Tokens: [auth], [year], [title], [journal:abbr], [authors], \
                      [firstpage], [number], [institution:abbr], [booktitle:abbr]. \
-                     Modifiers: :upper, :lower, :abbr, :camel, :(n), :regex(pat,repl).",
+                     Modifiers: :upper, :lower, :abbr, :camel, :(n), :regex(\"pat\",\"repl\").",
                     type_name
                 ),
                 value: SettingValue::Str(current),

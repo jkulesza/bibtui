@@ -43,7 +43,7 @@ citation:
 citekey:
   templates:
     article: Article_[year]_[journal_abbrev]_[authors]_[pages]
-    book: Book_[loc_call_number:regex(" \\d+$", "")]_[year]_[auth]_[shorttitle:camel]
+    book: Book_[loc_call_number:regex(" \d+$", "")]_[year]_[auth]_[shorttitle:camel]
     techreport: TechReport_[year]_[institution:abbr]_[number]_[authors]
     inproceedings: Proceedings_[year]_[booktitle:abbr]_[authors]_[pages]
     phdthesis: PhD-Thesis_[year]_[auth]
@@ -55,6 +55,7 @@ citekey:
     manual: ''
     proceedings: ''
     unpublished: ''
+entry_types: {}
 save:
   align_fields: true
   field_order: alphabetical

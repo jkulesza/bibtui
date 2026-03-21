@@ -196,7 +196,7 @@ fn test_modifier_chain() {
 #[test]
 fn test_modifier_regex_replace_spaces() {
     // Replace spaces in title with underscores
-    let template = "[auth][year]_[shorttitle:regex( ,_)]";
+    let template = r#"[auth][year]_[shorttitle:regex(" ", "_")]"#;
     let mut fields = IndexMap::new();
     fields.insert("author".to_string(), "Jane Smith".to_string());
     fields.insert("year".to_string(), "2020".to_string());
@@ -210,7 +210,7 @@ fn test_modifier_regex_replace_spaces() {
 #[test]
 fn test_modifier_regex_strip_dots() {
     // Strip dots from author name (e.g. initials)
-    let template = "[auth:regex(\\.,)][year]";
+    let template = r#"[auth:regex("\.", "")][year]"#;
     let mut fields = IndexMap::new();
     fields.insert("author".to_string(), "J. Smith".to_string());
     fields.insert("year".to_string(), "2020".to_string());
@@ -222,7 +222,7 @@ fn test_modifier_regex_strip_dots() {
 #[test]
 fn test_modifier_regex_year_short() {
     // Extract last two digits of year via regex
-    let template = "[auth][year:regex(^\\d\\d,,)]";
+    let template = r#"[auth][year:regex("^\d\d", "")]"#;
     let mut fields = IndexMap::new();
     fields.insert("author".to_string(), "Jane Smith".to_string());
     fields.insert("year".to_string(), "2024".to_string());
