@@ -334,7 +334,7 @@ PDF candidates are tried in order (Unpaywall OA → publisher PDF → ANS direct
 cargo test
 ```
 
-All 888 tests should pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, journal abbreviation, TUI component state machines, config loading, and import pipeline).
+All 905 tests should pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, journal abbreviation, TUI component state machines, config loading, and import pipeline).
 
 Coverage analysis runs automatically in CI via `cargo-llvm-cov`. To run locally:
 
@@ -343,6 +343,17 @@ cargo llvm-cov --workspace --summary-only
 ```
 
 ## Changelog
+
+### 0.28.0
+
+- **Auto-regenerate citation key on field edit**: editing any field in the detail view now immediately regenerates the citation key from the configured template — no need to press `c` manually
+- **Dirty-flag cleared on full revert**: if a field is edited and then restored to its original value, the entry is no longer marked as modified
+- **Citation key sanitization**: generated citation keys now contain only alphanumeric characters, hyphens, periods, and underscores — tildes, apostrophes, colons, and other problematic characters are removed
+- **Filename sanitization for sync-filenames**: when `save.sync_filenames` renames attached files to match the citation key, the filename passes through the same sanitizer so keys with special characters produce clean filenames
+- **Settings cursor restored on reopen**: the settings view (`S`) remembers the cursor row and restores it the next time the screen is opened
+- **Author column width reduced**: default author column is now 20% / max 20 characters (was 25% / 40)
+- **ISBN normalization**: the `normalize_isbn` save action now produces properly hyphenated output using registration-agency range data (e.g. `9780374528379` → `978-0-374-52837-9`); ISBNs with invalid checksums are returned unchanged
+- Expanded test coverage (905 tests)
 
 ### 0.27.0
 
