@@ -39,11 +39,7 @@ pub fn render_settings_screen(f: &mut Frame, app: &mut App) {
     if let Some(ref editor_state) = app.field_editor_state {
         // When editing a citekey template, show the token/modifier reference
         // panel below the field editor.
-        let editing_citekey = app
-            .settings_state
-            .as_ref()
-            .map(|s| s.selected_is_citekey_template())
-            .unwrap_or(false);
+        let editing_citekey = app.is_editing_citekey_template();
 
         if editing_citekey {
             let editor_w = (area.width.saturating_sub(4)).min(70);

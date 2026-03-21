@@ -671,12 +671,6 @@ impl SettingsState {
         self.selected_item().map(|i| i.id.as_str())
     }
 
-    /// True when the currently selected item is a citekey template.
-    pub fn selected_is_citekey_template(&self) -> bool {
-        self.selected_id()
-            .map(|id| id.starts_with("citekey.template."))
-            .unwrap_or(false)
-    }
 
     /// Current display string of the selected value (seed for the field editor).
     pub fn selected_value_str(&self) -> String {
@@ -1022,19 +1016,6 @@ mod tests {
         let cfg = default_config();
         let mut state = SettingsState::new(&cfg);
         assert!(!state.set_value("does.not.exist", SettingValue::Bool(true)));
-    }
-
-    #[test]
-    fn test_selected_is_citekey_template() {
-        let cfg = default_config();
-        let mut state = SettingsState::new(&cfg);
-        // Navigate to a citekey template row
-        while !state.selected_is_citekey_template() {
-            let before = state.cursor;
-            state.move_down();
-            if state.cursor == before { break; } // no more items
-        }
-        assert!(state.selected_is_citekey_template());
     }
 
     #[test]

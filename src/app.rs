@@ -984,6 +984,17 @@ impl App {
 
     // ── Visible entries ──
 
+    /// True only when the field editor is open *for* a citekey template item
+    /// (not for export/import path dialogs or other settings).
+    pub fn is_editing_citekey_template(&self) -> bool {
+        match &self.pending_action {
+            Some(PendingAction::EditSetting { setting_id }) => {
+                setting_id.starts_with("citekey.template.")
+            }
+            _ => false,
+        }
+    }
+
     #[allow(dead_code)]
     pub fn visible_entries(&self) -> Vec<&Entry> {
         if let Some(ref indices) = self.filtered_indices {
