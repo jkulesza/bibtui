@@ -89,11 +89,30 @@ pub fn download_pdf(pdf_url: &str, dest_dir: &Path, doi: &str) -> Result<PathBuf
 }
 
 fn doi_to_filename(doi: &str) -> String {
-    let slug: String = doi
-        .chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' { c } else { '_' })
-        .collect();
-    format!("{}.pdf", slug)
+    format!("{}.pdf", sanitize_filename_stem(doi))
+}
+
+/// Sanitize a string for use as a filesystem filename stem.
+///
+/// Replaces any character that is not alphanumeric, `-`, `.`, or `_` with `_`,
+/// then collapses consecutive underscores and strips leading/trailing ones.
+/// This removes tildes, apostrophes, slashes, spaces, and other characters
+/// that are problematic in filenames.
+pub fn sanitize_filename_stem(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut prev_underscore = false;
+    for c in s.chars() {
+        if c.is_alphanumeric() || c == '-' || c == '.' {
+            result.push(c);
+            prev_underscore = false;
+        } else {
+            if !prev_underscore {
+                result.push('_');
+            }
+            prev_underscore = true;
+        }
+    }
+    result.trim_matches('_').to_string()
 }
 
 #[cfg(test)]
@@ -102,25 +121,63 @@ mod tests {
 
     #[test]
     fn test_doi_to_filename_simple() {
-        assert_eq!(doi_to_filename("10.1234/foo"), "10_1234_foo.pdf");
+        assert_eq!(doi_to_filename("10.1234/foo"), "10.1234_foo.pdf");
     }
 
     #[test]
     fn test_doi_to_filename_slashes_become_underscores() {
         assert_eq!(
             doi_to_filename("10.1080/00295639.2025.2483123"),
-            "10_1080_00295639_2025_2483123.pdf"
+            "10.1080_00295639.2025.2483123.pdf"
         );
     }
 
     #[test]
     fn test_doi_to_filename_hyphens_preserved() {
-        assert_eq!(doi_to_filename("10.13182/NSE20-1234"), "10_13182_NSE20-1234.pdf");
+        assert_eq!(doi_to_filename("10.13182/NSE20-1234"), "10.13182_NSE20-1234.pdf");
     }
 
     #[test]
     fn test_doi_to_filename_special_chars_replaced() {
-        assert_eq!(doi_to_filename("10.1234/foo:bar(baz)"), "10_1234_foo_bar_baz_.pdf");
+        // Trailing special char is absorbed; no trailing underscore in output.
+        assert_eq!(doi_to_filename("10.1234/foo:bar(baz)"), "10.1234_foo_bar_baz.pdf");
+    }
+
+    // ── sanitize_filename_stem ────────────────────────────────────────────────
+
+    #[test]
+    fn test_sanitize_tilde_removed() {
+        assert_eq!(sanitize_filename_stem("O~Brien2020"), "O_Brien2020");
+    }
+
+    #[test]
+    fn test_sanitize_apostrophe_removed() {
+        assert_eq!(sanitize_filename_stem("O'Brien2020"), "O_Brien2020");
+    }
+
+    #[test]
+    fn test_sanitize_consecutive_special_collapsed() {
+        assert_eq!(sanitize_filename_stem("foo::bar"), "foo_bar");
+    }
+
+    #[test]
+    fn test_sanitize_leading_trailing_stripped() {
+        assert_eq!(sanitize_filename_stem("~foo~"), "foo");
+    }
+
+    #[test]
+    fn test_sanitize_hyphens_preserved() {
+        assert_eq!(sanitize_filename_stem("Smith-Jones2020"), "Smith-Jones2020");
+    }
+
+    #[test]
+    fn test_sanitize_alphanumeric_unchanged() {
+        assert_eq!(sanitize_filename_stem("Smith2020"), "Smith2020");
+    }
+
+    #[test]
+    fn test_sanitize_periods_preserved() {
+        assert_eq!(sanitize_filename_stem("10.1234_foo"), "10.1234_foo");
     }
 
     #[test]

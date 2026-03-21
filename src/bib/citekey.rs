@@ -24,9 +24,28 @@ use regex::Regex;
 /// (spaces, braces, quotes, commas, backslashes) are stripped.
 pub fn generate_citekey(template: &str, fields: &IndexMap<String, String>) -> String {
     let raw = parse_template(template, fields);
-    raw.chars()
-        .filter(|c| !matches!(*c, ' ' | '\t' | '\n' | '{' | '}' | '"' | ',' | '\\'))
-        .collect()
+    // Keep only characters that are safe in BibTeX keys and filesystems:
+    // alphanumeric, hyphens, and underscores. Everything else is dropped.
+    let filtered: String = raw
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_' || *c == '.')
+        .collect();
+    // Collapse consecutive underscores (produced when optional tokens are
+    // empty) and strip any leading/trailing underscores.
+    let mut result = String::with_capacity(filtered.len());
+    let mut prev_underscore = false;
+    for c in filtered.chars() {
+        if c == '_' {
+            if !prev_underscore {
+                result.push(c);
+            }
+            prev_underscore = true;
+        } else {
+            result.push(c);
+            prev_underscore = false;
+        }
+    }
+    result.trim_matches('_').to_string()
 }
 
 // ── Template parser ───────────────────────────────────────────────────────────
@@ -383,11 +402,16 @@ fn abbreviate(name: &str) -> String {
         .join("")
 }
 
-/// Capitalise the first letter of each whitespace-separated word.
+/// Capitalise the first letter of each word.
+///
+/// Words are delimited by any run of non-alphanumeric characters (spaces,
+/// hyphens, slashes, dots, …) so that e.g. "self-consistent field" →
+/// "SelfConsistentField".
 fn to_camel_case(s: &str) -> String {
     let clean = clean_braces(s);
     clean
-        .split_whitespace()
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
         .map(|w| {
             let mut chars = w.chars();
             match chars.next() {
@@ -746,6 +770,57 @@ mod tests {
         // regex(\d+,X) → replace digits with X
         let result = generate_citekey("[year:regex(\\d+,X)]", &f);
         assert_eq!(result, "X");
+    }
+
+    // ── camel case with punctuation ───────────────────────────────────────────
+
+    #[test]
+    fn test_camel_hyphenated_word() {
+        // journal:camel on a hyphenated value splits on the hyphen
+        let f = fields(&[("journal", "self-consistent methods")]);
+        assert_eq!(generate_citekey("[journal:camel]", &f), "SelfConsistentMethods");
+    }
+
+    #[test]
+    fn test_camel_slash_separated() {
+        let f = fields(&[("journal", "nuclear/reactor physics")]);
+        assert_eq!(generate_citekey("[journal:camel]", &f), "NuclearReactorPhysics");
+    }
+
+    // ── underscore collapsing for empty optional tokens ────────────────────────
+
+    #[test]
+    fn test_empty_optional_trailing_underscore_stripped() {
+        // When pages is absent, the trailing _ from the template is stripped.
+        let f = fields(&[("year", "2020"), ("author", "Smith, J"), ("journal", "Nuclear Science Engineering")]);
+        let result = generate_citekey("{year}_{journal_abbrev}_{author_last}_{pages}", &f);
+        assert!(!result.ends_with('_'), "trailing underscore should be stripped: {}", result);
+        assert_eq!(result, "2020_NSE_Smith");
+    }
+
+    #[test]
+    fn test_double_underscore_collapsed() {
+        // Two adjacent empty tokens produce __ which should collapse to _.
+        let f = fields(&[("year", "2020")]);
+        let result = generate_citekey("{year}__{pages}", &f);
+        assert_eq!(result, "2020");
+    }
+
+    // ── sanitization of special characters ───────────────────────────────────
+
+    #[test]
+    fn test_citekey_tilde_removed() {
+        // Tildes (e.g. from author names like "O~Brien") are dropped, not replaced.
+        let f = fields(&[("author", "O~Brien, Patrick")]);
+        let result = generate_citekey("[auth]", &f);
+        assert_eq!(result, "OBrien");
+    }
+
+    #[test]
+    fn test_citekey_apostrophe_removed() {
+        let f = fields(&[("author", "O'Brien, Patrick")]);
+        let result = generate_citekey("[auth]", &f);
+        assert_eq!(result, "OBrien");
     }
 
     // ── parse_authors edge cases ──────────────────────────────────────────────
