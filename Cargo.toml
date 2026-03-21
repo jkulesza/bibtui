@@ -21,6 +21,7 @@ unicode-width = "0.2"
 regex = "1"
 dirs = "6"
 serde_json = "1"
+isbn2 = "0.4.0"
 
 # Use rustls (default) + native-tls (OS cert store) on non-musl platforms.
 # native-tls alone with default-features=false fails at runtime ("no TLS backend configured").
