@@ -16,19 +16,19 @@ pub fn fields_for_type(entry_type: &EntryType) -> (Vec<&'static str>, Vec<&'stat
         ),
         EntryType::Booklet => (
             vec!["title"],
-            vec!["author", "address", "howpublished", "month", "note", "year"],
+            vec!["address", "author", "doi", "howpublished", "month", "note", "year"],
         ),
         EntryType::InBook => (
             vec!["author", "chapter", "pages", "publisher", "title", "year"],
             vec![
-                "address", "edition", "editor", "month", "note", "series", "volume",
+                "address", "doi", "edition", "editor", "month", "note", "series", "volume",
             ],
         ),
         EntryType::InCollection => (
             vec!["author", "booktitle", "publisher", "title", "year"],
             vec![
-                "address", "chapter", "edition", "editor", "month", "note", "pages", "series",
-                "volume",
+                "address", "chapter", "doi", "edition", "editor", "month", "note", "pages",
+                "series", "volume",
             ],
         ),
         EntryType::InProceedings => (
@@ -43,6 +43,7 @@ pub fn fields_for_type(entry_type: &EntryType) -> (Vec<&'static str>, Vec<&'stat
             vec![
                 "address",
                 "author",
+                "doi",
                 "edition",
                 "month",
                 "note",
@@ -52,30 +53,30 @@ pub fn fields_for_type(entry_type: &EntryType) -> (Vec<&'static str>, Vec<&'stat
         ),
         EntryType::MastersThesis => (
             vec!["author", "school", "title", "year"],
-            vec!["address", "month", "note"],
+            vec!["address", "doi", "month", "note"],
         ),
         EntryType::Misc => (
             vec![],
-            vec!["author", "howpublished", "month", "note", "title", "year"],
+            vec!["author", "doi", "howpublished", "month", "note", "title", "year"],
         ),
         EntryType::PhdThesis => (
             vec!["author", "school", "title", "year"],
-            vec!["address", "month", "note"],
+            vec!["address", "doi", "month", "note"],
         ),
         EntryType::Proceedings => (
             vec!["title", "year"],
             vec![
-                "address", "editor", "month", "note", "number", "organization", "publisher",
-                "series", "volume",
+                "address", "doi", "editor", "month", "note", "number", "organization",
+                "publisher", "series", "volume",
             ],
         ),
         EntryType::TechReport => (
             vec!["author", "institution", "title", "year"],
-            vec!["address", "month", "note", "number", "url"],
+            vec!["address", "doi", "month", "note", "number", "type", "url"],
         ),
         EntryType::Unpublished => (
             vec!["author", "note", "title"],
-            vec!["month", "year"],
+            vec!["doi", "month", "year"],
         ),
         EntryType::Other(_) => (vec![], vec![]),
     }

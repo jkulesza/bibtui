@@ -198,12 +198,15 @@ fn build_display_items(entry: &Entry, field_groups: &[CustomFieldGroup]) -> Vec<
         })
         .collect();
 
-    // Optional fields — shown only when present in the entry AND not claimed
-    // by a custom field group (custom groups take priority).
+    // Optional fields — always shown (empty string if absent), but not when
+    // claimed by a custom field group (custom groups take priority).
     let optional_fields: Vec<(String, String)> = optional
         .iter()
         .filter(|f| !custom_group_fields.contains(&f.to_lowercase()))
-        .filter_map(|f| entry.fields.get(*f).map(|v| (f.to_string(), v.clone())))
+        .map(|f| {
+            let value = entry.fields.get(*f).cloned().unwrap_or_default();
+            (f.to_string(), value)
+        })
         .collect();
 
     // "groups" is displayed in the header, not as a field row.
@@ -648,8 +651,9 @@ mod tests {
     }
 
     #[test]
-    fn test_optional_header_only_when_optional_fields_present() {
-        // Article with no optional fields in the entry should not show Optional: header.
+    fn test_optional_header_always_shown_for_types_with_optional_fields() {
+        // Article has optional fields defined; Optional: header should always appear
+        // even when none of them are populated in the entry.
         let e = make_entry(EntryType::Article, &[
             ("author", "S"), ("title", "T"), ("year", "2020"), ("journal", "J"),
         ]);
@@ -657,7 +661,7 @@ mod tests {
         let has_optional = state.display_fields.iter().any(|item| {
             matches!(item, DisplayItem::Header(h) if h == "Optional:")
         });
-        assert!(!has_optional, "no optional fields present → no Optional: header");
+        assert!(has_optional, "Optional: header should appear for Article even with no optional fields filled");
     }
 
     #[test]
@@ -719,6 +723,98 @@ mod tests {
         state.move_selection(100);
         state.move_selection(i32::MIN / 2);
         assert!(matches!(state.display_fields[state.selected()], DisplayItem::Field { .. }));
+    }
+
+    #[test]
+    fn test_move_selection_empty_list_is_noop() {
+        // Other("Custom") with no fields produces an empty display_fields list.
+        let e = make_entry(EntryType::Other("Custom".to_string()), &[]);
+        let mut state = EntryDetailState::new(&e, vec![]);
+        assert!(state.display_fields.is_empty());
+        // move_selection must not panic on an empty list.
+        state.move_selection(1);
+        state.move_selection(-1);
+    }
+
+    #[test]
+    fn test_file_field_produces_file_entries() {
+        // A `file` field with a valid JabRef path should produce FileEntry rows,
+        // not a plain Field row.
+        let e = make_entry(EntryType::Article, &[
+            ("author", "Smith"), ("title", "T"), ("year", "2020"), ("journal", "N"),
+            ("file", ":paper.pdf:PDF"),
+        ]);
+        let state = EntryDetailState::new(&e, vec![]);
+        let has_file_entry = state.display_fields.iter().any(|i| {
+            matches!(i, DisplayItem::FileEntry { .. })
+        });
+        assert!(has_file_entry, "file field with valid path should produce FileEntry rows");
+        // No plain Field named "file" should exist when FileEntry rows are emitted.
+        let has_plain_file_field = state.display_fields.iter().any(|i| {
+            matches!(i, DisplayItem::Field { name, .. } if name == "file")
+        });
+        assert!(!has_plain_file_field, "file field should not also appear as a plain Field");
+    }
+
+    #[test]
+    fn test_selected_field_on_file_entry_returns_file_key() {
+        // When the selected row is a FileEntry, selected_field() should return ("file", …).
+        let e = make_entry(EntryType::Article, &[
+            ("author", "Smith"), ("title", "T"), ("year", "2020"), ("journal", "N"),
+            ("file", ":paper.pdf:PDF"),
+        ]);
+        let mut state = EntryDetailState::new(&e, vec![]);
+        // Navigate to the FileEntry row.
+        let file_idx = state.display_fields.iter().position(|i| {
+            matches!(i, DisplayItem::FileEntry { .. })
+        }).expect("should have a FileEntry");
+        state.select(file_idx);
+        let (key, _) = state.selected_field().expect("selected_field should be Some on FileEntry");
+        assert_eq!(key, "file");
+    }
+
+    #[test]
+    fn test_selected_file_index_on_file_entry() {
+        let e = make_entry(EntryType::Article, &[
+            ("author", "Smith"), ("title", "T"), ("year", "2020"), ("journal", "N"),
+            ("file", ":paper.pdf:PDF"),
+        ]);
+        let mut state = EntryDetailState::new(&e, vec![]);
+        let file_idx = state.display_fields.iter().position(|i| {
+            matches!(i, DisplayItem::FileEntry { .. })
+        }).expect("should have a FileEntry");
+        state.select(file_idx);
+        assert_eq!(state.selected_file_index(), Some(0));
+    }
+
+    #[test]
+    fn test_selected_file_index_none_on_regular_field() {
+        let e = make_entry(EntryType::Article, &[
+            ("author", "Smith"), ("title", "T"), ("year", "2020"), ("journal", "N"),
+        ]);
+        let state = EntryDetailState::new(&e, vec![]);
+        // First selectable is a Field row, so selected_file_index should be None.
+        assert_eq!(state.selected_file_index(), None);
+    }
+
+    #[test]
+    fn test_custom_group_dedup_field_only_in_first_group() {
+        // A field claimed by the first group must not appear in a second group
+        // that also lists it (the `assigned.contains` dedup branch).
+        use crate::config::schema::CustomFieldGroup;
+        let e = make_entry(EntryType::Article, &[
+            ("author", "S"), ("title", "T"), ("year", "2020"), ("journal", "N"),
+            ("isbn", "123"),
+        ]);
+        let groups = vec![
+            CustomFieldGroup { name: "G1".to_string(), fields: vec!["isbn".to_string()] },
+            CustomFieldGroup { name: "G2".to_string(), fields: vec!["isbn".to_string()] },
+        ];
+        let state = EntryDetailState::new(&e, groups);
+        let isbn_count = state.display_fields.iter().filter(|i| {
+            matches!(i, DisplayItem::Field { name, .. } if name == "isbn")
+        }).count();
+        assert_eq!(isbn_count, 1, "isbn should appear exactly once even when listed in two groups");
     }
 }
 

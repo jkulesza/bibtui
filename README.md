@@ -334,10 +334,20 @@ PDF candidates are tried in order (Unpaywall OA → publisher PDF → ANS direct
 cargo test
 ```
 
-All 882 tests should pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, journal abbreviation, TUI component state machines, config loading, and import pipeline).
+All 888 tests should pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, journal abbreviation, TUI component state machines, config loading, and import pipeline).
 
 Coverage analysis runs automatically in CI via `cargo-llvm-cov`. To run locally:
 
 ```sh
 cargo llvm-cov --workspace --summary-only
 ```
+
+## Changelog
+
+### 0.27.0
+
+- **Optional fields always visible in detail view**: all optional fields for an entry type are now shown in the detail view even when not yet populated, making it easy to fill them in without using the add-field dialog
+- **New entry dialog shows optional fields**: creating a new entry now displays optional fields alongside required ones in the detail view immediately after creation
+- **`type` field added to TechReport**: `type` is now an optional field for TechReport entries (e.g. "Technical Report", "NISTIR")
+- **`doi` field added universally**: `doi` is now an optional field for all entry types that previously lacked it (Booklet, InBook, InCollection, Manual, MastersThesis, Misc, PhdThesis, Proceedings, TechReport, Unpublished)
+- Expanded test coverage for TUI detail-view component (FileEntry paths, custom group dedup, move-selection edge cases)
