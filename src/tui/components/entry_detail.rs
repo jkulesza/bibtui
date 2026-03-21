@@ -48,6 +48,10 @@ pub struct EntryDetailState {
     pub display_fields: Vec<DisplayItem>,
     /// Custom field groups from config — stored so refresh() can use them.
     field_groups: Vec<CustomFieldGroup>,
+    /// Current incremental search query (empty = no active search).
+    pub search_query: String,
+    /// Indices into `display_fields` that match the current search query.
+    pub match_indices: Vec<usize>,
 }
 
 impl EntryDetailState {
@@ -63,6 +67,8 @@ impl EntryDetailState {
             list_state: state,
             display_fields,
             field_groups,
+            search_query: String::new(),
+            match_indices: Vec::new(),
         }
     }
 
@@ -171,6 +177,84 @@ impl EntryDetailState {
     pub fn refresh_with_groups(&mut self, entry: &Entry, field_groups: Vec<CustomFieldGroup>) {
         self.field_groups = field_groups;
         self.refresh(entry);
+    }
+
+    // ── Incremental search ────────────────────────────────────────────────────
+
+    /// Append a character to the search query, rebuild matches, and jump to
+    /// the nearest match at or after the current selection.
+    pub fn push_search_char(&mut self, c: char) {
+        self.search_query.push(c);
+        self.rebuild_matches();
+        self.jump_to_nearest_match();
+    }
+
+    /// Remove the last character from the search query and update matches.
+    pub fn search_backspace(&mut self) {
+        self.search_query.pop();
+        self.rebuild_matches();
+        self.jump_to_nearest_match();
+    }
+
+    /// Clear the search query and match list.
+    pub fn clear_search(&mut self) {
+        self.search_query.clear();
+        self.match_indices.clear();
+    }
+
+    /// Jump to the next match after the current selection (wraps around).
+    pub fn next_match(&mut self) {
+        if self.match_indices.is_empty() {
+            return;
+        }
+        let current = self.selected();
+        let target = self.match_indices.iter().copied().find(|&i| i > current)
+            .unwrap_or(self.match_indices[0]);
+        self.select(target);
+    }
+
+    /// Jump to the previous match before the current selection (wraps around).
+    pub fn prev_match(&mut self) {
+        if self.match_indices.is_empty() {
+            return;
+        }
+        let current = self.selected();
+        let target = self.match_indices.iter().copied().rev().find(|&i| i < current)
+            .unwrap_or(*self.match_indices.last().unwrap());
+        self.select(target);
+    }
+
+    fn rebuild_matches(&mut self) {
+        if self.search_query.is_empty() {
+            self.match_indices.clear();
+            return;
+        }
+        let q = self.search_query.to_lowercase();
+        self.match_indices = self.display_fields.iter().enumerate()
+            .filter_map(|(i, item)| match item {
+                DisplayItem::Field { name, value, .. } => {
+                    if name.to_lowercase().contains(&q) || value.to_lowercase().contains(&q) {
+                        Some(i)
+                    } else {
+                        None
+                    }
+                }
+                DisplayItem::FileEntry { label, .. } => {
+                    if label.to_lowercase().contains(&q) { Some(i) } else { None }
+                }
+                DisplayItem::Header(_) => None,
+            })
+            .collect();
+    }
+
+    fn jump_to_nearest_match(&mut self) {
+        if self.match_indices.is_empty() {
+            return;
+        }
+        let current = self.selected();
+        let target = self.match_indices.iter().copied().find(|&i| i >= current)
+            .unwrap_or(self.match_indices[0]);
+        self.select(target);
     }
 }
 
@@ -826,15 +910,18 @@ pub fn render_entry_detail(
     theme: &Theme,
     show_braces: bool,
     render_latex_enabled: bool,
+    is_searching: bool,
 ) {
+    let hint = if is_searching || !state.search_query.is_empty() {
+        " [e]dit  [A]dd  [d]el  [/] search  [n/N] next/prev  [Esc] clear search "
+    } else {
+        " [e]dit  [A]dd field  add [f]ile  [d]el  [T]itlecase  norm [a]uthor  [o]pen  [w]eb  [Tab] groups  [c]itekey  [/] search  [Esc] back "
+    };
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(theme.border)
         .title(format!(" {} ", entry.citation_key))
-        .title_bottom(
-            Line::from(" [e]dit  [a]dd field  [A]dd file  [d]el  [T]itlecase  [N]orm author  [o]pen file  [w]eb  [Tab] groups  [c]itekey  [Esc] back ")
-                .style(theme.label),
-        );
+        .title_bottom(Line::from(hint).style(theme.label));
 
     let inner = block.inner(area);
     f.render_widget(block, area);
@@ -871,61 +958,103 @@ pub fn render_entry_detail(
     // with Field rows (but don't inflate max_name_len beyond real field names).
     let file_name_len = "file".len();
 
+    let search_active = is_searching || !state.search_query.is_empty();
+
     let items: Vec<ListItem> = state
         .display_fields
         .iter()
-        .map(|item| match item {
-            DisplayItem::Header(label) => ListItem::new(Line::from(Span::styled(
-                format!("  {}", label),
-                theme.required_label,
-            ))),
-            DisplayItem::Field { name, value, category } => {
-                let padding = " ".repeat(max_name_len.saturating_sub(name.len()));
-                let name_style = match category {
-                    FieldCategory::Required => theme.required_label,
-                    FieldCategory::Optional
-                    | FieldCategory::Other
-                    | FieldCategory::Custom(_) => theme.label,
-                };
-                let value_style = if value.is_empty() && *category == FieldCategory::Required {
-                    theme.search_match.add_modifier(Modifier::DIM)
-                } else {
-                    theme.value
-                };
-                let display_value: String = if value.is_empty() {
-                    String::new()
-                } else {
-                    apply_display_pipeline(value, show_braces, render_latex_enabled)
-                };
-                ListItem::new(Line::from(vec![
-                    Span::styled(format!("    {}{} : ", name, padding), name_style),
-                    Span::styled(display_value, value_style),
-                ]))
-            }
-            DisplayItem::FileEntry { label, .. } => {
-                let padding = " ".repeat(max_name_len.saturating_sub(file_name_len));
-                ListItem::new(Line::from(vec![
-                    Span::styled(format!("    file{} : ↳ ", padding), theme.label),
-                    Span::styled(label.clone(), theme.value),
-                ]))
+        .enumerate()
+        .map(|(idx, item)| {
+            let is_match = search_active && state.match_indices.contains(&idx);
+            match item {
+                DisplayItem::Header(label) => ListItem::new(Line::from(Span::styled(
+                    format!("  {}", label),
+                    theme.required_label,
+                ))),
+                DisplayItem::Field { name, value, category } => {
+                    let padding = " ".repeat(max_name_len.saturating_sub(name.len()));
+                    let name_style = if is_match {
+                        theme.search_match
+                    } else {
+                        match category {
+                            FieldCategory::Required => theme.required_label,
+                            FieldCategory::Optional
+                            | FieldCategory::Other
+                            | FieldCategory::Custom(_) => theme.label,
+                        }
+                    };
+                    let value_style = if value.is_empty() && *category == FieldCategory::Required {
+                        theme.search_match.add_modifier(Modifier::DIM)
+                    } else {
+                        theme.value
+                    };
+                    let display_value: String = if value.is_empty() {
+                        String::new()
+                    } else {
+                        apply_display_pipeline(value, show_braces, render_latex_enabled)
+                    };
+                    ListItem::new(Line::from(vec![
+                        Span::styled(format!("    {}{} : ", name, padding), name_style),
+                        Span::styled(display_value, value_style),
+                    ]))
+                }
+                DisplayItem::FileEntry { label, .. } => {
+                    let padding = " ".repeat(max_name_len.saturating_sub(file_name_len));
+                    let label_style = if is_match { theme.search_match } else { theme.value };
+                    ListItem::new(Line::from(vec![
+                        Span::styled(format!("    file{} : ↳ ", padding), theme.label),
+                        Span::styled(label.clone(), label_style),
+                    ]))
+                }
             }
         })
         .collect();
 
-    // Reserve a preview pane at the bottom for the full selected-field value
+    // Reserve a preview pane at the bottom for the full selected-field value.
+    // When search is active, add a 1-row search bar above the preview pane.
     let preview_height = 4u16;
-    let chunks = Layout::vertical([
-        Constraint::Length(2),
-        Constraint::Min(3),
-        Constraint::Length(preview_height),
-    ])
-    .split(inner);
+    let chunks = if search_active {
+        Layout::vertical([
+            Constraint::Length(2),
+            Constraint::Min(3),
+            Constraint::Length(1),
+            Constraint::Length(preview_height),
+        ])
+        .split(inner)
+    } else {
+        Layout::vertical([
+            Constraint::Length(2),
+            Constraint::Min(3),
+            Constraint::Length(0),
+            Constraint::Length(preview_height),
+        ])
+        .split(inner)
+    };
 
     let type_para = Paragraph::new(vec![type_line, groups_line]);
     f.render_widget(type_para, chunks[0]);
 
     let list = List::new(items).highlight_style(theme.selected);
     f.render_stateful_widget(list, chunks[1], &mut state.list_state);
+
+    // Search bar row (chunks[2]) — shown only when search is active.
+    if search_active && chunks[2].height > 0 {
+        let match_info = if state.match_indices.is_empty() {
+            " (no matches)".to_string()
+        } else {
+            let pos = state.match_indices.iter().position(|&i| i == state.selected())
+                .map(|p| format!(" ({}/{})", p + 1, state.match_indices.len()))
+                .unwrap_or_else(|| format!(" ({} matches)", state.match_indices.len()));
+            pos
+        };
+        let cursor = if is_searching { "_" } else { "" };
+        let search_line = Line::from(vec![
+            Span::styled(" / ", theme.search_match),
+            Span::styled(format!("{}{}", state.search_query, cursor), theme.value),
+            Span::styled(match_info, theme.label),
+        ]);
+        f.render_widget(Paragraph::new(search_line), chunks[2]);
+    }
 
     // Preview pane: show full value of selected field with wrapping.
     // For FileEntry rows, show the label of the specific file being highlighted.
@@ -949,7 +1078,7 @@ pub fn render_entry_detail(
         .block(preview_block)
         .wrap(Wrap { trim: true })
         .style(theme.value);
-    f.render_widget(preview, chunks[2]);
+    f.render_widget(preview, chunks[3]);
 }
 
 /// Apply the display pipeline: optionally render LaTeX, then optionally strip braces.

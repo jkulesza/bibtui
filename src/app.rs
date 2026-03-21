@@ -55,6 +55,12 @@ pub enum Action {
     SearchBackspace,
     OpenDetail,
     CloseDetail,
+    EnterDetailSearch,
+    ExitDetailSearch,
+    DetailSearchChar(char),
+    DetailSearchBackspace,
+    DetailNextMatch,
+    DetailPrevMatch,
     EditField,
     AddField,
     AddFileAttachment,
@@ -522,7 +528,51 @@ impl App {
                 self.update_search();
             }
             Action::OpenDetail => self.open_detail(),
-            Action::CloseDetail => self.close_detail(),
+            Action::CloseDetail => {
+                // If a search is active, Esc first clears the search; second Esc closes detail.
+                let has_search = self.detail_state.as_ref()
+                    .map(|d| !d.search_query.is_empty())
+                    .unwrap_or(false);
+                if has_search {
+                    if let Some(ref mut detail) = self.detail_state {
+                        detail.clear_search();
+                    }
+                } else {
+                    self.close_detail();
+                }
+            }
+            Action::EnterDetailSearch => {
+                if let Some(ref mut detail) = self.detail_state {
+                    detail.clear_search();
+                }
+                self.mode = InputMode::DetailSearch;
+            }
+            Action::ExitDetailSearch => {
+                self.mode = InputMode::Detail;
+            }
+            Action::DetailSearchChar(c) => {
+                if let Some(ref mut detail) = self.detail_state {
+                    detail.push_search_char(c);
+                }
+            }
+            Action::DetailSearchBackspace => {
+                if let Some(ref mut detail) = self.detail_state {
+                    detail.search_backspace();
+                    if detail.search_query.is_empty() {
+                        self.mode = InputMode::Detail;
+                    }
+                }
+            }
+            Action::DetailNextMatch => {
+                if let Some(ref mut detail) = self.detail_state {
+                    detail.next_match();
+                }
+            }
+            Action::DetailPrevMatch => {
+                if let Some(ref mut detail) = self.detail_state {
+                    detail.prev_match();
+                }
+            }
             Action::EditField => self.start_edit_field(),
             Action::AddField => {
                 self.field_editor_state = Some(FieldEditorState::new_field());

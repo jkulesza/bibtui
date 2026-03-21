@@ -43,7 +43,7 @@ citation:
 citekey:
   templates:
     article: Article_[year]_[journal_abbrev]_[authors]_[pages]
-    book: Book_[loc_call_number:regex(" \d+$", "")]_[year]_[auth]_[shorttitle:camel]
+    book: Book_[number:regex(" \d+$", "")]_[year]_[auth]_[shorttitle:camel]
     techreport: TechReport_[year]_[institution:abbr]_[number]_[authors]
     inproceedings: Proceedings_[year]_[booktitle:abbr]_[authors]_[pages]
     phdthesis: PhD-Thesis_[year]_[auth]
@@ -116,14 +116,7 @@ field_groups:
   - issn
   - lccn
   - eprint
-  - archiveprefix
-  - primaryclass
-  - pmid
   - arxivid
-- name: Library of Congress
-  fields:
-  - loc_call_number
-  - loc_url
 - name: LANL
   fields:
   - classification_key

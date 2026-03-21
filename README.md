@@ -29,7 +29,7 @@ A terminal UI BibTeX manager written in Rust. Designed as a lightweight, keyboar
 - Scrollable filename-sync preview dialog confirms file renames before they are applied
 - Import entries from a DOI, URL, or local PDF file (`I` or `:import <doi-or-url-or-path>`): queries Crossref for metadata, with extensible publisher-specific scrapers (ANS, Taylor & Francis); automatically downloads an open-access PDF via Unpaywall when available; extracts DOI from local PDFs and sets the file attachment directly; citation key is generated immediately from the configured template
 - Import books by ISBN-10 or ISBN-13 (`I` or `:import <isbn>`): fetches metadata from OpenLibrary; accepts any common notation (bare digits, hyphens, spaces, mixed); stores ISBN-13 when available, falls back to ISBN-10
-- Per-file attachment management in the detail view: each attached file appears as its own navigable row; `e`/`Enter` edits the path, `A` adds a new attachment, `d` removes an individual file
+- Per-file attachment management in the detail view: each attached file appears as its own navigable row; `e`/`Enter` edits the path, `f` adds a new attachment, `d` removes an individual file
 - URL fields preserve percent-encoding (e.g. `%20`) on save
 - `w` fetches DOI/URL from Crossref via metadata (title, author, year) when none is present, in both the entry list and detail view; only sets `url` when it is distinct from the DOI; when multiple links are available (DOI, URL, ISBN) a picker dialog is shown
 - `w` opens an OpenLibrary search (`openlibrary.org/search?isbn=…`) for entries with an `isbn` field but no DOI or URL
@@ -138,10 +138,11 @@ The detail header shows the entry type and its currently assigned groups.
 | `G` | Jump to last field |
 | `Ctrl-F` / `Ctrl-B` | Page down / up |
 | `e` / `i` / `Enter` | Edit selected field (vim-style: `i` enters insert mode) |
-| `a` | Add new field |
+| `A` | Add new field |
+| `f` | Add file attachment |
 | `d` | Delete selected field |
 | `T` | Convert selected field to title case |
-| `N` | Normalize author names to "Last, First" form |
+| `a` | Normalize author names to "Last, First" form |
 | `o` | Open attached file(s) in OS default viewer |
 | `w` | Open DOI / URL in default browser; if none exists, fetches DOI from metadata via Crossref |
 | `Tab` | Edit entry's group assignments |
@@ -149,7 +150,9 @@ The detail header shows the entry type and its currently assigned groups.
 | `B` | Toggle case-protecting brace display |
 | `L` | Toggle LaTeX rendering |
 | `u` | Undo last change |
-| `Esc` | Close detail, return to list |
+| `/` | Start incremental field search |
+| `n` / `N` | Jump to next / previous search match |
+| `Esc` | Clear active search (first press); close detail (second press) |
 
 ### Field editor (Editing mode)
 
@@ -334,7 +337,7 @@ PDF candidates are tried in order (Unpaywall OA → publisher PDF → ANS direct
 cargo test
 ```
 
-All 905 tests should pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, journal abbreviation, TUI component state machines, config loading, and import pipeline).
+All 905 tests pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, journal abbreviation, TUI component state machines, config loading, and import pipeline). Line coverage: ~76%.
 
 Coverage analysis runs automatically in CI via `cargo-llvm-cov`. To run locally:
 
@@ -343,6 +346,16 @@ cargo llvm-cov --workspace --summary-only
 ```
 
 ## Changelog
+
+### 0.29.0
+
+- **Incremental search in the entry detail view**: press `/` to open a search bar that filters field names and values in real time; matching fields are highlighted; `n` / `N` jump to the next / previous match; `Esc` clears the search (second `Esc` closes the detail view)
+- **Keybinding changes in the entry detail view**: `a` now normalizes author names (was `N`); `A` adds a new field (was `a`); `f` adds a file attachment (was `A`)
+- **`number` added as an optional field for Book entries**
+- **Empty fields in the detail view are now blank** instead of showing a placeholder dot
+- **`regex()` modifier requires quoted arguments**: citekey template regex modifiers now require double-quoted pattern and replacement strings, e.g. `[field:regex("\d+$", "")]`; backslash-escaped quotes within strings are supported
+- **Citekey template syntax updated to `[token]` form**: all built-in defaults now use the JabRef-compatible `[token]` syntax; legacy `{token}` syntax is still accepted for backward compatibility
+- Expanded test coverage (905 tests, ~76% line coverage)
 
 ### 0.28.0
 

@@ -15,6 +15,7 @@ pub fn map_key(
         InputMode::Normal => map_normal_key(key, last_key),
         InputMode::Search => map_search_key(key),
         InputMode::Detail => map_detail_key(key, last_key),
+        InputMode::DetailSearch => map_detail_search_key(key),
         InputMode::Editing => map_editing_key(key),
         InputMode::Dialog => map_dialog_key(key, last_key, is_message_dialog),
         InputMode::Command => map_command_key(key),
@@ -30,6 +31,7 @@ pub enum InputMode {
     Normal,
     Search,
     Detail,
+    DetailSearch,
     Editing,
     Dialog,
     Command,
@@ -123,11 +125,11 @@ fn map_detail_key(key: KeyEvent, last_key: Option<char>) -> Option<Action> {
             Some(Action::PageUp)
         }
         KeyCode::Char('e') | KeyCode::Char('i') | KeyCode::Enter => Some(Action::EditField),
-        KeyCode::Char('a') => Some(Action::AddField),
-        KeyCode::Char('A') => Some(Action::AddFileAttachment),
+        KeyCode::Char('a') => Some(Action::NormalizeAuthor),
+        KeyCode::Char('A') => Some(Action::AddField),
+        KeyCode::Char('f') => Some(Action::AddFileAttachment),
         KeyCode::Char('d') => Some(Action::DeleteField),
         KeyCode::Char('T') => Some(Action::TitlecaseField),
-        KeyCode::Char('N') => Some(Action::NormalizeAuthor),
         KeyCode::Char('o') => Some(Action::OpenFile),
         KeyCode::Char('w') => Some(Action::OpenWeb),
         KeyCode::Tab => Some(Action::EditGroups),
@@ -135,6 +137,19 @@ fn map_detail_key(key: KeyEvent, last_key: Option<char>) -> Option<Action> {
         KeyCode::Char('L') => Some(Action::ToggleLatex),
         KeyCode::Char('B') => Some(Action::ToggleBraces),
         KeyCode::Char('u') => Some(Action::Undo),
+        KeyCode::Char('/') => Some(Action::EnterDetailSearch),
+        KeyCode::Char('n') => Some(Action::DetailNextMatch),
+        KeyCode::Char('N') => Some(Action::DetailPrevMatch),
+        _ => None,
+    }
+}
+
+fn map_detail_search_key(key: KeyEvent) -> Option<Action> {
+    match key.code {
+        KeyCode::Esc => Some(Action::ExitDetailSearch),
+        KeyCode::Enter => Some(Action::ExitDetailSearch),
+        KeyCode::Backspace => Some(Action::DetailSearchBackspace),
+        KeyCode::Char(c) => Some(Action::DetailSearchChar(c)),
         _ => None,
     }
 }
@@ -344,10 +359,14 @@ mod tests {
         assert_eq!(map_key(key(KeyCode::Char('e')), &InputMode::Detail, None, false), Some(Action::EditField));
         assert_eq!(map_key(key(KeyCode::Char('i')), &InputMode::Detail, None, false), Some(Action::EditField));
         assert_eq!(map_key(key(KeyCode::Enter), &InputMode::Detail, None, false), Some(Action::EditField));
-        assert_eq!(map_key(key(KeyCode::Char('a')), &InputMode::Detail, None, false), Some(Action::AddField));
+        assert_eq!(map_key(key(KeyCode::Char('a')), &InputMode::Detail, None, false), Some(Action::NormalizeAuthor));
+        assert_eq!(map_key(key(KeyCode::Char('A')), &InputMode::Detail, None, false), Some(Action::AddField));
+        assert_eq!(map_key(key(KeyCode::Char('f')), &InputMode::Detail, None, false), Some(Action::AddFileAttachment));
         assert_eq!(map_key(key(KeyCode::Char('d')), &InputMode::Detail, None, false), Some(Action::DeleteField));
         assert_eq!(map_key(key(KeyCode::Char('T')), &InputMode::Detail, None, false), Some(Action::TitlecaseField));
-        assert_eq!(map_key(key(KeyCode::Char('N')), &InputMode::Detail, None, false), Some(Action::NormalizeAuthor));
+        assert_eq!(map_key(key(KeyCode::Char('N')), &InputMode::Detail, None, false), Some(Action::DetailPrevMatch));
+        assert_eq!(map_key(key(KeyCode::Char('n')), &InputMode::Detail, None, false), Some(Action::DetailNextMatch));
+        assert_eq!(map_key(key(KeyCode::Char('/')), &InputMode::Detail, None, false), Some(Action::EnterDetailSearch));
         assert_eq!(map_key(key(KeyCode::Char('c')), &InputMode::Detail, None, false), Some(Action::RegenCitekey));
         assert_eq!(map_key(key(KeyCode::Char('u')), &InputMode::Detail, None, false), Some(Action::Undo));
         // Navigation
