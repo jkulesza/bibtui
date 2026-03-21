@@ -1408,6 +1408,9 @@ impl App {
                             detail.refresh(&snapshot);
                         }
                     }
+                    self.regen_citekey();
+                    let current_key = self.detail_entry_key.clone().unwrap_or_else(|| key.clone());
+                    self.recheck_dirty(&current_key);
                 }
             }
         }
@@ -1480,6 +1483,47 @@ impl App {
             if let Some(ref mut detail) = self.detail_state {
                 detail.refresh(&snapshot);
             }
+        }
+    }
+
+    /// After a field edit, re-evaluate whether the entry is truly dirty by
+    /// comparing its current fields and citation key against the original raw
+    /// representation in the file.  Clears `dirty` when the entry has been
+    /// fully reverted to its on-disk state.
+    fn recheck_dirty(&mut self, entry_key: &str) {
+        use crate::bib::model::RawItem;
+
+        let Some(entry) = self.database.entries.get_mut(entry_key) else { return };
+
+        // A changed citation key is always dirty.
+        let original_raw = match self.database.raw_file.items.get(entry.raw_index) {
+            Some(RawItem::Entry(re)) => re,
+            _ => return,
+        };
+        if entry.citation_key != original_raw.citation_key {
+            return;
+        }
+
+        // Build a map of original field values (inner content, no delimiters).
+        let original: std::collections::HashMap<String, String> = original_raw
+            .fields
+            .iter()
+            .map(|f| (f.name.to_lowercase(), f.value.to_string_value()))
+            .collect();
+
+        // Current non-empty fields must match the original exactly.
+        let all_match = entry
+            .fields
+            .iter()
+            .filter(|(_, v)| !v.is_empty())
+            .all(|(k, v)| original.get(&k.to_lowercase()).map(|ov| ov == v).unwrap_or(false))
+            && original
+                .iter()
+                .filter(|(_, v)| !v.is_empty())
+                .all(|(k, v)| entry.fields.get(k.as_str()).map(|ev| ev == v).unwrap_or(false));
+
+        if all_match {
+            entry.dirty = false;
         }
     }
 
@@ -2601,10 +2645,11 @@ impl App {
                     .unwrap_or("pdf")
                     .to_string();
 
+                let safe_stem = crate::util::import::sanitize_filename_stem(&citekey);
                 let new_filename = if multi {
-                    format!("{}_{}.{}", citekey, i + 1, ext)
+                    format!("{}_{}.{}", safe_stem, i + 1, ext)
                 } else {
-                    format!("{}.{}", citekey, ext)
+                    format!("{}.{}", safe_stem, ext)
                 };
 
                 // Already correctly named?
@@ -2694,10 +2739,11 @@ impl App {
                     .and_then(|e| e.to_str())
                     .unwrap_or("pdf")
                     .to_string();
+                let safe_stem = crate::util::import::sanitize_filename_stem(&citekey);
                 let new_filename = if multi {
-                    format!("{}_{}.{}", citekey, i + 1, ext)
+                    format!("{}_{}.{}", safe_stem, i + 1, ext)
                 } else {
-                    format!("{}.{}", citekey, ext)
+                    format!("{}.{}", safe_stem, ext)
                 };
                 if old_rel.file_name().and_then(|n| n.to_str()) == Some(&new_filename) {
                     continue; // Already correctly named.
@@ -4940,6 +4986,64 @@ mod tests {
         app.handle_action(Action::EnterSettings);
         let cursor_after = app.settings_state.as_ref().unwrap().cursor;
         assert_eq!(cursor_after, cursor_before, "cursor should be restored on reopen");
+    }
+
+    // ── Dirty-flag recheck after field edit ──────────────────────────────────
+
+    #[test]
+    fn test_dirty_cleared_when_field_reverted_to_original() {
+        // Use an entry whose citation key already matches the template output,
+        // so that reverting the field also reverts the auto-generated key.
+        // Template: Article_{year}_{journal_abbrev}_{authors}_{pages}
+        // For year=2020, journal=Nature(→N), author=Smith → Article_2020_N_Smith
+        let mut tmp = NamedTempFile::new().unwrap();
+        write!(tmp, "@Article{{Article_2020_N_Smith,\n  author  = {{Smith, John}},\n  title   = {{My Paper}},\n  year    = {{2020}},\n  journal = {{Nature}},\n}}\n").unwrap();
+        tmp.flush().unwrap();
+        let app_result = App::new(tmp.path().to_path_buf(), default_config());
+        let mut app = app_result.unwrap();
+
+        app.handle_action(Action::OpenDetail);
+        app.detail_entry_key = Some("Article_2020_N_Smith".to_string());
+
+        use crate::tui::components::field_editor::FieldEditorState;
+
+        // Modify the year field — key auto-regens to Article_2099_N_Smith.
+        app.field_editor_state = Some(FieldEditorState::new("year", "2099"));
+        app.handle_action(Action::ConfirmEdit);
+        assert!(app.database.entries.values().any(|e| e.dirty), "should be dirty after change");
+
+        // Revert the year field to its original value — key regens back.
+        app.field_editor_state = Some(FieldEditorState::new("year", "2020"));
+        app.handle_action(Action::ConfirmEdit);
+
+        // After reverting, the entry should no longer be dirty.
+        let reverted_key = app.detail_entry_key.clone().unwrap();
+        let entry = app.database.entries.get(&reverted_key).expect("entry must exist");
+        assert!(!entry.dirty, "entry should not be dirty after reverting to original value; key={}", reverted_key);
+        let _tmp = tmp;
+    }
+
+    // ── Auto-regen citekey on field edit ─────────────────────────────────────
+
+    #[test]
+    fn test_citekey_auto_updated_on_field_edit() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::OpenDetail);
+        app.detail_entry_key = Some("Smith2020".to_string());
+
+        use crate::tui::components::field_editor::FieldEditorState;
+        app.field_editor_state = Some(FieldEditorState::new("year", "2023"));
+        app.handle_action(Action::ConfirmEdit);
+
+        // Key should have been auto-regenerated to reflect the new year.
+        // Template: Article_{year}_{journal_abbrev}_{authors}_{pages}
+        // → Article_2023_N_Smith
+        assert!(
+            app.database.entries.contains_key("Article_2023_N_Smith"),
+            "expected auto-regenerated key Article_2023_N_Smith; keys: {:?}",
+            app.database.entries.keys().collect::<Vec<_>>()
+        );
+        assert!(!app.database.entries.contains_key("Smith2020"), "old key should be gone");
     }
 
     // ── Close citation preview ────────────────────────────────────────────────
