@@ -1,0 +1,128 @@
+general:
+  bib_file: null
+  editor: vim
+  backup_on_save: true
+  yank_format: prompt
+display:
+  show_groups: false
+  group_sidebar_width: 30
+  columns:
+  - field: dirty
+    header: ' '
+    width: !Fixed 2
+  - field: file_indicator
+    header: ⎘
+    width: !Fixed 2
+  - field: web_indicator
+    header: ⎋
+    width: !Fixed 2
+  - field: entrytype
+    header: Type
+    width: !Fixed 12
+  - field: year
+    header: Year
+    width: !Fixed 6
+  - field: author
+    header: Author
+    width: !Percent 20
+    max_width: 20
+  - field: title
+    header: Title
+    width: Flex
+  - field: journal
+    header: Journal
+    width: !Percent 15
+  default_sort:
+    field: citation_key
+    ascending: true
+  show_braces: false
+  render_latex: true
+  abbreviate_authors: true
+citation:
+  style: IEEEtranN
+citekey:
+  templates:
+    article: Article_[year]_[journal_abbrev]_[authors]_[pages]
+    book: Book_[loc_call_number:regex(" \\d+$", "")]_[year]_[auth]_[shorttitle:camel]
+    techreport: TechReport_[year]_[institution:abbr]_[number]_[authors]
+    inproceedings: Proceedings_[year]_[booktitle:abbr]_[authors]_[pages]
+    phdthesis: PhD-Thesis_[year]_[auth]
+    mastersthesis: MS-Thesis_[year]_[auth]
+    misc: Misc_[year]_[howpublished:camel]_[authors]_[title:camel]
+    booklet: ''
+    inbook: ''
+    incollection: ''
+    manual: ''
+    proceedings: ''
+    unpublished: ''
+save:
+  align_fields: true
+  field_order: alphabetical
+  sync_filenames: true
+  save_action_escape_underscores: true
+  save_action_escape_ampersands: true
+  save_action_cleanup_url: true
+  save_action_latex_cleanup: true
+  save_action_normalize_date: true
+  save_action_normalize_month: true
+  save_action_normalize_names_of_persons: true
+  save_action_normalize_page_numbers: true
+  save_action_normalize_isbn: true
+  save_action_ordinals_to_superscript: true
+  save_action_unicode_to_latex: true
+  save_action_abbreviate_journal: true
+  journal_field_content: full
+  journal_abbreviations: {}
+theme:
+  selected_bg: '#3b4261'
+  selected_fg: '#c0caf5'
+  header_bg: '#1a1b26'
+  header_fg: '#7aa2f7'
+  search_match: '#ff9e64'
+  border_color: '#565f89'
+titlecase:
+  ignore_words:
+  - MCNP
+  - OpenMC
+  stop_words:
+  - a
+  - an
+  - and
+  - as
+  - at
+  - but
+  - by
+  - for
+  - in
+  - nor
+  - of
+  - off
+  - on
+  - or
+  - out
+  - per
+  - so
+  - the
+  - to
+  - up
+  - via
+  - vs
+  - yet
+field_groups:
+- name: Identifiers
+  fields:
+  - isbn
+  - issn
+  - lccn
+  - eprint
+  - archiveprefix
+  - primaryclass
+  - pmid
+  - arxivid
+- name: Library of Congress
+  fields:
+  - loc_call_number
+  - loc_url
+- name: LANL
+  fields:
+  - classification_key

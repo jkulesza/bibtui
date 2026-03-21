@@ -91,31 +91,31 @@ pub fn default_citekey_templates() -> IndexMap<String, String> {
     let mut m = IndexMap::new();
     m.insert(
         "article".to_string(),
-        "Article_{year}_{journal_abbrev}_{authors}_{pages}".to_string(),
+        "Article_[year]_[journal_abbrev]_[authors]_[pages]".to_string(),
     );
     m.insert(
         "book".to_string(),
-        "Book_{category}_{year}_{author_last}_{title_camel}".to_string(),
+        "Book_[keywords:camel]_[year]_[auth]_[shorttitle:camel]".to_string(),
     );
     m.insert(
         "techreport".to_string(),
-        "TechReport_{year}_{institution_abbrev}_{number}_{authors}".to_string(),
+        "TechReport_[year]_[institution:abbr]_[number]_[authors]".to_string(),
     );
     m.insert(
         "inproceedings".to_string(),
-        "Proceedings_{year}_{booktitle_abbrev}_{authors}_{pages}".to_string(),
+        "Proceedings_[year]_[booktitle:abbr]_[authors]_[pages]".to_string(),
     );
     m.insert(
         "phdthesis".to_string(),
-        "PhD-Thesis_{year}_{author_last}".to_string(),
+        "PhD-Thesis_[year]_[auth]".to_string(),
     );
     m.insert(
         "mastersthesis".to_string(),
-        "MS-Thesis_{year}_{author_last}".to_string(),
+        "MS-Thesis_[year]_[auth]".to_string(),
     );
     m.insert(
         "misc".to_string(),
-        "Misc_{year}_{howpublished_camel}_{authors}_{title_camel}".to_string(),
+        "Misc_[year]_[howpublished:camel]_[authors]_[title:camel]".to_string(),
     );
     m
 }
