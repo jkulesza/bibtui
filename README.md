@@ -156,17 +156,58 @@ The detail header shows the entry type and its currently assigned groups.
 
 ### Field editor (Editing mode)
 
+The field editor uses vim-style modal editing. Opening a field starts in **Normal mode**; the title bar shows `— INSERT` when in Insert mode.
+
+#### Normal mode
+
+| Key | Action |
+|-----|--------|
+| `i` | Enter Insert mode at cursor |
+| `a` | Enter Insert mode after cursor |
+| `A` | Enter Insert mode at end of line |
+| `I` | Enter Insert mode at start of line |
+| `h` / `←` | Move cursor left |
+| `l` / `→` | Move cursor right |
+| `0` / `Home` | Jump to start |
+| `$` / `End` | Jump to end |
+| `w` / `W` | Move to start of next word / WORD |
+| `b` / `B` | Move to start of current/previous word / WORD |
+| `e` / `E` | Move to end of current/next word / WORD |
+| `f{c}` | Find next occurrence of character `c` |
+| `F{c}` | Find previous occurrence of character `c` |
+| `j` / `↓` | Save edit and move to next field |
+| `k` / `↑` | Save edit and move to previous field |
+| `x` | Delete character under cursor |
+| `X` | Delete character before cursor |
+| `dw` | Delete to start of next word |
+| `D` | Delete to end of line |
+| `C` | Change to end of line (delete + enter Insert mode) |
+| `s` | Substitute character (delete + enter Insert mode) |
+| `S` | Substitute entire field (clear + enter Insert mode) |
+| `r{c}` | Replace character under cursor with `c` |
+| `~` | Toggle case of character under cursor |
+| `p` | Put (paste) from unnamed register after cursor |
+| `yy` | Yank entire field value to unnamed register and system clipboard |
+| `u` | Undo last change |
+| `Enter` | Confirm edit |
+| `Esc` | Cancel edit |
+
+#### Insert mode
+
 | Key | Action |
 |-----|--------|
 | Type | Insert character |
-| `←` / `→` | Move cursor (or step through months in month field) |
-| `↑` / `↓` | Move between month rows in month field selector |
+| `←` / `→` | Move cursor |
 | `Ctrl-A` / `Home` | Jump to start |
 | `Ctrl-E` / `End` | Jump to end |
 | `Backspace` / `Delete` | Delete character |
+| `Ctrl-W` | Delete word before cursor |
+| `Ctrl-U` | Delete to start of line |
 | `Tab` | Cycle through completions / filesystem path completion |
 | `Enter` | Confirm edit |
-| `Esc` | Cancel edit |
+| `Esc` | Return to Normal mode |
+
+Operations that delete text (`x`, `dw`, `D`, `s`, `S`, `Ctrl-W`, `Ctrl-U`) save the deleted text to the unnamed register so it can be restored with `p`. Entering Insert mode via `i`/`a`/`A`/`I` snapshots the field value for undo with `u`.
 
 Long values scroll horizontally; `<` and `>` at the edges indicate hidden text.  The cursor is kept near the visual midpoint: it moves freely between the nearest edge and the centre, then the text scrolls while the cursor stays fixed at the centre.
 

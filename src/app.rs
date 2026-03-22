@@ -28,7 +28,7 @@ use crate::tui::components::command_palette::CommandPaletteState;
 use crate::tui::components::dialog::{DialogKind, DialogState};
 use crate::tui::components::entry_detail::EntryDetailState;
 use crate::tui::components::entry_list::EntryListState;
-use crate::tui::components::field_editor::FieldEditorState;
+use crate::tui::components::field_editor::{EditingMode, FieldEditorState};
 use crate::tui::components::group_tree::GroupTreeState;
 use crate::tui::components::search_bar::SearchBarState;
 use crate::tui::event::poll_event;
@@ -130,6 +130,35 @@ pub enum Action {
     ImportEntry,
     // Help
     CloseHelp,
+    // Vim modal editing
+    EditUndo,
+    EditPut,
+    EditYank,
+    EditEnterNormal,
+    EditEnterInsert,
+    EditEnterInsertAfter,
+    EditEnterInsertAtEnd,
+    EditEnterInsertAtHome,
+    EditMoveWordFwd,
+    EditMoveWordBwd,
+    EditMoveWordEnd,
+    EditMoveBigWordFwd,
+    EditMoveBigWordBwd,
+    EditMoveBigWordEnd,
+    EditDeleteWordFwd,
+    EditDeleteToEnd,
+    EditChangeToEnd,
+    EditSubstituteChar,
+    EditSubstituteLine,
+    EditToggleCase,
+    EditReplaceChar(char),
+    EditFindCharFwd(char),
+    EditFindCharBwd(char),
+    EditDeleteCharBack,
+    EditDeleteWordBack,
+    EditDeleteToHome,
+    EditConfirmAndMoveDown,
+    EditConfirmAndMoveUp,
 }
 
 /// A single reversible operation stored on the undo stack.
@@ -469,7 +498,13 @@ impl App {
             self.dialog_state.as_ref().map(|d| &d.kind),
             Some(DialogKind::Message { .. })
         );
-        if let Some(action) = map_key(key, &self.mode, last, is_message_dialog) {
+        let edit_normal = matches!(self.mode, InputMode::Editing)
+            && self
+                .field_editor_state
+                .as_ref()
+                .map(|e| e.editing_mode == EditingMode::Normal && !e.editing_name)
+                .unwrap_or(false);
+        if let Some(action) = map_key(key, &self.mode, last, is_message_dialog, edit_normal) {
             self.handle_action(action);
         }
     }
@@ -616,7 +651,20 @@ impl App {
             }
             Action::EditDelete => {
                 if let Some(ref mut editor) = self.field_editor_state {
+                    editor.save_undo_snapshot();
                     editor.delete();
+                    // In Normal mode, clamp cursor if we deleted the last char
+                    if editor.editing_mode == EditingMode::Normal
+                        && !editor.value.is_empty()
+                        && editor.cursor >= editor.value.len()
+                    {
+                        editor.cursor = editor
+                            .value
+                            .char_indices()
+                            .last()
+                            .map(|(i, _)| i)
+                            .unwrap_or(0);
+                    }
                 }
                 self.update_field_completions();
             }
@@ -783,6 +831,220 @@ impl App {
                 self.help_state = None;
                 self.mode = InputMode::Normal;
             }
+
+            // ── Vim modal editing ──
+            Action::EditUndo => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.undo_edit();
+                }
+                self.update_field_completions();
+            }
+            Action::EditPut => {
+                // Use unnamed register (set by x/dw/yy) if non-empty, else fall back to clipboard.
+                let text_result = self.field_editor_state.as_ref().map(|editor| {
+                    if !editor.unnamed_register.is_empty() {
+                        Ok(editor.unnamed_register.clone())
+                    } else {
+                        crate::util::clipboard::read_from_clipboard()
+                            .map_err(|e| format!("Clipboard error: {e}"))
+                    }
+                });
+                match text_result {
+                    Some(Ok(text)) if !text.is_empty() => {
+                        if let Some(ref mut editor) = self.field_editor_state {
+                            editor.save_undo_snapshot();
+                            editor.put(&text);
+                        }
+                        self.update_field_completions();
+                    }
+                    Some(Err(e)) => self.status_message = Some(e),
+                    _ => {}
+                }
+            }
+            Action::EditYank => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    let text = editor.value.clone();
+                    editor.unnamed_register = text.clone();
+                    match crate::util::clipboard::copy_to_clipboard(&text) {
+                        Ok(()) => self.status_message = Some(format!("Yanked: {text}")),
+                        Err(e) => self.status_message = Some(format!("Clipboard error: {e}")),
+                    }
+                }
+            }
+            Action::EditEnterNormal => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.enter_normal();
+                }
+            }
+            Action::EditEnterInsert => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.save_undo_snapshot();
+                    editor.editing_mode = EditingMode::Insert;
+                }
+            }
+            Action::EditEnterInsertAfter => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.save_undo_snapshot();
+                    // Advance cursor one char past current position (like vim `a`)
+                    if editor.cursor < editor.value.len() {
+                        let next = editor.value[editor.cursor..]
+                            .chars()
+                            .next()
+                            .map(|c| c.len_utf8())
+                            .unwrap_or(0);
+                        editor.cursor += next;
+                    }
+                    editor.editing_mode = EditingMode::Insert;
+                }
+            }
+            Action::EditEnterInsertAtEnd => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.save_undo_snapshot();
+                    editor.cursor = editor.value.len();
+                    editor.editing_mode = EditingMode::Insert;
+                }
+            }
+            Action::EditEnterInsertAtHome => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.save_undo_snapshot();
+                    editor.cursor = 0;
+                    editor.editing_mode = EditingMode::Insert;
+                }
+            }
+            Action::EditMoveWordFwd => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.move_word_fwd();
+                }
+            }
+            Action::EditMoveWordBwd => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.move_word_bwd();
+                }
+            }
+            Action::EditMoveWordEnd => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.move_word_end();
+                }
+            }
+            Action::EditMoveBigWordFwd => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.move_big_word_fwd();
+                }
+            }
+            Action::EditMoveBigWordBwd => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.move_big_word_bwd();
+                }
+            }
+            Action::EditMoveBigWordEnd => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.move_big_word_end();
+                }
+            }
+            Action::EditDeleteWordFwd => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.save_undo_snapshot();
+                    editor.delete_word_fwd();
+                }
+                self.update_field_completions();
+            }
+            Action::EditDeleteToEnd => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.save_undo_snapshot();
+                    editor.delete_to_end();
+                }
+                self.update_field_completions();
+            }
+            Action::EditChangeToEnd => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.save_undo_snapshot();
+                    editor.delete_to_end();
+                    editor.editing_mode = EditingMode::Insert;
+                }
+                self.update_field_completions();
+            }
+            Action::EditSubstituteChar => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.save_undo_snapshot();
+                    editor.delete();
+                    editor.editing_mode = EditingMode::Insert;
+                }
+                self.update_field_completions();
+            }
+            Action::EditSubstituteLine => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.save_undo_snapshot();
+                    editor.clear_value();
+                    editor.editing_mode = EditingMode::Insert;
+                }
+                self.update_field_completions();
+            }
+            Action::EditToggleCase => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.save_undo_snapshot();
+                    editor.toggle_case_at_cursor();
+                }
+                self.update_field_completions();
+            }
+            Action::EditReplaceChar(c) => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.save_undo_snapshot();
+                    editor.replace_char_at_cursor(c);
+                }
+            }
+            Action::EditFindCharFwd(c) => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.find_char_fwd(c);
+                }
+            }
+            Action::EditFindCharBwd(c) => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.find_char_bwd(c);
+                }
+            }
+            Action::EditDeleteCharBack => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.save_undo_snapshot();
+                    editor.backspace();
+                    if editor.editing_mode == EditingMode::Normal
+                        && !editor.value.is_empty()
+                        && editor.cursor >= editor.value.len()
+                    {
+                        editor.cursor = editor
+                            .value
+                            .char_indices()
+                            .last()
+                            .map(|(i, _)| i)
+                            .unwrap_or(0);
+                    }
+                }
+                self.update_field_completions();
+            }
+            Action::EditDeleteWordBack => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.save_undo_snapshot();
+                    editor.delete_word_back();
+                }
+                self.update_field_completions();
+            }
+            Action::EditDeleteToHome => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.save_undo_snapshot();
+                    editor.delete_to_home();
+                }
+                self.update_field_completions();
+            }
+            Action::EditConfirmAndMoveDown => {
+                self.confirm_edit();
+                self.move_cursor(1);
+                self.start_edit_field();
+            }
+            Action::EditConfirmAndMoveUp => {
+                self.confirm_edit();
+                self.move_cursor(-1);
+                self.start_edit_field();
+            }
+
             Action::TitlecaseField => self.titlecase_selected_field(),
             Action::NormalizeAuthor => self.normalize_author_field(),
             Action::OpenFile => self.open_file(),
@@ -4559,6 +4821,7 @@ mod tests {
     #[test]
     fn test_ghost_text_shows_suffix() {
         let mut e = FieldEditorState::new("author", "Smi");
+        e.cursor = e.value.len(); // ghost text only shows when cursor is at end
         e.completions = vec!["Smith, John".to_string()];
         assert_eq!(e.ghost_text(), "th, John");
     }
@@ -5137,7 +5400,9 @@ mod tests {
     #[test]
     fn test_edit_backspace() {
         let (mut app, _tmp) = make_app();
-        app.field_editor_state = Some(FieldEditorState::new("title", "abc"));
+        let mut editor = FieldEditorState::new("title", "abc");
+        editor.cursor = editor.value.len(); // position at end for backspace test
+        app.field_editor_state = Some(editor);
         app.handle_action(Action::EditBackspace);
         let val = app.field_editor_state.as_ref().unwrap().value.clone();
         assert_eq!(val, "ab");

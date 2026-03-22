@@ -6,6 +6,12 @@ use ratatui::Frame;
 
 use crate::tui::theme::Theme;
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum EditingMode {
+    Insert,
+    Normal,
+}
+
 pub struct FieldEditorState {
     pub field_name: String,
     pub name_cursor: usize,
@@ -22,12 +28,19 @@ pub struct FieldEditorState {
     /// Completion candidates for the current prefix (field name or value).
     pub completions: Vec<String>,
     pub completion_idx: usize,
+    /// Insert vs Normal mode for vim-style editing (value only; name editing is always Insert).
+    pub editing_mode: EditingMode,
+    /// Undo history: stack of (value, cursor) snapshots saved before mutations.
+    pub undo_stack: Vec<(String, usize)>,
+    /// Unnamed register: set by `x` and `dw`; read by `p`.
+    pub unnamed_register: String,
 }
 
 impl FieldEditorState {
     /// Create an editor for an existing field (value-only editing).
     pub fn new(field_name: &str, value: &str) -> Self {
-        let cursor = value.len();
+        // Start in Normal mode; cursor on last char (or 0 if empty).
+        let cursor = value.char_indices().last().map(|(i, _)| i).unwrap_or(0);
         FieldEditorState {
             is_month: field_name.eq_ignore_ascii_case("month"),
             field_name: field_name.to_string(),
@@ -39,6 +52,9 @@ impl FieldEditorState {
             is_path: false,
             completions: Vec::new(),
             completion_idx: 0,
+            editing_mode: EditingMode::Normal,
+            undo_stack: Vec::new(),
+            unnamed_register: String::new(),
         }
     }
 
@@ -55,6 +71,9 @@ impl FieldEditorState {
             is_month: false,
             completions: Vec::new(),
             completion_idx: 0,
+            editing_mode: EditingMode::Insert,
+            undo_stack: Vec::new(),
+            unnamed_register: String::new(),
         }
     }
 
@@ -72,6 +91,9 @@ impl FieldEditorState {
             is_month: false,
             completions: Vec::new(),
             completion_idx: 0,
+            editing_mode: EditingMode::Insert,
+            undo_stack: Vec::new(),
+            unnamed_register: String::new(),
         }
     }
 
@@ -88,6 +110,10 @@ impl FieldEditorState {
             is_month: false,
             completions: Vec::new(),
             completion_idx: 0,
+            // Name phase is always insert-like; value phase starts in Normal.
+            editing_mode: EditingMode::Normal,
+            undo_stack: Vec::new(),
+            unnamed_register: String::new(),
         }
     }
 
@@ -176,7 +202,127 @@ impl FieldEditorState {
                 .next()
                 .map(|c| c.len_utf8())
                 .unwrap_or(0);
+            self.unnamed_register = self.value[self.cursor..self.cursor + next_len].to_string();
             self.value.drain(self.cursor..self.cursor + next_len);
+        }
+    }
+
+    /// Delete from cursor to start of next word and save to unnamed register.
+    pub fn delete_word_fwd(&mut self) {
+        let end = word_fwd(&self.value, self.cursor);
+        if end > self.cursor {
+            self.unnamed_register = self.value[self.cursor..end].to_string();
+            self.value.drain(self.cursor..end);
+            if self.editing_mode == EditingMode::Normal
+                && !self.value.is_empty()
+                && self.cursor >= self.value.len()
+            {
+                self.cursor = self.value.char_indices().last().map(|(i, _)| i).unwrap_or(0);
+            }
+        }
+    }
+
+    /// Delete from cursor to end of line (`D`); save to unnamed register.
+    pub fn delete_to_end(&mut self) {
+        if self.cursor < self.value.len() {
+            self.unnamed_register = self.value[self.cursor..].to_string();
+            self.value.truncate(self.cursor);
+            if self.value.is_empty() {
+                self.cursor = 0;
+            } else if self.cursor >= self.value.len() {
+                self.cursor = self.value.char_indices().last().map(|(i, _)| i).unwrap_or(0);
+            }
+        }
+    }
+
+    /// Clear entire value (`S`); save to unnamed register.
+    pub fn clear_value(&mut self) {
+        self.unnamed_register = self.value.clone();
+        self.value.clear();
+        self.cursor = 0;
+    }
+
+    /// Toggle case of char under cursor and advance one position (`~`).
+    pub fn toggle_case_at_cursor(&mut self) {
+        if self.cursor >= self.value.len() {
+            return;
+        }
+        let char_len = self.value[self.cursor..]
+            .chars()
+            .next()
+            .map(|c| c.len_utf8())
+            .unwrap_or(0);
+        if char_len == 0 {
+            return;
+        }
+        let c = self.value[self.cursor..].chars().next().unwrap();
+        let toggled: String = if c.is_uppercase() {
+            c.to_lowercase().collect()
+        } else {
+            c.to_uppercase().collect()
+        };
+        self.value
+            .replace_range(self.cursor..self.cursor + char_len, &toggled);
+        let new_pos = self.cursor + toggled.len();
+        self.cursor = clamp_normal(new_pos, &self.value);
+    }
+
+    /// Replace char under cursor with `c`, staying in Normal mode (`r{c}`).
+    pub fn replace_char_at_cursor(&mut self, c: char) {
+        if self.cursor >= self.value.len() {
+            return;
+        }
+        let char_len = self.value[self.cursor..]
+            .chars()
+            .next()
+            .map(|ch| ch.len_utf8())
+            .unwrap_or(0);
+        if char_len == 0 {
+            return;
+        }
+        let mut replacement = String::with_capacity(c.len_utf8());
+        replacement.push(c);
+        self.value
+            .replace_range(self.cursor..self.cursor + char_len, &replacement);
+        self.cursor = clamp_normal(self.cursor, &self.value);
+    }
+
+    /// Move cursor to next occurrence of `c` to the right (`f{c}`).
+    pub fn find_char_fwd(&mut self, c: char) {
+        let step = self.value[self.cursor..]
+            .chars()
+            .next()
+            .map(|ch| ch.len_utf8())
+            .unwrap_or(0);
+        let start = self.cursor + step;
+        if let Some(pos) = find_next_char(&self.value, start, c) {
+            self.cursor = pos;
+        }
+    }
+
+    /// Move cursor to previous occurrence of `c` to the left (`F{c}`).
+    pub fn find_char_bwd(&mut self, c: char) {
+        if let Some(pos) = find_prev_char(&self.value, self.cursor, c) {
+            self.cursor = pos;
+        }
+    }
+
+    /// Delete from start of previous word to cursor (Insert-mode Ctrl-W).
+    pub fn delete_word_back(&mut self) {
+        let start = word_bwd(&self.value, self.cursor);
+        if start < self.cursor {
+            self.unnamed_register = self.value[start..self.cursor].to_string();
+            self.value.drain(start..self.cursor);
+            self.cursor = start;
+        }
+    }
+
+    /// Delete from cursor to start of line (Insert-mode Ctrl-U).
+    pub fn delete_to_home(&mut self) {
+        if self.cursor > 0 {
+            self.unnamed_register = self.value[..self.cursor].to_string();
+            self.value.drain(..self.cursor);
+            self.cursor = 0;
         }
     }
 
@@ -208,11 +354,19 @@ impl FieldEditorState {
                     .unwrap_or(0);
             }
         } else if self.cursor < self.value.len() {
-            self.cursor += self.value[self.cursor..]
+            let next = self.value[self.cursor..]
                 .chars()
                 .next()
                 .map(|c| c.len_utf8())
                 .unwrap_or(0);
+            let new_pos = self.cursor + next;
+            // In Normal mode, stop at the last character (don't move past end)
+            if self.editing_mode == EditingMode::Normal && new_pos >= self.value.len() {
+                // Allow only if new_pos is a valid char start (which it is)
+                self.cursor = new_pos.min(self.value.len().saturating_sub(1));
+            } else {
+                self.cursor = new_pos;
+            }
         }
     }
 
@@ -238,10 +392,296 @@ impl FieldEditorState {
     pub fn cursor_end(&mut self) {
         if self.is_new && self.editing_name {
             self.name_cursor = self.field_name.len();
+        } else if self.editing_mode == EditingMode::Normal && !self.value.is_empty() {
+            // In Normal mode, land on the last character, not past it
+            self.cursor = self.value.char_indices().last().map(|(i, _)| i).unwrap_or(0);
         } else {
             self.cursor = self.value.len();
         }
     }
+
+    /// Enter Normal editing mode, clamping cursor off the end of the text.
+    /// Saves an undo snapshot so the insert session can be undone with `u`.
+    /// Has no effect when editing the field name (name editing is always Insert).
+    pub fn enter_normal(&mut self) {
+        if self.editing_name {
+            return;
+        }
+        self.editing_mode = EditingMode::Normal;
+        // Clamp: cursor cannot be past the last char in Normal mode
+        if !self.value.is_empty() && self.cursor >= self.value.len() {
+            self.cursor = self.value.char_indices().last().map(|(i, _)| i).unwrap_or(0);
+        }
+    }
+
+    /// Push the current (value, cursor) onto the undo stack (capped at 50).
+    pub fn save_undo_snapshot(&mut self) {
+        if self.undo_stack.len() >= 50 {
+            self.undo_stack.remove(0);
+        }
+        self.undo_stack.push((self.value.clone(), self.cursor));
+    }
+
+    /// Restore the previous snapshot from the undo stack.
+    pub fn undo_edit(&mut self) {
+        if let Some((value, cursor)) = self.undo_stack.pop() {
+            self.value = value;
+            self.cursor = cursor;
+            // Re-clamp cursor for Normal mode
+            if self.editing_mode == EditingMode::Normal
+                && !self.value.is_empty()
+                && self.cursor >= self.value.len()
+            {
+                self.cursor = self.value.char_indices().last().map(|(i, _)| i).unwrap_or(0);
+            }
+        }
+    }
+
+    /// Insert `text` after the char at the cursor (vim `p` — put after).
+    pub fn put(&mut self, text: &str) {
+        let insert_pos = if self.value.is_empty() {
+            0
+        } else {
+            let char_len = self.value[self.cursor..]
+                .chars()
+                .next()
+                .map(|c| c.len_utf8())
+                .unwrap_or(0);
+            self.cursor + char_len
+        };
+        self.value.insert_str(insert_pos, text);
+        // Cursor lands on the first char of the inserted text
+        self.cursor = insert_pos;
+        if self.editing_mode == EditingMode::Normal && !self.value.is_empty() {
+            self.cursor = self.cursor
+                .min(self.value.char_indices().last().map(|(i, _)| i).unwrap_or(0));
+        }
+    }
+
+    /// Move cursor to start of next word (vim `w`).
+    pub fn move_word_fwd(&mut self) {
+        self.cursor = clamp_normal(word_fwd(&self.value, self.cursor), &self.value);
+    }
+
+    /// Move cursor to start of current or previous word (vim `b`).
+    pub fn move_word_bwd(&mut self) {
+        self.cursor = word_bwd(&self.value, self.cursor);
+    }
+
+    /// Move cursor to end of current or next word (vim `e`).
+    pub fn move_word_end(&mut self) {
+        self.cursor = clamp_normal(word_end(&self.value, self.cursor), &self.value);
+    }
+
+    /// Move cursor to start of next WORD (vim `W`).
+    pub fn move_big_word_fwd(&mut self) {
+        self.cursor = clamp_normal(big_word_fwd(&self.value, self.cursor), &self.value);
+    }
+
+    /// Move cursor to start of current or previous WORD (vim `B`).
+    pub fn move_big_word_bwd(&mut self) {
+        self.cursor = big_word_bwd(&self.value, self.cursor);
+    }
+
+    /// Move cursor to end of current or next WORD (vim `E`).
+    pub fn move_big_word_end(&mut self) {
+        self.cursor = clamp_normal(big_word_end(&self.value, self.cursor), &self.value);
+    }
+}
+
+// ── Word-motion helpers ────────────────────────────────────────────────────────
+
+fn is_word_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
+}
+
+/// Clamp a byte position to the last character start (for Normal mode).
+fn clamp_normal(pos: usize, text: &str) -> usize {
+    if text.is_empty() {
+        return 0;
+    }
+    if pos >= text.len() {
+        text.char_indices().last().map(|(i, _)| i).unwrap_or(0)
+    } else {
+        pos
+    }
+}
+
+/// Advance to the start of the next word (vim `w`).
+fn word_fwd(text: &str, pos: usize) -> usize {
+    let chars: Vec<(usize, char)> = text.char_indices().collect();
+    let n = chars.len();
+    let ci = match chars.iter().position(|(i, _)| *i >= pos) {
+        Some(i) => i,
+        None => return pos,
+    };
+    if ci >= n {
+        return pos;
+    }
+    let mut i = ci;
+    if is_word_char(chars[i].1) {
+        while i < n && is_word_char(chars[i].1) {
+            i += 1;
+        }
+    } else if !chars[i].1.is_whitespace() {
+        while i < n && !is_word_char(chars[i].1) && !chars[i].1.is_whitespace() {
+            i += 1;
+        }
+    }
+    while i < n && chars[i].1.is_whitespace() {
+        i += 1;
+    }
+    if i >= n { text.len() } else { chars[i].0 }
+}
+
+/// Move to the start of the current or previous word (vim `b`).
+fn word_bwd(text: &str, pos: usize) -> usize {
+    if pos == 0 {
+        return 0;
+    }
+    let chars: Vec<(usize, char)> = text.char_indices().collect();
+    let ci = match chars.iter().rposition(|(i, _)| *i < pos) {
+        Some(i) => i,
+        None => return 0,
+    };
+    let mut i = ci as isize;
+    while i >= 0 && chars[i as usize].1.is_whitespace() {
+        i -= 1;
+    }
+    if i < 0 {
+        return 0;
+    }
+    if is_word_char(chars[i as usize].1) {
+        while i > 0 && is_word_char(chars[(i - 1) as usize].1) {
+            i -= 1;
+        }
+    } else {
+        while i > 0
+            && !is_word_char(chars[(i - 1) as usize].1)
+            && !chars[(i - 1) as usize].1.is_whitespace()
+        {
+            i -= 1;
+        }
+    }
+    chars[i as usize].0
+}
+
+/// Move to the end of the current or next word (vim `e`).
+fn word_end(text: &str, pos: usize) -> usize {
+    let chars: Vec<(usize, char)> = text.char_indices().collect();
+    let n = chars.len();
+    if n == 0 {
+        return 0;
+    }
+    let ci = match chars.iter().position(|(i, _)| *i >= pos) {
+        Some(i) => i,
+        None => return pos,
+    };
+    let mut i = ci + 1;
+    if i >= n {
+        return chars[n - 1].0;
+    }
+    while i < n && chars[i].1.is_whitespace() {
+        i += 1;
+    }
+    if i >= n {
+        return chars[n - 1].0;
+    }
+    if is_word_char(chars[i].1) {
+        while i + 1 < n && is_word_char(chars[i + 1].1) {
+            i += 1;
+        }
+    } else {
+        while i + 1 < n && !is_word_char(chars[i + 1].1) && !chars[i + 1].1.is_whitespace() {
+            i += 1;
+        }
+    }
+    chars[i].0
+}
+
+/// Move to the start of the next WORD (vim `W`).
+fn big_word_fwd(text: &str, pos: usize) -> usize {
+    let chars: Vec<(usize, char)> = text.char_indices().collect();
+    let n = chars.len();
+    let ci = match chars.iter().position(|(i, _)| *i >= pos) {
+        Some(i) => i,
+        None => return pos,
+    };
+    let mut i = ci;
+    while i < n && !chars[i].1.is_whitespace() {
+        i += 1;
+    }
+    while i < n && chars[i].1.is_whitespace() {
+        i += 1;
+    }
+    if i >= n { text.len() } else { chars[i].0 }
+}
+
+/// Move to the start of the current or previous WORD (vim `B`).
+fn big_word_bwd(text: &str, pos: usize) -> usize {
+    if pos == 0 {
+        return 0;
+    }
+    let chars: Vec<(usize, char)> = text.char_indices().collect();
+    let ci = match chars.iter().rposition(|(i, _)| *i < pos) {
+        Some(i) => i,
+        None => return 0,
+    };
+    let mut i = ci as isize;
+    while i >= 0 && chars[i as usize].1.is_whitespace() {
+        i -= 1;
+    }
+    if i < 0 {
+        return 0;
+    }
+    while i > 0 && !chars[(i - 1) as usize].1.is_whitespace() {
+        i -= 1;
+    }
+    chars[i as usize].0
+}
+
+/// Move to the end of the current or next WORD (vim `E`).
+fn big_word_end(text: &str, pos: usize) -> usize {
+    let chars: Vec<(usize, char)> = text.char_indices().collect();
+    let n = chars.len();
+    if n == 0 {
+        return 0;
+    }
+    let ci = match chars.iter().position(|(i, _)| *i >= pos) {
+        Some(i) => i,
+        None => return pos,
+    };
+    let mut i = ci + 1;
+    if i >= n {
+        return chars[n - 1].0;
+    }
+    while i < n && chars[i].1.is_whitespace() {
+        i += 1;
+    }
+    if i >= n {
+        return chars[n - 1].0;
+    }
+    while i + 1 < n && !chars[i + 1].1.is_whitespace() {
+        i += 1;
+    }
+    chars[i].0
+}
+
+/// Find the byte position of the next occurrence of `c` at or after `from`.
+fn find_next_char(text: &str, from: usize, c: char) -> Option<usize> {
+    text[from..]
+        .char_indices()
+        .find(|(_, ch)| *ch == c)
+        .map(|(offset, _)| from + offset)
+}
+
+/// Find the byte position of the last occurrence of `c` strictly before `before`.
+fn find_prev_char(text: &str, before: usize, c: char) -> Option<usize> {
+    text[..before]
+        .char_indices()
+        .filter(|(_, ch)| *ch == c)
+        .last()
+        .map(|(offset, _)| offset)
 }
 
 #[cfg(test)]
@@ -253,7 +693,8 @@ mod tests {
         let e = FieldEditorState::new("title", "hello");
         assert_eq!(e.field_name, "title");
         assert_eq!(e.value, "hello");
-        assert_eq!(e.cursor, 5);
+        assert_eq!(e.cursor, 4); // Normal mode: cursor on last char 'o' at byte 4
+        assert_eq!(e.editing_mode, EditingMode::Normal);
         assert!(!e.is_new);
         assert!(!e.editing_name);
     }
@@ -286,6 +727,7 @@ mod tests {
     #[test]
     fn test_push_char_value() {
         let mut e = FieldEditorState::new("title", "ab");
+        e.cursor = e.value.len(); // position at end as if in insert mode
         e.push_char('c');
         assert_eq!(e.value, "abc");
         assert_eq!(e.cursor, 3);
@@ -302,6 +744,7 @@ mod tests {
     #[test]
     fn test_backspace_value() {
         let mut e = FieldEditorState::new("title", "abc");
+        e.cursor = e.value.len(); // position at end
         e.backspace();
         assert_eq!(e.value, "ab");
         assert_eq!(e.cursor, 2);
@@ -336,18 +779,19 @@ mod tests {
     #[test]
     fn test_delete_at_end_is_noop() {
         let mut e = FieldEditorState::new("title", "abc");
-        e.delete(); // cursor at end
+        e.cursor = e.value.len(); // position past end — delete is a noop
+        e.delete();
         assert_eq!(e.value, "abc");
     }
 
     #[test]
     fn test_cursor_left_right() {
         let mut e = FieldEditorState::new("title", "abc");
-        assert_eq!(e.cursor, 3);
+        assert_eq!(e.cursor, 2); // Normal mode: last char 'c' at byte 2
         e.cursor_left();
-        assert_eq!(e.cursor, 2);
+        assert_eq!(e.cursor, 1);
         e.cursor_right();
-        assert_eq!(e.cursor, 3);
+        assert_eq!(e.cursor, 2); // Normal mode: stops at last char
     }
 
     #[test]
@@ -361,8 +805,9 @@ mod tests {
     #[test]
     fn test_cursor_right_clamps() {
         let mut e = FieldEditorState::new("title", "abc");
-        e.cursor_right(); // already at end
-        assert_eq!(e.cursor, 3);
+        // Normal mode: cursor starts on last char (byte 2); cursor_right stays there
+        e.cursor_right();
+        assert_eq!(e.cursor, 2);
     }
 
     #[test]
@@ -371,7 +816,7 @@ mod tests {
         e.cursor_home();
         assert_eq!(e.cursor, 0);
         e.cursor_end();
-        assert_eq!(e.cursor, 3);
+        assert_eq!(e.cursor, 2); // Normal mode: end lands on last char 'c' at byte 2
     }
 
     #[test]
@@ -653,6 +1098,213 @@ mod tests {
         assert!(e.is_path);
     }
 
+    // ── EditingMode and vim motions ──────────────────────────────────────────
+
+    #[test]
+    fn test_default_editing_mode_is_normal() {
+        let e = FieldEditorState::new("title", "hello");
+        assert_eq!(e.editing_mode, EditingMode::Normal);
+    }
+
+    #[test]
+    fn test_enter_normal_clamps_cursor() {
+        let mut e = FieldEditorState::new("title", "abc");
+        // cursor starts at 3 (past end); enter_normal should clamp to 2
+        e.enter_normal();
+        assert_eq!(e.editing_mode, EditingMode::Normal);
+        assert_eq!(e.cursor, 2); // last char 'c' is at byte 2
+    }
+
+    #[test]
+    fn test_enter_normal_empty_text() {
+        let mut e = FieldEditorState::new("title", "");
+        e.enter_normal();
+        assert_eq!(e.editing_mode, EditingMode::Normal);
+        assert_eq!(e.cursor, 0);
+    }
+
+    #[test]
+    fn test_enter_normal_noop_on_editing_name() {
+        let mut e = FieldEditorState::new_field();
+        // new_field starts in Normal; force Insert to verify enter_normal is truly a noop
+        e.editing_mode = EditingMode::Insert;
+        e.enter_normal(); // should have no effect during name editing
+        assert_eq!(e.editing_mode, EditingMode::Insert);
+    }
+
+    #[test]
+    fn test_cursor_right_normal_clamps_at_last_char() {
+        let mut e = FieldEditorState::new("title", "abc");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor = 1; // on 'b'
+        e.cursor_right(); // advances to 'c' at byte 2
+        assert_eq!(e.cursor, 2);
+        e.cursor_right(); // already at last char; should stay
+        assert_eq!(e.cursor, 2);
+    }
+
+    #[test]
+    fn test_cursor_end_normal_lands_on_last_char() {
+        let mut e = FieldEditorState::new("title", "hello");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor_end();
+        assert_eq!(e.cursor, 4); // 'o' is at byte 4
+    }
+
+    #[test]
+    fn test_cursor_end_insert_past_last_char() {
+        let mut e = FieldEditorState::new("title", "hello");
+        e.editing_mode = EditingMode::Insert;
+        e.cursor = e.value.len();
+        // Insert mode: cursor_end goes to len
+        e.cursor_end();
+        assert_eq!(e.cursor, 5);
+    }
+
+    // ── word_fwd ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_word_fwd_basic() {
+        assert_eq!(word_fwd("hello world", 0), 6); // start of 'world'
+        assert_eq!(word_fwd("hello world", 4), 6); // from 'o', skip to 'world'
+    }
+
+    #[test]
+    fn test_word_fwd_from_space() {
+        assert_eq!(word_fwd("hello  world", 5), 7); // from first space to 'world'
+    }
+
+    #[test]
+    fn test_word_fwd_at_end() {
+        // At last char with no next word: raw function returns text.len();
+        // move_word_fwd() clamps this to the last char via clamp_normal.
+        let text = "hello";
+        assert_eq!(word_fwd(text, 4), text.len()); // no next word → past end
+        // method-level clamping is tested in test_move_word_fwd
+    }
+
+    #[test]
+    fn test_word_fwd_empty() {
+        assert_eq!(word_fwd("", 0), 0);
+    }
+
+    // ── word_bwd ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_word_bwd_basic() {
+        assert_eq!(word_bwd("hello world", 8), 6); // from 'r' to start of 'world'
+        assert_eq!(word_bwd("hello world", 6), 0); // from 'w' to start of 'hello'
+    }
+
+    #[test]
+    fn test_word_bwd_from_space() {
+        assert_eq!(word_bwd("hello world", 5), 0); // from space to start of 'hello'
+    }
+
+    #[test]
+    fn test_word_bwd_at_start() {
+        assert_eq!(word_bwd("hello", 0), 0);
+    }
+
+    // ── word_end ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_word_end_basic() {
+        assert_eq!(word_end("hello world", 0), 4); // end of 'hello'
+        assert_eq!(word_end("hello world", 4), 10); // from end of 'hello' to end of 'world'
+    }
+
+    #[test]
+    fn test_word_end_at_last_char() {
+        assert_eq!(word_end("hello", 4), 4); // already at last char
+    }
+
+    // ── big_word_fwd ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_big_word_fwd_basic() {
+        assert_eq!(big_word_fwd("hello world", 0), 6); // to 'world'
+        assert_eq!(big_word_fwd("foo.bar baz", 0), 8); // foo.bar is one WORD
+    }
+
+    #[test]
+    fn test_big_word_fwd_at_end() {
+        // Same as word_fwd: raw function returns text.len() when no next WORD.
+        let text = "hello";
+        assert_eq!(big_word_fwd(text, 4), text.len());
+    }
+
+    // ── big_word_bwd ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_big_word_bwd_basic() {
+        assert_eq!(big_word_bwd("hello world", 8), 6); // from 'r' to start of 'world'
+        assert_eq!(big_word_bwd("foo.bar baz", 9), 8); // from 'a' in 'baz' to 'b'
+    }
+
+    // ── big_word_end ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_big_word_end_basic() {
+        assert_eq!(big_word_end("foo.bar baz", 0), 6); // end of 'foo.bar' WORD
+    }
+
+    // ── method wrappers ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_move_word_fwd() {
+        let mut e = FieldEditorState::new("title", "hello world");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor = 0;
+        e.move_word_fwd();
+        assert_eq!(e.cursor, 6); // start of 'world'
+    }
+
+    #[test]
+    fn test_move_word_bwd() {
+        let mut e = FieldEditorState::new("title", "hello world");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor = 8; // in 'world'
+        e.move_word_bwd();
+        assert_eq!(e.cursor, 6); // start of 'world'
+    }
+
+    #[test]
+    fn test_move_word_end() {
+        let mut e = FieldEditorState::new("title", "hello world");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor = 0;
+        e.move_word_end();
+        assert_eq!(e.cursor, 4); // end of 'hello'
+    }
+
+    #[test]
+    fn test_move_big_word_fwd() {
+        let mut e = FieldEditorState::new("title", "foo.bar baz");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor = 0;
+        e.move_big_word_fwd();
+        assert_eq!(e.cursor, 8); // start of 'baz'
+    }
+
+    #[test]
+    fn test_move_big_word_bwd() {
+        let mut e = FieldEditorState::new("title", "foo.bar baz");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor = 8;
+        e.move_big_word_bwd();
+        assert_eq!(e.cursor, 0); // start of 'foo.bar'
+    }
+
+    #[test]
+    fn test_move_big_word_end() {
+        let mut e = FieldEditorState::new("title", "foo.bar baz");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor = 0;
+        e.move_big_word_end();
+        assert_eq!(e.cursor, 6); // end of 'foo.bar'
+    }
+
     #[test]
     fn test_advance_phase_sets_editing_name_false() {
         let mut e = FieldEditorState::new_field();
@@ -665,6 +1317,251 @@ mod tests {
         assert!(!e.editing_name);
         // Note: advance_phase itself does not set is_month — that is done
         // by App::confirm_edit after the phase transition.
+    }
+
+    // ── delete_to_end ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_delete_to_end_from_middle() {
+        let mut e = FieldEditorState::new("f", "hello world");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor = 5; // space before "world"
+        e.delete_to_end();
+        assert_eq!(e.value, "hello");
+        assert_eq!(e.unnamed_register, " world");
+        assert_eq!(e.cursor, 4); // clamped to last char 'o'
+    }
+
+    #[test]
+    fn test_delete_to_end_from_last_char() {
+        let mut e = FieldEditorState::new("f", "abc");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor = 2; // 'c'
+        e.delete_to_end();
+        assert_eq!(e.value, "ab");
+        assert_eq!(e.unnamed_register, "c");
+        assert_eq!(e.cursor, 1); // clamped to 'b'
+    }
+
+    #[test]
+    fn test_delete_to_end_from_start() {
+        let mut e = FieldEditorState::new("f", "abc");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor = 0;
+        e.delete_to_end();
+        assert_eq!(e.value, "");
+        assert_eq!(e.unnamed_register, "abc");
+        assert_eq!(e.cursor, 0);
+    }
+
+    // ── clear_value ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_clear_value() {
+        let mut e = FieldEditorState::new("f", "hello");
+        e.cursor = 3;
+        e.clear_value();
+        assert_eq!(e.value, "");
+        assert_eq!(e.unnamed_register, "hello");
+        assert_eq!(e.cursor, 0);
+    }
+
+    // ── toggle_case_at_cursor ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_toggle_case_lowercase_to_upper() {
+        let mut e = FieldEditorState::new("f", "hello");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor = 0;
+        e.toggle_case_at_cursor();
+        assert_eq!(e.value, "Hello");
+        assert_eq!(e.cursor, 1); // advanced past 'H'
+    }
+
+    #[test]
+    fn test_toggle_case_uppercase_to_lower() {
+        let mut e = FieldEditorState::new("f", "Hello");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor = 0;
+        e.toggle_case_at_cursor();
+        assert_eq!(e.value, "hello");
+        assert_eq!(e.cursor, 1);
+    }
+
+    #[test]
+    fn test_toggle_case_at_last_char_clamps() {
+        let mut e = FieldEditorState::new("f", "ab");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor = 1; // 'b' — last char
+        e.toggle_case_at_cursor();
+        assert_eq!(e.value, "aB");
+        assert_eq!(e.cursor, 1); // clamped at last char
+    }
+
+    #[test]
+    fn test_toggle_case_noop_on_empty() {
+        let mut e = FieldEditorState::new("f", "");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor = 0;
+        e.toggle_case_at_cursor(); // should not panic
+        assert_eq!(e.value, "");
+    }
+
+    // ── replace_char_at_cursor ────────────────────────────────────────────────
+
+    #[test]
+    fn test_replace_char_at_cursor() {
+        let mut e = FieldEditorState::new("f", "abc");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor = 1; // 'b'
+        e.replace_char_at_cursor('X');
+        assert_eq!(e.value, "aXc");
+        assert_eq!(e.cursor, 1); // stays on replaced char
+    }
+
+    #[test]
+    fn test_replace_char_at_last_char() {
+        let mut e = FieldEditorState::new("f", "abc");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor = 2; // 'c'
+        e.replace_char_at_cursor('Z');
+        assert_eq!(e.value, "abZ");
+        assert_eq!(e.cursor, 2);
+    }
+
+    #[test]
+    fn test_replace_char_noop_on_empty() {
+        let mut e = FieldEditorState::new("f", "");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor = 0;
+        e.replace_char_at_cursor('X'); // should not panic
+        assert_eq!(e.value, "");
+    }
+
+    // ── find_char_fwd / find_char_bwd ─────────────────────────────────────────
+
+    #[test]
+    fn test_find_char_fwd_basic() {
+        let mut e = FieldEditorState::new("f", "abcabc");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor = 0; // 'a'
+        e.find_char_fwd('b');
+        assert_eq!(e.cursor, 1); // first 'b'
+    }
+
+    #[test]
+    fn test_find_char_fwd_skips_current() {
+        let mut e = FieldEditorState::new("f", "abab");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor = 0; // first 'a'
+        e.find_char_fwd('a');
+        assert_eq!(e.cursor, 2); // second 'a'
+    }
+
+    #[test]
+    fn test_find_char_fwd_no_match_stays() {
+        let mut e = FieldEditorState::new("f", "abc");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor = 0;
+        e.find_char_fwd('z');
+        assert_eq!(e.cursor, 0); // unchanged
+    }
+
+    #[test]
+    fn test_find_char_bwd_basic() {
+        let mut e = FieldEditorState::new("f", "abcabc");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor = 4; // second 'b'
+        e.find_char_bwd('a');
+        assert_eq!(e.cursor, 3); // second 'a'
+    }
+
+    #[test]
+    fn test_find_char_bwd_no_match_stays() {
+        let mut e = FieldEditorState::new("f", "abc");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor = 2;
+        e.find_char_bwd('z');
+        assert_eq!(e.cursor, 2); // unchanged
+    }
+
+    // ── delete_word_back ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_delete_word_back_basic() {
+        let mut e = FieldEditorState::new("f", "hello world");
+        e.editing_mode = EditingMode::Insert;
+        e.cursor = 11; // end of "world"
+        e.delete_word_back();
+        assert_eq!(e.value, "hello ");
+        assert_eq!(e.unnamed_register, "world");
+        assert_eq!(e.cursor, 6);
+    }
+
+    #[test]
+    fn test_delete_word_back_at_start_is_noop() {
+        let mut e = FieldEditorState::new("f", "hello");
+        e.editing_mode = EditingMode::Insert;
+        e.cursor = 0;
+        e.delete_word_back();
+        assert_eq!(e.value, "hello");
+        assert_eq!(e.cursor, 0);
+    }
+
+    // ── delete_to_home ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_delete_to_home_basic() {
+        let mut e = FieldEditorState::new("f", "hello world");
+        e.editing_mode = EditingMode::Insert;
+        e.cursor = 5;
+        e.delete_to_home();
+        assert_eq!(e.value, " world");
+        assert_eq!(e.unnamed_register, "hello");
+        assert_eq!(e.cursor, 0);
+    }
+
+    #[test]
+    fn test_delete_to_home_at_start_is_noop() {
+        let mut e = FieldEditorState::new("f", "hello");
+        e.editing_mode = EditingMode::Insert;
+        e.cursor = 0;
+        e.delete_to_home();
+        assert_eq!(e.value, "hello");
+        assert_eq!(e.cursor, 0);
+    }
+
+    // ── find_next_char / find_prev_char helpers ───────────────────────────────
+
+    #[test]
+    fn test_find_next_char_basic() {
+        assert_eq!(find_next_char("hello", 0, 'l'), Some(2));
+    }
+
+    #[test]
+    fn test_find_next_char_from_mid() {
+        assert_eq!(find_next_char("hello", 3, 'l'), Some(3));
+    }
+
+    #[test]
+    fn test_find_next_char_no_match() {
+        assert_eq!(find_next_char("hello", 0, 'z'), None);
+    }
+
+    #[test]
+    fn test_find_prev_char_basic() {
+        assert_eq!(find_prev_char("hello", 5, 'l'), Some(3));
+    }
+
+    #[test]
+    fn test_find_prev_char_excludes_pos() {
+        // strictly before pos=3 — should find position 2
+        assert_eq!(find_prev_char("hello", 3, 'l'), Some(2));
+    }
+
+    #[test]
+    fn test_find_prev_char_no_match() {
+        assert_eq!(find_prev_char("hello", 5, 'z'), None);
     }
 }
 
@@ -681,19 +1578,25 @@ pub fn render_field_editor(
 ) {
     let editor_width = (area.width.saturating_sub(4)).min(70);
     let x = area.x + (area.width.saturating_sub(editor_width)) / 2;
-    // Month mode needs 2 extra rows for the month grid.
-    let editor_height: u16 = if state.is_month { 6 } else { 4 };
+    // Month mode needs 4 inner rows (text + grid row 1 + grid row 2 + hint).
+    let editor_height: u16 = if state.is_month { 6 } else { 3 };
     let y = area.y + area.height / 2 - editor_height / 2;
     let editor_area = Rect::new(x, y, editor_width, editor_height);
 
     f.render_widget(Clear, editor_area);
 
-    let title = if state.is_new && state.editing_name {
-        " New Field — Enter name ".to_string()
-    } else if state.is_new {
-        format!(" New Field '{}' — Enter value ", state.field_name)
+    // Append "— INSERT" to the title when in Insert mode (not editing field name).
+    let mode_suffix = if state.editing_mode == EditingMode::Insert && !state.editing_name {
+        " \u{2014} INSERT"
     } else {
-        format!(" Edit: {} ", state.field_name)
+        ""
+    };
+    let title = if state.is_new && state.editing_name {
+        " New Field \u{2014} Enter name ".to_string()
+    } else if state.is_new {
+        format!(" New Field '{}' \u{2014} Enter value{} ", state.field_name, mode_suffix)
+    } else {
+        format!(" Edit: {}{} ", state.field_name, mode_suffix)
     };
 
     let block = Block::default()
@@ -797,23 +1700,6 @@ pub fn render_field_editor(
     }
     let line = Line::from(spans);
 
-    let has_completions = !state.completions.is_empty() && !state.is_path;
-    let hint = if state.is_month {
-        Line::from(Span::styled(" Tab: cycle month  Enter: save  Esc: cancel", theme.label))
-    } else if state.is_new && state.editing_name {
-        if has_completions {
-            Line::from(Span::styled(" Tab: complete  Enter: next  Esc: cancel", theme.label))
-        } else {
-            Line::from(Span::styled(" Enter: next  Esc: cancel", theme.label))
-        }
-    } else if state.is_path {
-        Line::from(Span::styled(" Tab: complete  Enter: save  Esc: cancel", theme.label))
-    } else if has_completions {
-        Line::from(Span::styled(" Tab: complete  Enter: save  Esc: cancel", theme.label))
-    } else {
-        Line::from(Span::styled(" Enter: save  Esc: cancel", theme.label))
-    };
-
     if state.is_month {
         // Determine which month to highlight: exact value match takes priority,
         // then the current completion selection.
@@ -841,6 +1727,7 @@ pub fn render_field_editor(
             Line::from(spans)
         };
 
+        let hint = Line::from(Span::styled(" Tab: cycle month  Enter: save  Esc: cancel", theme.label));
         let para = Paragraph::new(vec![
             line,
             month_row(&MONTHS[..6]),
@@ -849,7 +1736,7 @@ pub fn render_field_editor(
         ]);
         f.render_widget(para, inner);
     } else {
-        let para = Paragraph::new(vec![line, hint]);
+        let para = Paragraph::new(vec![line]);
         f.render_widget(para, inner);
     }
 }
