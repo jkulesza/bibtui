@@ -168,7 +168,7 @@ The detail header shows the entry type and its currently assigned groups.
 | `Enter` | Confirm edit |
 | `Esc` | Cancel edit |
 
-Long values scroll horizontally; `<` and `>` at the edges indicate hidden text.
+Long values scroll horizontally; `<` and `>` at the edges indicate hidden text.  The cursor is kept near the visual midpoint: it moves freely between the nearest edge and the centre, then the text scrolls while the cursor stays fixed at the centre.
 
 **Month field selector:** editing a `month` field shows a visual 2×6 grid of the
 standard BibTeX abbreviations (`jan`–`dec`). Use `←`/`→` to step one month,
@@ -337,7 +337,7 @@ PDF candidates are tried in order (Unpaywall OA → publisher PDF → ANS direct
 cargo test
 ```
 
-All 905 tests pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, journal abbreviation, TUI component state machines, config loading, and import pipeline). Line coverage: ~76%.
+All 940 tests pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, journal abbreviation, TUI component state machines, config loading, and import pipeline). Line coverage: ~77%.
 
 Coverage analysis runs automatically in CI via `cargo-llvm-cov`. To run locally:
 
@@ -346,6 +346,16 @@ cargo llvm-cov --workspace --summary-only
 ```
 
 ## Changelog
+
+### 0.31.0
+
+- **Symmetric centered-cursor scrolling in the field editor**: the text cursor now starts at the right edge of the field when editing a long value; pressing `←` moves the cursor left toward the visual centre, then the text scrolls while the cursor stays fixed at the midpoint; the same behaviour applies from the left edge when pressing `→`; this keeps context visible on both sides of the cursor at all times
+- **Author initial spacing**: the `a` (normalize author) command now separates run-together initials — e.g. `G.H. Smith` → `Smith, G. H.`
+- **Expanded test coverage**: 940 tests, ~77% line coverage; new tests cover `@Comment`/`@Preamble`/`@String` parsing, unterminated-content errors, concatenated field values, JabRef group edge cases (unknown type, no-colon lines, non-numeric depth, lowercase `@comment`), display/unclosed math, trailing script triggers, unclosed text commands, and all keybinding modes
+
+### 0.30.0
+
+- See 0.31.0 (0.30.0 and 0.31.0 were developed together and released as 0.31.0)
 
 ### 0.29.0
 
