@@ -710,24 +710,34 @@ pub fn render_field_editor(
         (&state.value, state.cursor)
     };
 
-    // Horizontal scrolling: keep cursor visible within the inner width.
-    // Step 1: tentative scroll assuming full width (to detect left overflow).
+    // Horizontal scrolling: keep the cursor near the visual midpoint with
+    // symmetric edge behaviour.
+    //
+    //  • Near the left  edge: cursor moves freely from position 0 to center;
+    //    text then scrolls while the cursor stays at center.
+    //  • Near the right edge: cursor moves freely from text_w-1 to center;
+    //    text then scrolls while the cursor stays at center.
+    //
+    // This is achieved by clamping scroll_chars between two limits:
+    //   lower: cursor_char_idx - center  (don't let cursor drift left of center)
+    //   upper: total_chars - (text_w-1)  (don't let cursor drift right of right edge)
+    //
+    // Step 1: tentative scroll using full width to detect left overflow.
     let inner_w = inner.width as usize;
     let cursor_char_idx = text[..cursor_pos].chars().count();
-    let tentative_scroll = if cursor_char_idx + 1 > inner_w {
-        cursor_char_idx + 1 - inner_w
-    } else {
-        0
-    };
+    let total_chars = text.chars().count();
+    let tentative_center = inner_w / 2;
+    let tentative_scroll = cursor_char_idx
+        .saturating_sub(tentative_center)
+        .min(total_chars.saturating_sub(inner_w.saturating_sub(1)));
     let has_left = tentative_scroll > 0;
 
-    // Step 2: reserve 1 col for left indicator when scrolled, then recompute scroll.
+    // Step 2: reserve 1 col for '<' if needed, then recompute with both clamps.
     let text_w = if has_left { inner_w - 1 } else { inner_w };
-    let scroll_chars = if cursor_char_idx + 1 > text_w {
-        cursor_char_idx + 1 - text_w
-    } else {
-        0
-    };
+    let center = text_w / 2;
+    let scroll_chars = cursor_char_idx
+        .saturating_sub(center)
+        .min(total_chars.saturating_sub(text_w.saturating_sub(1)));
     let scroll_byte = text
         .char_indices()
         .nth(scroll_chars)
