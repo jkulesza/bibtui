@@ -472,4 +472,38 @@ mod tests {
         assert_eq!(render_latex("{\\AE}"), "Æ");
         assert_eq!(render_latex("{\\o}"), "ø");
     }
+
+    #[test]
+    fn test_display_math() {
+        // $$...$$ display math: the second opening $ is consumed (line 208).
+        // The inner content is rendered; the trailing $ from $$-closing is a known
+        // edge case of the simple parser.
+        let result = render_latex("$$\\alpha$$");
+        assert!(result.contains('α'), "expected alpha symbol, got: {}", result);
+    }
+
+    #[test]
+    fn test_unclosed_math() {
+        // A lone $ with no closing $ should pass the dollar sign and content through unchanged
+        let result = render_latex("$x^2");
+        assert!(result.contains('$'));
+    }
+
+    #[test]
+    fn test_trailing_script_trigger() {
+        // A ^ or _ at the very end of math content (no following character) should
+        // emit the trigger character rather than panic or silently drop it
+        let result = render_latex("$x^");
+        assert!(result.contains('^'));
+        let result = render_latex("$x_");
+        assert!(result.contains('_'));
+    }
+
+    #[test]
+    fn test_unclosed_text_command() {
+        // \textit{ with no closing brace — strip_command_braces should push the
+        // remaining content and return rather than looping forever
+        let result = render_latex("\\textit{unclosed");
+        assert!(result.contains("unclosed"));
+    }
 }

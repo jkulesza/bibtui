@@ -500,6 +500,86 @@ mod tests {
         assert_eq!(map_key(key(KeyCode::Char('I')), &InputMode::Settings, None, false), Some(Action::SettingsImport));
     }
 
+    #[test]
+    fn test_normal_mode_extra_keys() {
+        assert_eq!(map_key(key(KeyCode::Char(' ')), &InputMode::Normal, None, false), Some(Action::ShowCitationPreview));
+        assert_eq!(map_key(key(KeyCode::Char('o')), &InputMode::Normal, None, false), Some(Action::OpenFile));
+        assert_eq!(map_key(key(KeyCode::Char('w')), &InputMode::Normal, None, false), Some(Action::OpenWeb));
+        assert_eq!(map_key(key(KeyCode::Char('v')), &InputMode::Normal, None, false), Some(Action::Validate));
+        // Unknown key → None
+        assert_eq!(map_key(key(KeyCode::F(1)), &InputMode::Normal, None, false), None);
+    }
+
+    #[test]
+    fn test_search_mode_unknown_key() {
+        assert_eq!(map_key(key(KeyCode::F(1)), &InputMode::Search, None, false), None);
+    }
+
+    #[test]
+    fn test_detail_mode_extra_keys() {
+        assert_eq!(map_key(key(KeyCode::Char('o')), &InputMode::Detail, None, false), Some(Action::OpenFile));
+        assert_eq!(map_key(key(KeyCode::Char('w')), &InputMode::Detail, None, false), Some(Action::OpenWeb));
+        assert_eq!(map_key(key(KeyCode::Char('L')), &InputMode::Detail, None, false), Some(Action::ToggleLatex));
+        assert_eq!(map_key(key(KeyCode::Char('B')), &InputMode::Detail, None, false), Some(Action::ToggleBraces));
+    }
+
+    // ── DetailSearch mode ──
+
+    #[test]
+    fn test_detail_search_mode() {
+        assert_eq!(map_key(key(KeyCode::Esc),       &InputMode::DetailSearch, None, false), Some(Action::ExitDetailSearch));
+        assert_eq!(map_key(key(KeyCode::Enter),     &InputMode::DetailSearch, None, false), Some(Action::ExitDetailSearch));
+        assert_eq!(map_key(key(KeyCode::Backspace), &InputMode::DetailSearch, None, false), Some(Action::DetailSearchBackspace));
+        assert_eq!(map_key(key(KeyCode::Char('a')), &InputMode::DetailSearch, None, false), Some(Action::DetailSearchChar('a')));
+        assert_eq!(map_key(key(KeyCode::F(1)),      &InputMode::DetailSearch, None, false), None);
+    }
+
+    // ── Help mode ──
+
+    #[test]
+    fn test_help_mode() {
+        // Any key in Help mode closes help
+        assert_eq!(map_key(key(KeyCode::Esc),       &InputMode::Help, None, false), Some(Action::CloseHelp));
+        assert_eq!(map_key(key(KeyCode::Char('q')), &InputMode::Help, None, false), Some(Action::CloseHelp));
+    }
+
+    // ── Dialog mode (catch-all) ──
+
+    #[test]
+    fn test_dialog_unknown_key() {
+        assert_eq!(map_key(key(KeyCode::F(1)), &InputMode::Dialog, None, false), None);
+    }
+
+    // ── Command mode ──
+
+    #[test]
+    fn test_command_mode_extra_keys() {
+        assert_eq!(map_key(key(KeyCode::Tab),   &InputMode::Command, None, false), Some(Action::CommandTabComplete));
+        assert_eq!(map_key(key(KeyCode::F(1)),  &InputMode::Command, None, false), None);
+    }
+
+    // ── Settings mode (field group operations) ──
+
+    #[test]
+    fn test_settings_mode_field_group_ops() {
+        assert_eq!(map_key(key(KeyCode::Char('a')), &InputMode::Settings, None, false), Some(Action::SettingsAddFieldGroup));
+        assert_eq!(map_key(key(KeyCode::Char('x')), &InputMode::Settings, None, false), Some(Action::SettingsDeleteFieldGroup));
+        assert_eq!(map_key(key(KeyCode::Char('r')), &InputMode::Settings, None, false), Some(Action::SettingsRenameFieldGroup));
+    }
+
+    // ── ValidateResults mode ──
+
+    #[test]
+    fn test_validate_results_mode() {
+        assert_eq!(map_key(key(KeyCode::Char('j')), &InputMode::ValidateResults, None, false), Some(Action::MoveDown));
+        assert_eq!(map_key(key(KeyCode::Down),      &InputMode::ValidateResults, None, false), Some(Action::MoveDown));
+        assert_eq!(map_key(key(KeyCode::Char('k')), &InputMode::ValidateResults, None, false), Some(Action::MoveUp));
+        assert_eq!(map_key(key(KeyCode::Up),        &InputMode::ValidateResults, None, false), Some(Action::MoveUp));
+        assert_eq!(map_key(key(KeyCode::Esc),       &InputMode::ValidateResults, None, false), Some(Action::CloseValidateResults));
+        assert_eq!(map_key(key(KeyCode::Char('q')), &InputMode::ValidateResults, None, false), Some(Action::CloseValidateResults));
+        assert_eq!(map_key(key(KeyCode::F(1)),      &InputMode::ValidateResults, None, false), None);
+    }
+
     // ── CitationPreview mode ──
 
     #[test]
@@ -511,6 +591,14 @@ mod tests {
         assert_eq!(
             map_key(key(KeyCode::Char('q')), &InputMode::CitationPreview, None, false),
             Some(Action::CloseCitationPreview)
+        );
+        assert_eq!(
+            map_key(key(KeyCode::Char('j')), &InputMode::CitationPreview, None, false),
+            Some(Action::MoveDown)
+        );
+        assert_eq!(
+            map_key(key(KeyCode::Char('k')), &InputMode::CitationPreview, None, false),
+            Some(Action::MoveUp)
         );
     }
 

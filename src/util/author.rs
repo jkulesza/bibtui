@@ -3,6 +3,9 @@
 /// BibTeX separates multiple authors with ` and ` (case-sensitive).
 /// Individual names may be in "First Last" or canonical "Last, First" form.
 
+use regex::Regex;
+use std::sync::OnceLock;
+
 /// Extract the last name from a single BibTeX author name.
 fn last_name(author: &str) -> &str {
     let author = author.trim();
@@ -95,8 +98,24 @@ fn tokenize_name(name: &str) -> Vec<String> {
     tokens
 }
 
+/// Insert a space between consecutive initials: "G.H." → "G. H.", "A.B.C." → "A. B. C."
+/// Applied outside brace groups (the regex won't match inside `{...}` in practice).
+fn separate_initials(s: &str) -> String {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    let re = RE.get_or_init(|| Regex::new(r"([A-Z]\.)([A-Z])").unwrap());
+    let mut result = s.to_string();
+    loop {
+        let next = re.replace_all(&result, "$1 $2").into_owned();
+        if next == result {
+            break;
+        }
+        result = next;
+    }
+    result
+}
+
 fn normalize_one(name: &str) -> String {
-    if has_comma_at_depth_zero(name) {
+    let converted = if has_comma_at_depth_zero(name) {
         // Already in "Last, First" form
         name.to_string()
     } else {
@@ -110,7 +129,8 @@ fn normalize_one(name: &str) -> String {
                 format!("{}, {}", last, first)
             }
         }
-    }
+    };
+    separate_initials(&converted)
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -182,5 +202,33 @@ mod tests {
             normalize_author_names("{McConn Jr.}, R. J."),
             "{McConn Jr.}, R. J."
         );
+    }
+
+    #[test]
+    fn test_separate_initials() {
+        // Two initials run together
+        assert_eq!(normalize_author_names("G.H. Smith"), "Smith, G. H.");
+        // Three initials run together
+        assert_eq!(normalize_author_names("A.B.C. Jones"), "Jones, A. B. C.");
+        // Already spaced — unchanged
+        assert_eq!(normalize_author_names("G. H. Smith"), "Smith, G. H.");
+        // Last, First form with run-together initials
+        assert_eq!(normalize_author_names("Smith, G.H."), "Smith, G. H.");
+    }
+
+    #[test]
+    fn test_abbreviate_empty() {
+        assert_eq!(abbreviate_authors(""), "");
+    }
+
+    #[test]
+    fn test_normalize_empty() {
+        assert_eq!(normalize_author_names(""), "");
+    }
+
+    #[test]
+    fn test_normalize_single_token() {
+        // A bare last name with no spaces stays as-is
+        assert_eq!(normalize_author_names("Smith"), "Smith");
     }
 }

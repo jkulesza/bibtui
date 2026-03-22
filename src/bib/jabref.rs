@@ -400,6 +400,82 @@ mod tests {
         assert!(out.contains("keywords"), "got: {}", out);
     }
 
+    #[test]
+    fn test_parse_jabref_comment_lowercase() {
+        // @comment{ (lowercase) must be handled the same as @Comment{
+        let raw = "@comment{jabref-meta: databaseType:bibtex;}";
+        let mut meta = JabRefMeta::default();
+        parse_jabref_comment(raw, &mut meta);
+        assert_eq!(meta.database_type.as_deref(), Some("bibtex"));
+    }
+
+    #[test]
+    fn test_parse_jabref_comment_unclosed() {
+        // Missing closing } — should return early without panicking
+        let raw = "@Comment{jabref-meta: databaseType:bibtex;";
+        let mut meta = JabRefMeta::default();
+        parse_jabref_comment(raw, &mut meta);
+        assert!(meta.database_type.is_none());
+    }
+
+    #[test]
+    fn test_parse_jabref_comment_non_comment_prefix() {
+        // Input that doesn't start with @Comment{ or @comment{ at all
+        let raw = "This is not a comment block";
+        let mut meta = JabRefMeta::default();
+        parse_jabref_comment(raw, &mut meta);
+        assert!(meta.database_type.is_none());
+    }
+
+    #[test]
+    fn test_parse_jabref_comment_meta_keys() {
+        for (key, value) in &[
+            ("protectedFlag", "true"),
+            ("groupsversion", "3"),
+            ("saveActions", "enabled;"),
+            ("saveOrderConfig", "specified;"),
+        ] {
+            let raw = format!("@Comment{{jabref-meta: {}:{};}}",  key, value);
+            let mut meta = JabRefMeta::default();
+            parse_jabref_comment(&raw, &mut meta);
+            match *key {
+                "protectedFlag"     => assert!(meta.protected_flag.is_some()),
+                "groupsversion"     => assert!(meta.groups_version.is_some()),
+                "saveActions"       => assert!(meta.save_actions.is_some()),
+                "saveOrderConfig"   => assert!(meta.save_order_config.is_some()),
+                _ => {}
+            }
+        }
+    }
+
+    #[test]
+    fn test_serialize_keyword_group_all_flags() {
+        // Covers the case_sensitive=true, regex=true, expanded=false branches
+        let tree = GroupTree {
+            root: GroupNode {
+                group: Group { name: "All Entries".to_string(), group_type: GroupType::AllEntries },
+                children: vec![GroupNode {
+                    group: Group {
+                        name: "Fission".to_string(),
+                        group_type: GroupType::Keyword {
+                            field: "keywords".to_string(),
+                            search_term: "fission".to_string(),
+                            case_sensitive: true,
+                            regex: true,
+                        },
+                    },
+                    children: vec![],
+                    expanded: false,
+                }],
+                expanded: true,
+            },
+        };
+        let out = serialize_group_tree(&tree);
+        assert!(out.contains("KeywordGroup:Fission"), "got: {}", out);
+        // case_sensitive=1, regex=1, expanded=0
+        assert!(out.contains("\\;1\\;1\\;0\\;"), "got: {}", out);
+    }
+
     // ── build_group_tree ──────────────────────────────────────────────────────
 
     #[test]
@@ -420,5 +496,43 @@ mod tests {
         let serialized = serialize_group_tree(&tree);
         assert!(serialized.contains("AllEntriesGroup:"));
         assert!(serialized.contains("StaticGroup:Physics"));
+    }
+
+    #[test]
+    fn test_build_group_tree_line_without_space() {
+        // A line with no space (no depth prefix) should be skipped
+        let grouping = "0 AllEntriesGroup:;\nNOSPACELINE\n1 StaticGroup:X\\;2\\;1\\;\\;\\;\\;;";
+        let mut meta = JabRefMeta::default();
+        meta.unknown_meta.insert("grouping".to_string(), grouping.to_string());
+        let tree = build_group_tree(&meta);
+        // The "NOSPACELINE" entry is skipped; the static group is still parsed
+        let names: Vec<_> = tree.root.children.iter().map(|c| c.group.name.as_str()).collect();
+        assert!(names.contains(&"X"), "got: {:?}", names);
+    }
+
+    #[test]
+    fn test_build_group_tree_non_numeric_depth() {
+        // Non-numeric depth should default to 0 (child of root)
+        let grouping = "abc AllEntriesGroup:;\n0 StaticGroup:Y\\;2\\;1\\;\\;\\;\\;;";
+        let mut meta = JabRefMeta::default();
+        meta.unknown_meta.insert("grouping".to_string(), grouping.to_string());
+        // Should not panic
+        let _tree = build_group_tree(&meta);
+    }
+
+    #[test]
+    fn test_parse_group_line_no_colon() {
+        // Line without ':' — should produce a Static group with the whole line as name
+        let node = parse_group_line("JustAName");
+        assert_eq!(node.group.name, "JustAName");
+        assert_eq!(node.group.group_type, GroupType::Static);
+    }
+
+    #[test]
+    fn test_parse_group_line_unknown_type() {
+        // Unknown type string → falls back to Static with first field as name
+        let node = parse_group_line("UnknownGroupType:MyGroup\\;2\\;1\\;\\;\\;\\;;");
+        assert_eq!(node.group.name, "MyGroup");
+        assert_eq!(node.group.group_type, GroupType::Static);
     }
 }

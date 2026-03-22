@@ -499,4 +499,94 @@ mod tests {
         let output = super::super::writer::write_bib_file(&raw);
         assert_eq!(input, output);
     }
+
+    #[test]
+    fn test_parse_braced_comment() {
+        // @Comment{...} — braced content
+        let input = "@Comment{jabref-meta: databaseType:bibtex;}\n";
+        let raw = parse_bib_file(input).unwrap();
+        let comments: Vec<_> = raw.items.iter()
+            .filter(|i| matches!(i, RawItem::Comment { .. }))
+            .collect();
+        assert_eq!(comments.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_bare_comment() {
+        // @Comment without braces — rest of line is the comment
+        let input = "@Comment This is a bare comment\n@Article{k, title = {T},}\n";
+        let raw = parse_bib_file(input).unwrap();
+        let comments: Vec<_> = raw.items.iter()
+            .filter(|i| matches!(i, RawItem::Comment { .. }))
+            .collect();
+        assert_eq!(comments.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_preamble() {
+        let input = "@Preamble{{Some preamble text}}\n";
+        let raw = parse_bib_file(input).unwrap();
+        let preambles: Vec<_> = raw.items.iter()
+            .filter(|i| matches!(i, RawItem::BibPreamble(_)))
+            .collect();
+        assert_eq!(preambles.len(), 1);
+        if let RawItem::BibPreamble(text) = &preambles[0] {
+            // take_braced_content captures the inner {…} including braces
+            assert!(text.contains("Some preamble text"), "got: {}", text);
+        }
+    }
+
+    #[test]
+    fn test_parse_string_def() {
+        let input = "@String{jnl = {Journal of Testing}}\n";
+        let raw = parse_bib_file(input).unwrap();
+        let strings: Vec<_> = raw.items.iter()
+            .filter(|i| matches!(i, RawItem::StringDef { .. }))
+            .collect();
+        assert_eq!(strings.len(), 1);
+        if let RawItem::StringDef { name, raw_value } = &strings[0] {
+            assert_eq!(name, "jnl");
+            assert!(raw_value.contains("Journal of Testing"), "got: {}", raw_value);
+        }
+    }
+
+    #[test]
+    fn test_parse_concat_value() {
+        // Value concatenated with '#'
+        let input = "@Article{k, title = {Part A} # { Part B},}\n";
+        let raw = parse_bib_file(input).unwrap();
+        if let Some(RawItem::Entry(e)) = raw.items.iter().find(|i| matches!(i, RawItem::Entry(_))) {
+            assert!(matches!(e.fields[0].value, RawFieldValue::Concat(_)));
+        }
+    }
+
+    #[test]
+    fn test_parse_unterminated_braces_errors() {
+        let input = "@Article{k, title = {unclosed\n";
+        assert!(parse_bib_file(input).is_err());
+    }
+
+    #[test]
+    fn test_parse_unterminated_quoted_errors() {
+        let input = "@Article{k, title = \"unclosed\n";
+        assert!(parse_bib_file(input).is_err());
+    }
+
+    #[test]
+    fn test_parse_quoted_escaped_char() {
+        // Escaped quote inside a quoted value
+        let input = "@Article{k, title = \"say \\\"hi\\\"\",}\n";
+        let raw = parse_bib_file(input).unwrap();
+        if let Some(RawItem::Entry(e)) = raw.items.iter().find(|i| matches!(i, RawItem::Entry(_))) {
+            assert!(matches!(e.fields[0].value, RawFieldValue::Quoted(_)));
+        }
+    }
+
+    #[test]
+    fn test_parse_entry_skips_unexpected_char() {
+        // An unexpected '!' before the field name should be skipped gracefully
+        let input = "@Article{k,\n  !title = {T},\n}\n";
+        // Should either parse (skipping '!') or error — either is acceptable, but must not panic
+        let _ = parse_bib_file(input);
+    }
 }
