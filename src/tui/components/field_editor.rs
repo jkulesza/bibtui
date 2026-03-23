@@ -487,6 +487,153 @@ impl FieldEditorState {
     pub fn move_big_word_end(&mut self) {
         self.cursor = clamp_normal(big_word_end(&self.value, self.cursor), &self.value);
     }
+
+    /// Render the floating editor overlay into `area`.
+    pub fn render(&self, f: &mut Frame, area: Rect, theme: &Theme) {
+        let editor_width = (area.width.saturating_sub(4)).min(70);
+        let x = area.x + (area.width.saturating_sub(editor_width)) / 2;
+        // Month mode needs 4 inner rows (text + grid row 1 + grid row 2 + hint).
+        let editor_height: u16 = if self.is_month { 6 } else { 3 };
+        let y = area.y + area.height / 2 - editor_height / 2;
+        let editor_area = Rect::new(x, y, editor_width, editor_height);
+
+        f.render_widget(Clear, editor_area);
+
+        // Append "— INSERT" to the title when in Insert mode (not editing field name).
+        let mode_suffix = if self.editing_mode == EditingMode::Insert && !self.editing_name {
+            " \u{2014} INSERT"
+        } else {
+            ""
+        };
+        let title = if self.is_new && self.editing_name {
+            " New Field \u{2014} Enter name ".to_string()
+        } else if self.is_new {
+            format!(" New Field '{}' \u{2014} Enter value{} ", self.field_name, mode_suffix)
+        } else {
+            format!(" Edit: {}{} ", self.field_name, mode_suffix)
+        };
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(theme.border)
+            .title(title);
+
+        let inner = block.inner(editor_area);
+        f.render_widget(block, editor_area);
+
+        let (text, cursor_pos) = if self.is_new && self.editing_name {
+            (&self.field_name, self.name_cursor)
+        } else {
+            (&self.value, self.cursor)
+        };
+
+        let inner_w = inner.width as usize;
+        let cursor_char_idx = text[..cursor_pos].chars().count();
+        let total_chars = text.chars().count();
+        let tentative_center = inner_w / 2;
+        let tentative_scroll = cursor_char_idx
+            .saturating_sub(tentative_center)
+            .min(total_chars.saturating_sub(inner_w.saturating_sub(1)));
+        let has_left = tentative_scroll > 0;
+
+        let text_w = if has_left { inner_w - 1 } else { inner_w };
+        let center = text_w / 2;
+        let scroll_chars = cursor_char_idx
+            .saturating_sub(center)
+            .min(total_chars.saturating_sub(text_w.saturating_sub(1)));
+        let scroll_byte = text
+            .char_indices()
+            .nth(scroll_chars)
+            .map(|(i, _)| i)
+            .unwrap_or(text.len());
+
+        let visible_text = &text[scroll_byte..];
+        let visible_cursor_pos = cursor_pos - scroll_byte;
+
+        let (before, after) = visible_text.split_at(visible_cursor_pos);
+        let cursor_char = after.chars().next().unwrap_or(' ');
+        let after_cursor = if after.is_empty() {
+            ""
+        } else {
+            &after[cursor_char.len_utf8()..]
+        };
+
+        let before_char_count = before.chars().count();
+        let after_max_full = text_w.saturating_sub(before_char_count + 1);
+        let has_right = after_cursor.chars().count() > after_max_full;
+        let after_max = if has_right {
+            after_max_full.saturating_sub(1)
+        } else {
+            after_max_full
+        };
+        let after_visible: String = after_cursor.chars().take(after_max).collect();
+
+        let ghost = if !has_right && after_cursor.is_empty() {
+            self.ghost_text()
+        } else {
+            String::new()
+        };
+        let chars_used = before_char_count + 1 + after_visible.chars().count();
+        let ghost_max = text_w.saturating_sub(chars_used);
+        let ghost_display: String = ghost.chars().take(ghost_max).collect();
+
+        let indicator_style = theme.label;
+        let ghost_style = Style::default().fg(Color::DarkGray).add_modifier(Modifier::DIM);
+        let mut spans: Vec<Span> = Vec::new();
+        if has_left {
+            spans.push(Span::styled("<", indicator_style));
+        }
+        spans.push(Span::raw(before.to_string()));
+        spans.push(Span::styled(
+            cursor_char.to_string(),
+            Style::default().add_modifier(Modifier::REVERSED),
+        ));
+        spans.push(Span::raw(after_visible));
+        if has_right {
+            spans.push(Span::styled(">", indicator_style));
+        } else if !ghost_display.is_empty() {
+            spans.push(Span::styled(ghost_display, ghost_style));
+        }
+        let line = Line::from(spans);
+
+        if self.is_month {
+            let value_lower = self.value.to_lowercase();
+            let highlighted: Option<&str> = if MONTHS.contains(&value_lower.as_str()) {
+                Some(value_lower.as_str())
+            } else {
+                self.completions.get(self.completion_idx).map(|s| s.as_str())
+            };
+
+            let month_row = |months: &[&str]| -> Line {
+                let mut spans: Vec<Span> = Vec::new();
+                for (i, &m) in months.iter().enumerate() {
+                    if i > 0 {
+                        spans.push(Span::raw(" "));
+                    }
+                    let is_sel = highlighted == Some(m);
+                    let style = if is_sel {
+                        theme.border.add_modifier(Modifier::REVERSED)
+                    } else {
+                        theme.label
+                    };
+                    spans.push(Span::styled(format!(" {} ", m), style));
+                }
+                Line::from(spans)
+            };
+
+            let hint = Line::from(Span::styled(" Tab: cycle month  Enter: save  Esc: cancel", theme.label));
+            let para = Paragraph::new(vec![
+                line,
+                month_row(&MONTHS[..6]),
+                month_row(&MONTHS[6..]),
+                hint,
+            ]);
+            f.render_widget(para, inner);
+        } else {
+            let para = Paragraph::new(vec![line]);
+            f.render_widget(para, inner);
+        }
+    }
 }
 
 // ── Word-motion helpers ────────────────────────────────────────────────────────
@@ -1570,173 +1717,4 @@ const MONTHS: [&str; 12] = [
     "jul", "aug", "sep", "oct", "nov", "dec",
 ];
 
-pub fn render_field_editor(
-    f: &mut Frame,
-    area: Rect,
-    state: &FieldEditorState,
-    theme: &Theme,
-) {
-    let editor_width = (area.width.saturating_sub(4)).min(70);
-    let x = area.x + (area.width.saturating_sub(editor_width)) / 2;
-    // Month mode needs 4 inner rows (text + grid row 1 + grid row 2 + hint).
-    let editor_height: u16 = if state.is_month { 6 } else { 3 };
-    let y = area.y + area.height / 2 - editor_height / 2;
-    let editor_area = Rect::new(x, y, editor_width, editor_height);
 
-    f.render_widget(Clear, editor_area);
-
-    // Append "— INSERT" to the title when in Insert mode (not editing field name).
-    let mode_suffix = if state.editing_mode == EditingMode::Insert && !state.editing_name {
-        " \u{2014} INSERT"
-    } else {
-        ""
-    };
-    let title = if state.is_new && state.editing_name {
-        " New Field \u{2014} Enter name ".to_string()
-    } else if state.is_new {
-        format!(" New Field '{}' \u{2014} Enter value{} ", state.field_name, mode_suffix)
-    } else {
-        format!(" Edit: {}{} ", state.field_name, mode_suffix)
-    };
-
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(theme.border)
-        .title(title);
-
-    let inner = block.inner(editor_area);
-    f.render_widget(block, editor_area);
-
-    let (text, cursor_pos) = if state.is_new && state.editing_name {
-        (&state.field_name, state.name_cursor)
-    } else {
-        (&state.value, state.cursor)
-    };
-
-    // Horizontal scrolling: keep the cursor near the visual midpoint with
-    // symmetric edge behaviour.
-    //
-    //  • Near the left  edge: cursor moves freely from position 0 to center;
-    //    text then scrolls while the cursor stays at center.
-    //  • Near the right edge: cursor moves freely from text_w-1 to center;
-    //    text then scrolls while the cursor stays at center.
-    //
-    // This is achieved by clamping scroll_chars between two limits:
-    //   lower: cursor_char_idx - center  (don't let cursor drift left of center)
-    //   upper: total_chars - (text_w-1)  (don't let cursor drift right of right edge)
-    //
-    // Step 1: tentative scroll using full width to detect left overflow.
-    let inner_w = inner.width as usize;
-    let cursor_char_idx = text[..cursor_pos].chars().count();
-    let total_chars = text.chars().count();
-    let tentative_center = inner_w / 2;
-    let tentative_scroll = cursor_char_idx
-        .saturating_sub(tentative_center)
-        .min(total_chars.saturating_sub(inner_w.saturating_sub(1)));
-    let has_left = tentative_scroll > 0;
-
-    // Step 2: reserve 1 col for '<' if needed, then recompute with both clamps.
-    let text_w = if has_left { inner_w - 1 } else { inner_w };
-    let center = text_w / 2;
-    let scroll_chars = cursor_char_idx
-        .saturating_sub(center)
-        .min(total_chars.saturating_sub(text_w.saturating_sub(1)));
-    let scroll_byte = text
-        .char_indices()
-        .nth(scroll_chars)
-        .map(|(i, _)| i)
-        .unwrap_or(text.len());
-
-    let visible_text = &text[scroll_byte..];
-    let visible_cursor_pos = cursor_pos - scroll_byte;
-
-    let (before, after) = visible_text.split_at(visible_cursor_pos);
-    let cursor_char = after.chars().next().unwrap_or(' ');
-    let after_cursor = if after.is_empty() {
-        ""
-    } else {
-        &after[cursor_char.len_utf8()..]
-    };
-
-    // Step 3: check right overflow, reserve 1 col for right indicator if needed.
-    let before_char_count = before.chars().count();
-    let after_max_full = text_w.saturating_sub(before_char_count + 1);
-    let has_right = after_cursor.chars().count() > after_max_full;
-    let after_max = if has_right {
-        after_max_full.saturating_sub(1)
-    } else {
-        after_max_full
-    };
-    let after_visible: String = after_cursor.chars().take(after_max).collect();
-
-    // Ghost text: the portion of the best completion not yet typed, shown
-    // only when the cursor is at the end of the active text.
-    let ghost = if !has_right && after_cursor.is_empty() {
-        state.ghost_text()
-    } else {
-        String::new()
-    };
-    let chars_used = before_char_count + 1 + after_visible.chars().count();
-    let ghost_max = text_w.saturating_sub(chars_used);
-    let ghost_display: String = ghost.chars().take(ghost_max).collect();
-
-    // Build the line with optional scroll indicators at each end.
-    let indicator_style = theme.label;
-    let ghost_style = Style::default().fg(Color::DarkGray).add_modifier(Modifier::DIM);
-    let mut spans: Vec<Span> = Vec::new();
-    if has_left {
-        spans.push(Span::styled("<", indicator_style));
-    }
-    spans.push(Span::raw(before.to_string()));
-    spans.push(Span::styled(
-        cursor_char.to_string(),
-        Style::default().add_modifier(Modifier::REVERSED),
-    ));
-    spans.push(Span::raw(after_visible));
-    if has_right {
-        spans.push(Span::styled(">", indicator_style));
-    } else if !ghost_display.is_empty() {
-        spans.push(Span::styled(ghost_display, ghost_style));
-    }
-    let line = Line::from(spans);
-
-    if state.is_month {
-        // Determine which month to highlight: exact value match takes priority,
-        // then the current completion selection.
-        let value_lower = state.value.to_lowercase();
-        let highlighted: Option<&str> = if MONTHS.contains(&value_lower.as_str()) {
-            Some(value_lower.as_str())
-        } else {
-            state.completions.get(state.completion_idx).map(|s| s.as_str())
-        };
-
-        let month_row = |months: &[&str]| -> Line {
-            let mut spans: Vec<Span> = Vec::new();
-            for (i, &m) in months.iter().enumerate() {
-                if i > 0 {
-                    spans.push(Span::raw(" "));
-                }
-                let is_sel = highlighted == Some(m);
-                let style = if is_sel {
-                    theme.border.add_modifier(Modifier::REVERSED)
-                } else {
-                    theme.label
-                };
-                spans.push(Span::styled(format!(" {} ", m), style));
-            }
-            Line::from(spans)
-        };
-
-        let hint = Line::from(Span::styled(" Tab: cycle month  Enter: save  Esc: cancel", theme.label));
-        let para = Paragraph::new(vec![
-            line,
-            month_row(&MONTHS[..6]),
-            month_row(&MONTHS[6..]),
-            hint,
-        ]);
-        f.render_widget(para, inner);
-    } else {
-        let para = Paragraph::new(vec![line]);
-        f.render_widget(para, inner);
-    }
-}

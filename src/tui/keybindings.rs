@@ -334,6 +334,237 @@ fn map_citation_preview_key(key: KeyEvent, last_key: Option<char>) -> Option<Act
     }
 }
 
+// ── User-configurable keybinding helpers ─────────────────────────────────────
+
+/// Parse a key-spec string into a `(KeyCode, KeyModifiers)` pair.
+///
+/// Supported formats:
+/// - Single printable char: `"j"`, `"/"`, `"A"` (uppercase char implies no extra modifier)
+/// - Named special keys: `"enter"`, `"esc"`, `"backspace"`, `"delete"`, `"tab"`,
+///   `"space"`, `"home"`, `"end"`, `"pageup"`, `"pagedown"`,
+///   `"up"`, `"down"`, `"left"`, `"right"`, `"f1"`–`"f12"`
+/// - Ctrl combos: `"ctrl-j"`, `"ctrl-f"`, `"ctrl-enter"` (key name after the dash)
+/// - Shift combos: `"shift-f1"` (for function keys; regular chars use uppercase directly)
+///
+/// Returns `None` for unrecognised specs.
+pub fn parse_key_spec(spec: &str) -> Option<(KeyCode, KeyModifiers)> {
+    let spec = spec.trim().to_lowercase();
+
+    // ctrl- prefix
+    if let Some(rest) = spec.strip_prefix("ctrl-") {
+        let (code, _) = parse_bare_key(rest)?;
+        return Some((code, KeyModifiers::CONTROL));
+    }
+
+    // shift- prefix (mainly useful for function keys)
+    if let Some(rest) = spec.strip_prefix("shift-") {
+        let (code, _) = parse_bare_key(rest)?;
+        return Some((code, KeyModifiers::SHIFT));
+    }
+
+    // alt- prefix
+    if let Some(rest) = spec.strip_prefix("alt-") {
+        let (code, _) = parse_bare_key(rest)?;
+        return Some((code, KeyModifiers::ALT));
+    }
+
+    parse_bare_key(&spec)
+}
+
+fn parse_bare_key(s: &str) -> Option<(KeyCode, KeyModifiers)> {
+    match s {
+        "enter"     => Some((KeyCode::Enter,     KeyModifiers::NONE)),
+        "esc"       => Some((KeyCode::Esc,        KeyModifiers::NONE)),
+        "backspace" => Some((KeyCode::Backspace,  KeyModifiers::NONE)),
+        "delete"    => Some((KeyCode::Delete,     KeyModifiers::NONE)),
+        "tab"       => Some((KeyCode::Tab,        KeyModifiers::NONE)),
+        "space"     => Some((KeyCode::Char(' '),  KeyModifiers::NONE)),
+        "home"      => Some((KeyCode::Home,       KeyModifiers::NONE)),
+        "end"       => Some((KeyCode::End,        KeyModifiers::NONE)),
+        "pageup"    => Some((KeyCode::PageUp,     KeyModifiers::NONE)),
+        "pagedown"  => Some((KeyCode::PageDown,   KeyModifiers::NONE)),
+        "up"        => Some((KeyCode::Up,         KeyModifiers::NONE)),
+        "down"      => Some((KeyCode::Down,       KeyModifiers::NONE)),
+        "left"      => Some((KeyCode::Left,       KeyModifiers::NONE)),
+        "right"     => Some((KeyCode::Right,      KeyModifiers::NONE)),
+        "f1"        => Some((KeyCode::F(1),       KeyModifiers::NONE)),
+        "f2"        => Some((KeyCode::F(2),       KeyModifiers::NONE)),
+        "f3"        => Some((KeyCode::F(3),       KeyModifiers::NONE)),
+        "f4"        => Some((KeyCode::F(4),       KeyModifiers::NONE)),
+        "f5"        => Some((KeyCode::F(5),       KeyModifiers::NONE)),
+        "f6"        => Some((KeyCode::F(6),       KeyModifiers::NONE)),
+        "f7"        => Some((KeyCode::F(7),       KeyModifiers::NONE)),
+        "f8"        => Some((KeyCode::F(8),       KeyModifiers::NONE)),
+        "f9"        => Some((KeyCode::F(9),       KeyModifiers::NONE)),
+        "f10"       => Some((KeyCode::F(10),      KeyModifiers::NONE)),
+        "f11"       => Some((KeyCode::F(11),      KeyModifiers::NONE)),
+        "f12"       => Some((KeyCode::F(12),      KeyModifiers::NONE)),
+        other => {
+            // Must be exactly one char
+            let mut chars = other.chars();
+            let c = chars.next()?;
+            if chars.next().is_some() {
+                return None; // more than one char
+            }
+            Some((KeyCode::Char(c), KeyModifiers::NONE))
+        }
+    }
+}
+
+/// Map an action name string to the corresponding `Action` variant.
+///
+/// Only no-payload variants are supported (variants that carry a `char` cannot
+/// be expressed as a plain name).  Returns `None` for unknown names and for the
+/// special sentinel `"None"` (which can be used to intentionally unbind a key).
+pub fn action_from_name(name: &str) -> Option<Action> {
+    match name {
+        "MoveDown"                  => Some(Action::MoveDown),
+        "MoveUp"                    => Some(Action::MoveUp),
+        "MoveToTop"                 => Some(Action::MoveToTop),
+        "MoveToBottom"              => Some(Action::MoveToBottom),
+        "PageDown"                  => Some(Action::PageDown),
+        "PageUp"                    => Some(Action::PageUp),
+        "EnterSearch"               => Some(Action::EnterSearch),
+        "ExitSearch"                => Some(Action::ExitSearch),
+        "ConfirmSearch"             => Some(Action::ConfirmSearch),
+        "SearchBackspace"           => Some(Action::SearchBackspace),
+        "OpenDetail"                => Some(Action::OpenDetail),
+        "CloseDetail"               => Some(Action::CloseDetail),
+        "EnterDetailSearch"         => Some(Action::EnterDetailSearch),
+        "ExitDetailSearch"          => Some(Action::ExitDetailSearch),
+        "DetailSearchBackspace"     => Some(Action::DetailSearchBackspace),
+        "DetailNextMatch"           => Some(Action::DetailNextMatch),
+        "DetailPrevMatch"           => Some(Action::DetailPrevMatch),
+        "EditField"                 => Some(Action::EditField),
+        "AddField"                  => Some(Action::AddField),
+        "AddFileAttachment"         => Some(Action::AddFileAttachment),
+        "DeleteField"               => Some(Action::DeleteField),
+        "EditGroups"                => Some(Action::EditGroups),
+        "RegenCitekey"              => Some(Action::RegenCitekey),
+        "ConfirmEdit"               => Some(Action::ConfirmEdit),
+        "CancelEdit"                => Some(Action::CancelEdit),
+        "EditBackspace"             => Some(Action::EditBackspace),
+        "EditDelete"                => Some(Action::EditDelete),
+        "EditCursorLeft"            => Some(Action::EditCursorLeft),
+        "EditCursorRight"           => Some(Action::EditCursorRight),
+        "EditCursorUp"              => Some(Action::EditCursorUp),
+        "EditCursorDown"            => Some(Action::EditCursorDown),
+        "EditCursorHome"            => Some(Action::EditCursorHome),
+        "EditCursorEnd"             => Some(Action::EditCursorEnd),
+        "EditTabComplete"           => Some(Action::EditTabComplete),
+        "AddEntry"                  => Some(Action::AddEntry),
+        "DeleteEntry"               => Some(Action::DeleteEntry),
+        "DuplicateEntry"            => Some(Action::DuplicateEntry),
+        "YankCitekey"               => Some(Action::YankCitekey),
+        "ToggleGroups"              => Some(Action::ToggleGroups),
+        "FocusGroups"               => Some(Action::FocusGroups),
+        "FocusList"                 => Some(Action::FocusList),
+        "ShowCitationPreview"       => Some(Action::ShowCitationPreview),
+        "EnterCommand"              => Some(Action::EnterCommand),
+        "ExitCommand"               => Some(Action::ExitCommand),
+        "ExecuteCommand"            => Some(Action::ExecuteCommand),
+        "CommandBackspace"          => Some(Action::CommandBackspace),
+        "CommandTabComplete"        => Some(Action::CommandTabComplete),
+        "DialogConfirm"             => Some(Action::DialogConfirm),
+        "DialogCancel"              => Some(Action::DialogCancel),
+        "DialogToggle"              => Some(Action::DialogToggle),
+        "DialogYank"                => Some(Action::DialogYank),
+        "ShowHelp"                  => Some(Action::ShowHelp),
+        "TitlecaseField"            => Some(Action::TitlecaseField),
+        "ToggleBraces"              => Some(Action::ToggleBraces),
+        "ToggleLatex"               => Some(Action::ToggleLatex),
+        "NormalizeAuthor"           => Some(Action::NormalizeAuthor),
+        "OpenFile"                  => Some(Action::OpenFile),
+        "OpenWeb"                   => Some(Action::OpenWeb),
+        "CloseCitationPreview"      => Some(Action::CloseCitationPreview),
+        "YankCitationPreview"       => Some(Action::YankCitationPreview),
+        "Undo"                      => Some(Action::Undo),
+        "EnterSettings"             => Some(Action::EnterSettings),
+        "ExitSettings"              => Some(Action::ExitSettings),
+        "SettingsMoveDown"          => Some(Action::SettingsMoveDown),
+        "SettingsMoveUp"            => Some(Action::SettingsMoveUp),
+        "SettingsToggle"            => Some(Action::SettingsToggle),
+        "SettingsEdit"              => Some(Action::SettingsEdit),
+        "SettingsExport"            => Some(Action::SettingsExport),
+        "SettingsImport"            => Some(Action::SettingsImport),
+        "SettingsAddFieldGroup"     => Some(Action::SettingsAddFieldGroup),
+        "SettingsDeleteFieldGroup"  => Some(Action::SettingsDeleteFieldGroup),
+        "SettingsRenameFieldGroup"  => Some(Action::SettingsRenameFieldGroup),
+        "SettingsMoveToTop"         => Some(Action::SettingsMoveToTop),
+        "SettingsMoveToBottom"      => Some(Action::SettingsMoveToBottom),
+        "SettingsPageDown"          => Some(Action::SettingsPageDown),
+        "SettingsPageUp"            => Some(Action::SettingsPageUp),
+        "Validate"                  => Some(Action::Validate),
+        "CloseValidateResults"      => Some(Action::CloseValidateResults),
+        "ImportEntry"               => Some(Action::ImportEntry),
+        "ExportJson"                => Some(Action::ExportJson),
+        "ExportRis"                 => Some(Action::ExportRis),
+        "CloseHelp"                 => Some(Action::CloseHelp),
+        "EditUndo"                  => Some(Action::EditUndo),
+        "EditPut"                   => Some(Action::EditPut),
+        "EditYank"                  => Some(Action::EditYank),
+        "EditEnterNormal"           => Some(Action::EditEnterNormal),
+        "EditEnterInsert"           => Some(Action::EditEnterInsert),
+        "EditEnterInsertAfter"      => Some(Action::EditEnterInsertAfter),
+        "EditEnterInsertAtEnd"      => Some(Action::EditEnterInsertAtEnd),
+        "EditEnterInsertAtHome"     => Some(Action::EditEnterInsertAtHome),
+        "EditMoveWordFwd"           => Some(Action::EditMoveWordFwd),
+        "EditMoveWordBwd"           => Some(Action::EditMoveWordBwd),
+        "EditMoveWordEnd"           => Some(Action::EditMoveWordEnd),
+        "EditMoveBigWordFwd"        => Some(Action::EditMoveBigWordFwd),
+        "EditMoveBigWordBwd"        => Some(Action::EditMoveBigWordBwd),
+        "EditMoveBigWordEnd"        => Some(Action::EditMoveBigWordEnd),
+        "EditDeleteWordFwd"         => Some(Action::EditDeleteWordFwd),
+        "EditDeleteToEnd"           => Some(Action::EditDeleteToEnd),
+        "EditChangeToEnd"           => Some(Action::EditChangeToEnd),
+        "EditSubstituteChar"        => Some(Action::EditSubstituteChar),
+        "EditSubstituteLine"        => Some(Action::EditSubstituteLine),
+        "EditToggleCase"            => Some(Action::EditToggleCase),
+        "EditDeleteCharBack"        => Some(Action::EditDeleteCharBack),
+        "EditDeleteWordBack"        => Some(Action::EditDeleteWordBack),
+        "EditDeleteToHome"          => Some(Action::EditDeleteToHome),
+        "EditConfirmAndMoveDown"    => Some(Action::EditConfirmAndMoveDown),
+        "EditConfirmAndMoveUp"      => Some(Action::EditConfirmAndMoveUp),
+        _ => None,
+    }
+}
+
+fn mode_from_name(name: &str) -> Option<InputMode> {
+    match name {
+        "normal"           => Some(InputMode::Normal),
+        "detail"           => Some(InputMode::Detail),
+        "search"           => Some(InputMode::Search),
+        "editing"          => Some(InputMode::Editing),
+        "settings"         => Some(InputMode::Settings),
+        "citation_preview" => Some(InputMode::CitationPreview),
+        "dialog"           => Some(InputMode::Dialog),
+        "command"          => Some(InputMode::Command),
+        _ => None,
+    }
+}
+
+/// Build a flat list of `(InputMode, KeyEvent, Action)` from the config's
+/// keybindings map.  Invalid entries are silently skipped.
+pub fn build_user_bindings(
+    config: &indexmap::IndexMap<String, indexmap::IndexMap<String, String>>,
+) -> Vec<(InputMode, KeyEvent, Action)> {
+    let mut result = Vec::new();
+    for (mode_name, bindings) in config {
+        let Some(mode) = mode_from_name(mode_name) else { continue };
+        for (key_spec, action_name) in bindings {
+            // "None" is the intentional-unbind sentinel — skip (caller checks
+            // user_bindings first, so an absent entry falls through to defaults).
+            if action_name == "None" {
+                continue;
+            }
+            let Some(action) = action_from_name(action_name) else { continue };
+            let Some((code, mods)) = parse_key_spec(key_spec) else { continue };
+            result.push((mode.clone(), KeyEvent::new(code, mods), action));
+        }
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -755,5 +986,44 @@ mod tests {
             map_key(key(KeyCode::Char('y')), &InputMode::CitationPreview, Some('y'), false, false),
             Some(Action::YankCitationPreview)
         );
+    }
+
+    #[test]
+    fn test_parse_key_spec_chars() {
+        assert!(parse_key_spec("j").is_some());
+        assert!(parse_key_spec("enter").is_some());
+        assert!(parse_key_spec("ctrl-f").is_some());
+        assert!(parse_key_spec("esc").is_some());
+        assert!(parse_key_spec("f1").is_some());
+        assert!(parse_key_spec("pageup").is_some());
+        assert!(parse_key_spec("not-a-valid-key---xyz").is_none());
+    }
+
+    #[test]
+    fn test_action_from_name_roundtrip() {
+        assert!(action_from_name("MoveDown").is_some());
+        assert!(action_from_name("AddEntry").is_some());
+        assert!(action_from_name("Undo").is_some());
+        assert!(action_from_name("DoesNotExist").is_none());
+        assert!(action_from_name("None").is_none()); // intentional unbind
+    }
+
+    #[test]
+    fn test_build_user_bindings() {
+        use indexmap::IndexMap;
+        let mut mode_map: IndexMap<String, IndexMap<String, String>> = IndexMap::new();
+        let mut normal: IndexMap<String, String> = IndexMap::new();
+        normal.insert("ctrl-n".to_string(), "AddEntry".to_string());
+        normal.insert("o".to_string(), "OpenDetail".to_string());
+        mode_map.insert("normal".to_string(), normal);
+        let bindings = build_user_bindings(&mode_map);
+        assert!(!bindings.is_empty());
+        let ctrl_n = crossterm::event::KeyEvent::new(
+            KeyCode::Char('n'),
+            crossterm::event::KeyModifiers::CONTROL,
+        );
+        let hit = bindings.iter()
+            .find(|(m, k, _)| *m == InputMode::Normal && *k == ctrl_n);
+        assert!(hit.is_some());
     }
 }

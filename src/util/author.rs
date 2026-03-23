@@ -102,7 +102,7 @@ fn tokenize_name(name: &str) -> Vec<String> {
 /// Applied outside brace groups (the regex won't match inside `{...}` in practice).
 fn separate_initials(s: &str) -> String {
     static RE: OnceLock<Regex> = OnceLock::new();
-    let re = RE.get_or_init(|| Regex::new(r"([A-Z]\.)([A-Z])").unwrap());
+    let re = RE.get_or_init(|| Regex::new(r"([A-Z]\.)([A-Z])").expect("hardcoded regex is valid"));
     let mut result = s.to_string();
     loop {
         let next = re.replace_all(&result, "$1 $2").into_owned();
@@ -124,7 +124,7 @@ fn normalize_one(name: &str) -> String {
             0 => String::new(),
             1 => name.to_string(),
             _ => {
-                let last = parts.last().unwrap().clone();
+                let last = parts.last().expect("parts.len() >= 2 in this arm").clone();
                 let first = parts[..parts.len() - 1].join(" ");
                 format!("{}, {}", last, first)
             }

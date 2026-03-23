@@ -1,4 +1,5 @@
 use crate::bib::model::{Entry, GroupNode, GroupType};
+use regex::Regex;
 
 /// Filter entries by group membership.
 pub fn filter_by_group(entries: &[&Entry], group: &GroupNode) -> Vec<usize> {
@@ -16,22 +17,40 @@ pub fn filter_by_group(entries: &[&Entry], group: &GroupNode) -> Vec<usize> {
             field,
             search_term,
             case_sensitive,
-            regex: _,
+            regex: use_regex,
         } => {
+            // Pre-compile regex once for the whole filter pass.
+            let compiled_re: Option<Regex> = if *use_regex {
+                let pattern = if *case_sensitive {
+                    search_term.clone()
+                } else {
+                    format!("(?i){}", search_term)
+                };
+                Regex::new(&pattern).ok()
+            } else {
+                None
+            };
+
             entries
                 .iter()
                 .enumerate()
                 .filter(|(_, e)| {
-                    if let Some(value) = e.fields.get(field.as_str()) {
-                        if *case_sensitive {
-                            value.contains(search_term.as_str())
+                    let value = e.fields.get(field.as_str());
+                    if let Some(v) = value {
+                        if let Some(re) = &compiled_re {
+                            re.is_match(v)
+                        } else if *case_sensitive {
+                            v.contains(search_term.as_str())
                         } else {
-                            value.to_lowercase().contains(&search_term.to_lowercase())
+                            v.to_lowercase().contains(&search_term.to_lowercase())
                         }
                     } else if field == "author" {
-                        // Also check for keyword groups that match author field
+                        // Fallback: also check the author field when it is the
+                        // target but was not found via the primary lookup path.
                         if let Some(author) = e.fields.get("author") {
-                            if *case_sensitive {
+                            if let Some(re) = &compiled_re {
+                                re.is_match(author)
+                            } else if *case_sensitive {
                                 author.contains(search_term.as_str())
                             } else {
                                 author.to_lowercase().contains(&search_term.to_lowercase())
@@ -202,5 +221,63 @@ mod tests {
         let node = make_node("All Entries", GroupType::AllEntries);
         let result = filter_by_group(&[], &node);
         assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_keyword_group_regex_match() {
+        let e1 = make_entry("A", &[], &[("keywords", "Reactor Physics")]);
+        let e2 = make_entry("B", &[], &[("keywords", "fusion energy")]);
+        let entries = vec![&e1, &e2];
+        let node = make_node("reactor", GroupType::Keyword {
+            field: "keywords".to_string(),
+            search_term: "(?i)react".to_string(),
+            case_sensitive: true, // case_sensitive is overridden by (?i) in pattern
+            regex: true,
+        });
+        assert_eq!(filter_by_group(&entries, &node), vec![0]);
+    }
+
+    #[test]
+    fn test_keyword_group_regex_case_insensitive_flag() {
+        // When regex=true and case_sensitive=false, (?i) is prepended automatically.
+        let e1 = make_entry("A", &[], &[("keywords", "FISSION")]);
+        let e2 = make_entry("B", &[], &[("keywords", "fusion")]);
+        let entries = vec![&e1, &e2];
+        let node = make_node("fission", GroupType::Keyword {
+            field: "keywords".to_string(),
+            search_term: "fission".to_string(),
+            case_sensitive: false,
+            regex: true,
+        });
+        assert_eq!(filter_by_group(&entries, &node), vec![0]);
+    }
+
+    #[test]
+    fn test_keyword_group_regex_invalid_pattern_no_panic() {
+        // An invalid regex should not panic — the group simply matches nothing.
+        let e1 = make_entry("A", &[], &[("keywords", "Nuclear")]);
+        let entries = vec![&e1];
+        let node = make_node("bad", GroupType::Keyword {
+            field: "keywords".to_string(),
+            search_term: "[invalid(regex".to_string(),
+            case_sensitive: false,
+            regex: true,
+        });
+        // Must not panic; result is empty because the regex failed to compile.
+        let result = filter_by_group(&entries, &node);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_keyword_group_regex_author_field() {
+        let e1 = make_entry("A", &[], &[("author", "Smith, John and Doe, Jane")]);
+        let entries = vec![&e1];
+        let node = make_node("smith", GroupType::Keyword {
+            field: "author".to_string(),
+            search_term: "Smith".to_string(),
+            case_sensitive: true,
+            regex: true,
+        });
+        assert_eq!(filter_by_group(&entries, &node), vec![0]);
     }
 }

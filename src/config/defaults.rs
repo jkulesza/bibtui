@@ -13,6 +13,7 @@ pub fn default_config() -> Config {
         theme: ThemeConfig::default(),
         titlecase: TitlecaseConfig::default(),
         field_groups: default_field_groups(),
+        keybindings: IndexMap::new(),
     }
 }
 

@@ -1,6 +1,7 @@
 pub mod author;
 pub mod citation;
 pub mod clipboard;
+pub mod export;
 pub mod import;
 pub mod journal;
 pub mod latex;

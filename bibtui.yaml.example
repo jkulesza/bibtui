@@ -194,3 +194,34 @@ field_groups:
   #   fields: [lccn, isbn, issn]
   # - name: arXiv
   #   fields: [eprint, archiveprefix, primaryclass]
+
+# ── User-defined keybinding overrides ─────────────────────────────────────────
+#
+# Override or add keybindings on a per-mode basis.  Built-in defaults are used
+# for all keys not listed here.
+#
+# Supported modes:   normal  detail  search  editing  settings  citation_preview
+#                    dialog  command
+#
+# Key spec format:
+#   Single char:   "j"  "/"  "A"  (uppercase letter = no extra modifier)
+#   Named key:     "enter"  "esc"  "tab"  "space"  "backspace"  "delete"
+#                  "home"  "end"  "pageup"  "pagedown"  "up"  "down"
+#                  "left"  "right"  "f1" … "f12"
+#   With modifier: "ctrl-n"  "ctrl-enter"  "shift-f5"  "alt-j"
+#
+# Action names are the exact variant names from the Action enum (see README).
+# Use "None" to intentionally unbind a key (removes the built-in binding).
+#
+# Export actions available for keybinding:
+#   ExportJson   – export all entries as CSL-JSON (prompts for path, or use :export-json <path>)
+#   ExportRis    – export all entries as RIS      (prompts for path, or use :export-ris  <path>)
+#
+# Examples:
+# keybindings:
+#   normal:
+#     "ctrl-n": "AddEntry"      # add a new entry with Ctrl-N
+#     "o":      "OpenDetail"    # open detail view with 'o'
+#     "ctrl-d": "DeleteEntry"   # delete with Ctrl-D instead of 'dd'
+#   detail:
+#     "ctrl-r": "RegenCitekey"  # regenerate citekey from detail view

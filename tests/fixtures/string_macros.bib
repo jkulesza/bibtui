@@ -1,0 +1,44 @@
+% BibTeX file with macro definitions (String type).
+% Tests that the parser preserves macro definitions on roundtrip
+% and that field values using macros are accessible.
+
+@String{NSE = {Nuclear Science and Engineering}}
+@String{NT = {Nuclear Technology}}
+@String{ANE = {Annals of Nuclear Energy}}
+@String{LANL = {Los Alamos National Laboratory}}
+@String{ORNL = {Oak Ridge National Laboratory}}
+
+@Article{StringMacroArticle2000,
+  author  = {A. B. Smith and C. D. Jones},
+  title   = {{Multigroup Cross Section Processing}},
+  journal = NSE,
+  year    = {2000},
+  volume  = {136},
+  pages   = {1--20},
+}
+
+@Article{StringMacroConcatYear2005,
+  author  = {E. F. Brown},
+  title   = {{Variance Reduction in Monte Carlo}},
+  journal = NT,
+  year    = {2005},
+  volume  = {150},
+  pages   = {55--70},
+}
+
+@TechReport{StringMacroInstitution1999,
+  author      = {G. H. White},
+  title       = {{Benchmark Calculations for Fast Reactors}},
+  institution = LANL,
+  year        = {1999},
+  number      = {LA-UR-99-1234},
+}
+
+@TechReport{StringMacroORNL2003,
+  author      = {I. J. Black},
+  title       = {{Thermal Reactor Analysis Methods}},
+  institution = ORNL,
+  year        = {2003},
+  number      = {ORNL/TM-2003-5678},
+  note        = {ANE # journal not used here, just defined above},
+}

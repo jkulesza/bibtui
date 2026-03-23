@@ -1,0 +1,22 @@
+% Second file in a two-file scenario.
+% Intentionally contains an entry with the same citekey as multi_file_a.bib
+% (Smith2020) to test duplicate-citekey detection/handling, plus unique entries.
+
+@Article{Smith2020,
+  author  = {Bob Smith},
+  title   = {{A Different Paper by Another Smith}},
+  journal = {Physical Review},
+  year    = {2020},
+  volume  = {101},
+  pages   = {44--50},
+  note    = {Duplicate citekey: same as Smith2020 in multi_file_a.bib},
+}
+
+@Article{Jones2018,
+  author  = {Carol Jones},
+  title   = {{Monte Carlo Methods for Shielding}},
+  journal = {Nuclear Technology},
+  year    = {2018},
+  volume  = {202},
+  pages   = {300--315},
+}

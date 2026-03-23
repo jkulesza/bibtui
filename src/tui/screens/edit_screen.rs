@@ -3,7 +3,6 @@ use ratatui::Frame;
 
 use crate::app::App;
 use crate::tui::components::entry_detail::render_entry_detail;
-use crate::tui::components::field_editor::render_field_editor;
 use crate::tui::components::status_bar::render_status_bar;
 use crate::tui::keybindings::InputMode;
 
@@ -41,7 +40,7 @@ pub fn render_edit_screen(f: &mut Frame, app: &mut App) {
 
     // Field editor overlay
     if let Some(ref editor_state) = app.field_editor_state {
-        render_field_editor(f, area, editor_state, &app.theme);
+        editor_state.render(f, area, &app.theme);
     }
 
     // Dialog overlay

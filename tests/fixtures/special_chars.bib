@@ -1,0 +1,53 @@
+% Entries with special characters in field values.
+% Used to verify parser/roundtrip fidelity with accented text,
+% LaTeX escapes, underscores, ampersands, and math mode.
+
+@Article{Curie1898,
+  author  = {Marie Curie and Pierre Curie},
+  title   = {{Sur une nouvelle substance fortement radio-active, contenue dans la pechblende}},
+  journal = {Comptes Rendus de l'Acad{\'e}mie des Sciences},
+  year    = {1898},
+  volume  = {127},
+  pages   = {1215--1217},
+  note    = {Accented name: Curie was born Maria Sk{\l}odowska},
+}
+
+@Article{Schrodinger1926,
+  author  = {Erwin Schr{\"o}dinger},
+  title   = {{Quantisierung als Eigenwertproblem}},
+  journal = {Annalen der Physik},
+  year    = {1926},
+  volume  = {384},
+  number  = {4},
+  pages   = {361--376},
+  note    = {Contains umlaut in author name},
+}
+
+@Article{MathModeTest2020,
+  author  = {A. U. Thor},
+  title   = {{Solutions of $\nabla^2 \phi = 0$ in Cylindrical Geometry}},
+  journal = {Journal of Mathematical Physics},
+  year    = {2020},
+  volume  = {61},
+  pages   = {1--10},
+  note    = {Math: $\alpha$, $\beta$, $\gamma$, $\Sigma_{t}$, $k_{\text{eff}}$},
+}
+
+@Article{UnderscoreAmpersand2021,
+  author  = {B. Author},
+  title   = {{Analysis of Fe\_{56} Cross Sections \& Resonance Parameters}},
+  journal = {Nuclear Data Sheets},
+  year    = {2021},
+  volume  = {100},
+  pages   = {1--50},
+  note    = {Contains bare underscore and ampersand that may need escaping},
+}
+
+@InProceedings{SpecialTitle2019,
+  author    = {First Author and Second Author and Third Author},
+  title     = {{MCNP{\textregistered} Verification \& Validation for {NRC} Applications}},
+  booktitle = {Proceedings of the 2019 International Conference on Mathematics \& Computational Methods Applied to Nuclear Science \& Engineering},
+  year      = {2019},
+  pages     = {123--135},
+  note      = {Registered trademark symbol and multiple ampersands},
+}
