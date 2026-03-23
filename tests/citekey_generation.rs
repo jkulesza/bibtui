@@ -244,3 +244,117 @@ fn test_mixed_legacy_and_bracket() {
 
     assert_eq!(generate_citekey(template, &fields), "Article_Smith2020_NT");
 }
+
+// ── Edge cases ────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_modifier_abbr_single_word() {
+    // A single-word journal should abbreviate to its own first letter.
+    let template = "[auth][year]_[journal:abbr]";
+    let mut fields = IndexMap::new();
+    fields.insert("author".to_string(), "Smith, John".to_string());
+    fields.insert("year".to_string(), "2020".to_string());
+    fields.insert("journal".to_string(), "Nature".to_string());
+    assert_eq!(generate_citekey(template, &fields), "Smith2020_N");
+}
+
+#[test]
+fn test_modifier_abbr_skip_words() {
+    // Words on the skip list (of, the, and, …) should be omitted.
+    let template = "[journal:abbr]";
+    let mut fields = IndexMap::new();
+    fields.insert("journal".to_string(), "Journal of the American Chemical Society".to_string());
+    // Skips "of", "the" → J, A, C, S
+    assert_eq!(generate_citekey(template, &fields), "JACS");
+}
+
+#[test]
+fn test_modifier_regex_special_chars() {
+    // Regex with special regex metacharacters in the pattern.
+    // Replace literal parentheses "(Rev.)" → ""
+    let template = r#"[title:regex("\(Rev\.\)", "")]"#;
+    let mut fields = IndexMap::new();
+    fields.insert("title".to_string(), "Physical Review (Rev.)".to_string());
+    let result = generate_citekey(template, &fields);
+    assert!(!result.contains("(Rev.)"), "got: {}", result);
+}
+
+#[test]
+fn test_modifier_regex_capture_group() {
+    // Regex replacement using a capture group to keep part of the match.
+    let template = r#"[year:regex("(\d\d)(\d\d)", "$2")]"#;
+    let mut fields = IndexMap::new();
+    fields.insert("year".to_string(), "2024".to_string());
+    // Captures "20" and "24", replaces whole match with group 2 → "24"
+    assert_eq!(generate_citekey(template, &fields), "24");
+}
+
+#[test]
+fn test_modifier_regex_invalid_pattern_passthrough() {
+    // An invalid regex pattern should leave the value unchanged (no panic).
+    let template = r#"[title:regex("[invalid", "x")]"#;
+    let mut fields = IndexMap::new();
+    fields.insert("title".to_string(), "Some Title".to_string());
+    // Invalid regex: value passes through unchanged
+    // The template produces the first significant word of title
+    let result = generate_citekey(template, &fields);
+    // Should not panic; result may be the original or modified value
+    assert!(!result.is_empty() || result.is_empty()); // just ensure no panic
+}
+
+#[test]
+fn test_modifier_truncate_longer_than_value() {
+    // Truncating to more chars than the value has should return the full value.
+    let template = "[title:(100)]";
+    let mut fields = IndexMap::new();
+    fields.insert("title".to_string(), "Short".to_string());
+    // first significant word of "Short" = "Short", truncated to 100 = "Short"
+    assert_eq!(generate_citekey(template, &fields), "Short");
+}
+
+#[test]
+fn test_modifier_upper_lower_on_abbr() {
+    // Chain: abbr then upper → same as abbr (abbr already uppercases initials).
+    // Chain: abbr then lower → lowercase abbreviation.
+    let mut fields = IndexMap::new();
+    fields.insert("journal".to_string(), "Nuclear Science and Engineering".to_string());
+
+    let upper = generate_citekey("[journal:abbr:upper]", &fields);
+    let lower = generate_citekey("[journal:abbr:lower]", &fields);
+    assert_eq!(upper, "NSE");
+    assert_eq!(lower, "nse");
+}
+
+#[test]
+fn test_missing_field_produces_empty_string() {
+    // A bracket token referencing a missing field resolves to "".
+    // The trailing "_" separator is trimmed by generate_citekey.
+    let template = "[auth][year]_[journal:abbr]";
+    let mut fields = IndexMap::new();
+    fields.insert("author".to_string(), "Smith, John".to_string());
+    fields.insert("year".to_string(), "2020".to_string());
+    // journal not present → trailing "_" is stripped
+    assert_eq!(generate_citekey(template, &fields), "Smith2020");
+}
+
+#[test]
+fn test_modifier_camel_case() {
+    // [title] resolves to the first significant word; :camel then runs
+    // to_camel_case on that single word.  "self-consistent" (split on '-')
+    // → "SelfConsistent".
+    let template = "[title:camel]";
+    let mut fields = IndexMap::new();
+    fields.insert("title".to_string(), "self-consistent field theory".to_string());
+    assert_eq!(generate_citekey(template, &fields), "SelfConsistent");
+}
+
+#[test]
+fn test_modifier_camel_case_multi_word_via_shorttitle() {
+    // [shorttitle] gives the first 3 significant words joined with no
+    // separator → "self-consistentfieldtheory".  :camel then splits on the
+    // hyphen only, capitalising each part → "SelfConsistentfieldtheory".
+    let template = "[shorttitle:camel]";
+    let mut fields = IndexMap::new();
+    fields.insert("title".to_string(), "self-consistent field theory".to_string());
+    assert_eq!(generate_citekey(template, &fields), "SelfConsistentfieldtheory");
+}

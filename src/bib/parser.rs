@@ -86,7 +86,9 @@ impl<'a> Parser<'a> {
         let entry_start = self.pos;
 
         // Consume '@'
-        assert_eq!(self.peek(), Some('@'));
+        if self.peek() != Some('@') {
+            anyhow::bail!("expected '@' at byte position {}", self.pos);
+        }
         self.advance(1);
 
         // Read type name

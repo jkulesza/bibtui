@@ -13,6 +13,16 @@ pub struct Config {
     pub theme: ThemeConfig,
     pub titlecase: TitlecaseConfig,
     pub field_groups: Vec<CustomFieldGroup>,
+    /// Per-mode user-defined keybinding overrides.
+    ///
+    /// Keys are mode names (`normal`, `detail`, `search`, `editing`,
+    /// `settings`, `citation_preview`). Values are maps of key-spec strings
+    /// (e.g. `"ctrl-n"`, `"o"`, `"shift-g"`) to action names (e.g.
+    /// `"AddEntry"`, `"OpenDetail"`).
+    ///
+    /// User bindings are checked before built-in defaults.  To effectively
+    /// unbind a key, map it to `"None"`.
+    pub keybindings: IndexMap<String, IndexMap<String, String>>,
 }
 
 impl Default for Config {

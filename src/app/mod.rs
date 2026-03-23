@@ -19,6 +19,7 @@ use crate::tui::components::citation_preview::CitationPreviewState;
 use crate::tui::components::help::HelpState;
 use crate::tui::components::validate_results::{Violation, ValidateResultsState};
 use crate::util::citation::format_citation;
+use crate::util::export::{export_csl_json, export_ris};
 use crate::bib::parser::{build_database, parse_bib_file};
 use crate::bib::writer::{normalize_blank_lines, serialize_entry, write_bib_file};
 use crate::config::schema::Config;
@@ -32,7 +33,7 @@ use crate::tui::components::field_editor::{EditingMode, FieldEditorState};
 use crate::tui::components::group_tree::GroupTreeState;
 use crate::tui::components::search_bar::SearchBarState;
 use crate::tui::event::poll_event;
-use crate::tui::keybindings::{map_key, InputMode};
+use crate::tui::keybindings::{build_user_bindings, map_key, InputMode};
 use crate::tui::components::settings::{SettingValue, SettingsState};
 use crate::tui::screens::main_screen::{render_main_screen, Focus};
 use crate::tui::screens::edit_screen::render_edit_screen;
@@ -40,158 +41,9 @@ use crate::tui::screens::settings_screen::render_settings_screen;
 use crate::tui::theme::Theme;
 use crate::tui::Term;
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum Action {
-    MoveDown,
-    MoveUp,
-    MoveToTop,
-    MoveToBottom,
-    PageDown,
-    PageUp,
-    EnterSearch,
-    ExitSearch,
-    ConfirmSearch,
-    SearchChar(char),
-    SearchBackspace,
-    OpenDetail,
-    CloseDetail,
-    EnterDetailSearch,
-    ExitDetailSearch,
-    DetailSearchChar(char),
-    DetailSearchBackspace,
-    DetailNextMatch,
-    DetailPrevMatch,
-    EditField,
-    AddField,
-    AddFileAttachment,
-    DeleteField,
-    EditGroups,
-    RegenCitekey,
-    ConfirmEdit,
-    CancelEdit,
-    EditChar(char),
-    EditBackspace,
-    EditDelete,
-    EditCursorLeft,
-    EditCursorRight,
-    EditCursorUp,
-    EditCursorDown,
-    EditCursorHome,
-    EditCursorEnd,
-    EditTabComplete,
-    AddEntry,
-    DeleteEntry,
-    DuplicateEntry,
-    YankCitekey,
-    ToggleGroups,
-    FocusGroups,
-    FocusList,
-    ShowCitationPreview,
-    EnterCommand,
-    ExitCommand,
-    ExecuteCommand,
-    CommandChar(char),
-    CommandBackspace,
-    CommandTabComplete,
-    DialogConfirm,
-    DialogCancel,
-    DialogToggle,
-    DialogYank,
-    ShowHelp,
-    TitlecaseField,
-    ToggleBraces,
-    ToggleLatex,
-    NormalizeAuthor,
-    OpenFile,
-    OpenWeb,
-    CloseCitationPreview,
-    YankCitationPreview,
-    Undo,
-    // Settings screen
-    EnterSettings,
-    ExitSettings,
-    SettingsMoveDown,
-    SettingsMoveUp,
-    SettingsToggle,
-    SettingsEdit,
-    SettingsExport,
-    SettingsImport,
-    SettingsAddFieldGroup,
-    SettingsDeleteFieldGroup,
-    SettingsRenameFieldGroup,
-    SettingsMoveToTop,
-    SettingsMoveToBottom,
-    SettingsPageDown,
-    SettingsPageUp,
-    // Validate
-    Validate,
-    CloseValidateResults,
-    // Import
-    ImportEntry,
-    // Help
-    CloseHelp,
-    // Vim modal editing
-    EditUndo,
-    EditPut,
-    EditYank,
-    EditEnterNormal,
-    EditEnterInsert,
-    EditEnterInsertAfter,
-    EditEnterInsertAtEnd,
-    EditEnterInsertAtHome,
-    EditMoveWordFwd,
-    EditMoveWordBwd,
-    EditMoveWordEnd,
-    EditMoveBigWordFwd,
-    EditMoveBigWordBwd,
-    EditMoveBigWordEnd,
-    EditDeleteWordFwd,
-    EditDeleteToEnd,
-    EditChangeToEnd,
-    EditSubstituteChar,
-    EditSubstituteLine,
-    EditToggleCase,
-    EditReplaceChar(char),
-    EditFindCharFwd(char),
-    EditFindCharBwd(char),
-    EditDeleteCharBack,
-    EditDeleteWordBack,
-    EditDeleteToHome,
-    EditConfirmAndMoveDown,
-    EditConfirmAndMoveUp,
-}
-
-/// A single reversible operation stored on the undo stack.
-#[derive(Debug, Clone)]
-enum UndoItem {
-    /// A field value was inserted, modified, or deleted on a single entry.
-    FieldChanged {
-        entry_key: String,
-        field_name: String,
-        /// `None` means the field did not exist before (so undo removes it).
-        old_value: Option<String>,
-    },
-    /// An entire entry was deleted.
-    EntryDeleted { entry: Entry },
-    /// An entry was added (new or duplicated); undo removes it.
-    EntryAdded { entry_key: String },
-    /// The citation key was regenerated; undo restores the old key.
-    CitekeyChanged {
-        old_key: String,
-        new_key: String,
-        entry_snapshot: Entry,
-    },
-    /// The group tree was changed (group added or deleted).
-    GroupTreeChanged { old_tree: GroupTree },
-    /// An entry's group memberships were reassigned.
-    GroupMembershipChanged {
-        entry_key: String,
-        old_memberships: Vec<String>,
-        old_groups_field: Option<String>,
-    },
-}
-
-const MAX_UNDO: usize = 100;
+mod actions;
+pub use actions::Action;
+use actions::{UndoItem, PendingAction, MAX_UNDO};
 
 pub struct App {
     pub database: Database,
@@ -248,44 +100,12 @@ pub struct App {
     pending_import: Option<mpsc::Receiver<crate::util::import::ImportResult>>,
     /// Background DOI-from-metadata lookup: (entry_key, receiver of (doi, url) or error).
     pending_doi_fetch: Option<(String, mpsc::Receiver<Result<(String, String), String>>)>,
+
+    /// Compiled user keybinding overrides from config.  Checked before
+    /// built-in defaults in `handle_key`.
+    user_bindings: Vec<(InputMode, KeyEvent, Action)>,
 }
 
-#[derive(Debug)]
-enum PendingAction {
-    DeleteEntry(String),
-    AddEntryType,
-    OpenFile(Vec<crate::util::open::ParsedFile>),
-    OpenWeb(Vec<String>),
-    AddGroup { parent_path: Vec<usize> },
-    DeleteGroup { path: Vec<usize> },
-    AssignGroups { entry_key: String },
-    EditSetting { setting_id: String },
-    ExportSettings,
-    ImportSettings,
-    YankPrompt { entry_key: String },
-    Save,
-    SaveAndQuit,
-    AddFieldGroup,
-    EditFieldGroupFields { index: usize },
-    RenameFieldGroup { index: usize },
-    /// No bib file was given on the command line; waiting for the user to
-    /// supply a path for the new library before we can do anything else.
-    NewFile,
-    /// Waiting for the user to type a DOI or URL to import.
-    ImportUrl,
-    /// Deleting an entry that has exactly one local file; TypePicker offers
-    /// "delete entry+file", "delete entry only", or "cancel".
-    DeleteEntryWithFile { entry_key: String, file: std::path::PathBuf },
-    /// Deleting an entry that has multiple local files; FileDeleteSelect lets
-    /// the user choose which files to also remove.
-    DeleteEntryWithFileSelect { entry_key: String, files: Vec<std::path::PathBuf> },
-    /// Waiting for the user to provide a path for a new file attachment.
-    AddFileAttachment { entry_key: String },
-    /// Dismiss a non-interactive message popup (no side effect on confirm).
-    DismissMessage,
-    /// Waiting for the user to edit the path of the file at `index` in the `file` field.
-    EditFileAttachment { entry_key: String, index: usize },
-}
 
 impl App {
     pub fn new(bib_path: PathBuf, config: Config) -> Result<Self> {
@@ -304,6 +124,7 @@ impl App {
         let show_groups = config.display.show_groups;
         let show_braces = config.display.show_braces;
         let render_latex = config.display.render_latex;
+        let user_bindings = build_user_bindings(&config.keybindings);
 
         let app = App {
             database,
@@ -343,6 +164,7 @@ impl App {
             save_generation: Some(0),
             pending_import: None,
             pending_doi_fetch: None,
+            user_bindings,
         };
 
         Ok(app)
@@ -358,6 +180,7 @@ impl App {
         let show_groups = config.display.show_groups;
         let show_braces = config.display.show_braces;
         let render_latex = config.display.render_latex;
+        let user_bindings = build_user_bindings(&config.keybindings);
 
         let app = App {
             database,
@@ -400,6 +223,7 @@ impl App {
             save_generation: Some(0),
             pending_import: None,
             pending_doi_fetch: None,
+            user_bindings,
         };
 
         Ok(app)
@@ -504,6 +328,17 @@ impl App {
                 .as_ref()
                 .map(|e| e.editing_mode == EditingMode::Normal && !e.editing_name)
                 .unwrap_or(false);
+
+        // User-configured bindings override built-in defaults.
+        let current_mode = self.mode.clone();
+        if let Some(action) = self.user_bindings.iter()
+            .find(|(m, k, _)| *m == current_mode && *k == key)
+            .map(|(_, _, a)| a.clone())
+        {
+            self.handle_action(action);
+            return;
+        }
+
         if let Some(action) = map_key(key, &self.mode, last, is_message_dialog, edit_normal) {
             self.handle_action(action);
         }
@@ -833,217 +668,34 @@ impl App {
             }
 
             // ── Vim modal editing ──
-            Action::EditUndo => {
-                if let Some(ref mut editor) = self.field_editor_state {
-                    editor.undo_edit();
-                }
-                self.update_field_completions();
-            }
-            Action::EditPut => {
-                // Use unnamed register (set by x/dw/yy) if non-empty, else fall back to clipboard.
-                let text_result = self.field_editor_state.as_ref().map(|editor| {
-                    if !editor.unnamed_register.is_empty() {
-                        Ok(editor.unnamed_register.clone())
-                    } else {
-                        crate::util::clipboard::read_from_clipboard()
-                            .map_err(|e| format!("Clipboard error: {e}"))
-                    }
-                });
-                match text_result {
-                    Some(Ok(text)) if !text.is_empty() => {
-                        if let Some(ref mut editor) = self.field_editor_state {
-                            editor.save_undo_snapshot();
-                            editor.put(&text);
-                        }
-                        self.update_field_completions();
-                    }
-                    Some(Err(e)) => self.status_message = Some(e),
-                    _ => {}
-                }
-            }
-            Action::EditYank => {
-                if let Some(ref mut editor) = self.field_editor_state {
-                    let text = editor.value.clone();
-                    editor.unnamed_register = text.clone();
-                    match crate::util::clipboard::copy_to_clipboard(&text) {
-                        Ok(()) => self.status_message = Some(format!("Yanked: {text}")),
-                        Err(e) => self.status_message = Some(format!("Clipboard error: {e}")),
-                    }
-                }
-            }
-            Action::EditEnterNormal => {
-                if let Some(ref mut editor) = self.field_editor_state {
-                    editor.enter_normal();
-                }
-            }
-            Action::EditEnterInsert => {
-                if let Some(ref mut editor) = self.field_editor_state {
-                    editor.save_undo_snapshot();
-                    editor.editing_mode = EditingMode::Insert;
-                }
-            }
-            Action::EditEnterInsertAfter => {
-                if let Some(ref mut editor) = self.field_editor_state {
-                    editor.save_undo_snapshot();
-                    // Advance cursor one char past current position (like vim `a`)
-                    if editor.cursor < editor.value.len() {
-                        let next = editor.value[editor.cursor..]
-                            .chars()
-                            .next()
-                            .map(|c| c.len_utf8())
-                            .unwrap_or(0);
-                        editor.cursor += next;
-                    }
-                    editor.editing_mode = EditingMode::Insert;
-                }
-            }
-            Action::EditEnterInsertAtEnd => {
-                if let Some(ref mut editor) = self.field_editor_state {
-                    editor.save_undo_snapshot();
-                    editor.cursor = editor.value.len();
-                    editor.editing_mode = EditingMode::Insert;
-                }
-            }
-            Action::EditEnterInsertAtHome => {
-                if let Some(ref mut editor) = self.field_editor_state {
-                    editor.save_undo_snapshot();
-                    editor.cursor = 0;
-                    editor.editing_mode = EditingMode::Insert;
-                }
-            }
-            Action::EditMoveWordFwd => {
-                if let Some(ref mut editor) = self.field_editor_state {
-                    editor.move_word_fwd();
-                }
-            }
-            Action::EditMoveWordBwd => {
-                if let Some(ref mut editor) = self.field_editor_state {
-                    editor.move_word_bwd();
-                }
-            }
-            Action::EditMoveWordEnd => {
-                if let Some(ref mut editor) = self.field_editor_state {
-                    editor.move_word_end();
-                }
-            }
-            Action::EditMoveBigWordFwd => {
-                if let Some(ref mut editor) = self.field_editor_state {
-                    editor.move_big_word_fwd();
-                }
-            }
-            Action::EditMoveBigWordBwd => {
-                if let Some(ref mut editor) = self.field_editor_state {
-                    editor.move_big_word_bwd();
-                }
-            }
-            Action::EditMoveBigWordEnd => {
-                if let Some(ref mut editor) = self.field_editor_state {
-                    editor.move_big_word_end();
-                }
-            }
-            Action::EditDeleteWordFwd => {
-                if let Some(ref mut editor) = self.field_editor_state {
-                    editor.save_undo_snapshot();
-                    editor.delete_word_fwd();
-                }
-                self.update_field_completions();
-            }
-            Action::EditDeleteToEnd => {
-                if let Some(ref mut editor) = self.field_editor_state {
-                    editor.save_undo_snapshot();
-                    editor.delete_to_end();
-                }
-                self.update_field_completions();
-            }
-            Action::EditChangeToEnd => {
-                if let Some(ref mut editor) = self.field_editor_state {
-                    editor.save_undo_snapshot();
-                    editor.delete_to_end();
-                    editor.editing_mode = EditingMode::Insert;
-                }
-                self.update_field_completions();
-            }
-            Action::EditSubstituteChar => {
-                if let Some(ref mut editor) = self.field_editor_state {
-                    editor.save_undo_snapshot();
-                    editor.delete();
-                    editor.editing_mode = EditingMode::Insert;
-                }
-                self.update_field_completions();
-            }
-            Action::EditSubstituteLine => {
-                if let Some(ref mut editor) = self.field_editor_state {
-                    editor.save_undo_snapshot();
-                    editor.clear_value();
-                    editor.editing_mode = EditingMode::Insert;
-                }
-                self.update_field_completions();
-            }
-            Action::EditToggleCase => {
-                if let Some(ref mut editor) = self.field_editor_state {
-                    editor.save_undo_snapshot();
-                    editor.toggle_case_at_cursor();
-                }
-                self.update_field_completions();
-            }
-            Action::EditReplaceChar(c) => {
-                if let Some(ref mut editor) = self.field_editor_state {
-                    editor.save_undo_snapshot();
-                    editor.replace_char_at_cursor(c);
-                }
-            }
-            Action::EditFindCharFwd(c) => {
-                if let Some(ref mut editor) = self.field_editor_state {
-                    editor.find_char_fwd(c);
-                }
-            }
-            Action::EditFindCharBwd(c) => {
-                if let Some(ref mut editor) = self.field_editor_state {
-                    editor.find_char_bwd(c);
-                }
-            }
-            Action::EditDeleteCharBack => {
-                if let Some(ref mut editor) = self.field_editor_state {
-                    editor.save_undo_snapshot();
-                    editor.backspace();
-                    if editor.editing_mode == EditingMode::Normal
-                        && !editor.value.is_empty()
-                        && editor.cursor >= editor.value.len()
-                    {
-                        editor.cursor = editor
-                            .value
-                            .char_indices()
-                            .last()
-                            .map(|(i, _)| i)
-                            .unwrap_or(0);
-                    }
-                }
-                self.update_field_completions();
-            }
-            Action::EditDeleteWordBack => {
-                if let Some(ref mut editor) = self.field_editor_state {
-                    editor.save_undo_snapshot();
-                    editor.delete_word_back();
-                }
-                self.update_field_completions();
-            }
-            Action::EditDeleteToHome => {
-                if let Some(ref mut editor) = self.field_editor_state {
-                    editor.save_undo_snapshot();
-                    editor.delete_to_home();
-                }
-                self.update_field_completions();
-            }
-            Action::EditConfirmAndMoveDown => {
-                self.confirm_edit();
-                self.move_cursor(1);
-                self.start_edit_field();
-            }
-            Action::EditConfirmAndMoveUp => {
-                self.confirm_edit();
-                self.move_cursor(-1);
-                self.start_edit_field();
-            }
+            Action::EditUndo
+            | Action::EditPut
+            | Action::EditYank
+            | Action::EditEnterNormal
+            | Action::EditEnterInsert
+            | Action::EditEnterInsertAfter
+            | Action::EditEnterInsertAtEnd
+            | Action::EditEnterInsertAtHome
+            | Action::EditMoveWordFwd
+            | Action::EditMoveWordBwd
+            | Action::EditMoveWordEnd
+            | Action::EditMoveBigWordFwd
+            | Action::EditMoveBigWordBwd
+            | Action::EditMoveBigWordEnd
+            | Action::EditDeleteWordFwd
+            | Action::EditDeleteToEnd
+            | Action::EditChangeToEnd
+            | Action::EditSubstituteChar
+            | Action::EditSubstituteLine
+            | Action::EditToggleCase
+            | Action::EditReplaceChar(_)
+            | Action::EditFindCharFwd(_)
+            | Action::EditFindCharBwd(_)
+            | Action::EditDeleteCharBack
+            | Action::EditDeleteWordBack
+            | Action::EditDeleteToHome
+            | Action::EditConfirmAndMoveDown
+            | Action::EditConfirmAndMoveUp => self.handle_field_editor_action(action),
 
             Action::TitlecaseField => self.titlecase_selected_field(),
             Action::NormalizeAuthor => self.normalize_author_field(),
@@ -1067,139 +719,37 @@ impl App {
             }
             Action::Undo => self.undo(),
 
-            // ── Import ──
+            // ── Import / Export ──
             Action::ImportEntry => self.start_import_entry(),
+            Action::ExportJson => {
+                self.field_editor_state =
+                    Some(FieldEditorState::for_path("Export path (CSL-JSON)", "export.json"));
+                self.pending_action = Some(PendingAction::ExportJson);
+                self.mode = InputMode::Editing;
+            }
+            Action::ExportRis => {
+                self.field_editor_state =
+                    Some(FieldEditorState::for_path("Export path (RIS)", "export.ris"));
+                self.pending_action = Some(PendingAction::ExportRis);
+                self.mode = InputMode::Editing;
+            }
 
             // ── Settings ──
-            Action::EnterSettings => {
-                let mut s = SettingsState::new(&self.config);
-                let row_count = s.rows.len();
-                if self.last_settings_cursor < row_count {
-                    s.cursor = self.last_settings_cursor;
-                }
-                self.settings_state = Some(s);
-                self.mode = InputMode::Settings;
-            }
-            Action::ExitSettings => {
-                if let Some(ref s) = self.settings_state {
-                    self.last_settings_cursor = s.cursor;
-                }
-                self.settings_state = None;
-                self.mode = InputMode::Normal;
-            }
-            Action::SettingsMoveDown => {
-                if let Some(ref mut s) = self.settings_state {
-                    s.move_down();
-                }
-            }
-            Action::SettingsMoveUp => {
-                if let Some(ref mut s) = self.settings_state {
-                    s.move_up();
-                }
-            }
-            Action::SettingsMoveToTop => {
-                if let Some(ref mut s) = self.settings_state {
-                    s.move_to_top();
-                }
-            }
-            Action::SettingsMoveToBottom => {
-                if let Some(ref mut s) = self.settings_state {
-                    s.move_to_bottom();
-                }
-            }
-            Action::SettingsPageDown => {
-                if let Some(ref mut s) = self.settings_state {
-                    s.move_page_down();
-                }
-            }
-            Action::SettingsPageUp => {
-                if let Some(ref mut s) = self.settings_state {
-                    s.move_page_up();
-                }
-            }
-            Action::SettingsToggle => {
-                if let Some(ref mut s) = self.settings_state {
-                    if s.selected_item().map(|i| i.value.is_cyclic()).unwrap_or(false) {
-                        s.toggle_selected();
-                        s.apply_to_config(&mut self.config);
-                        self.sync_runtime_from_config();
-                    }
-                }
-            }
-            Action::SettingsEdit => {
-                if let Some(ref s) = self.settings_state {
-                    if s.selected_is_field_group() {
-                        if let Some(idx) = s.selected_field_group_index() {
-                            let fields_csv = s.field_groups.get(idx)
-                                .map(|(_, f)| f.clone()).unwrap_or_default();
-                            self.field_editor_state =
-                                Some(FieldEditorState::new("Fields (comma-separated)", &fields_csv));
-                            self.pending_action =
-                                Some(PendingAction::EditFieldGroupFields { index: idx });
-                            self.mode = InputMode::Editing;
-                        }
-                    } else if let Some(id) = s.selected_id() {
-                        // Only open the text editor for free-form string settings.
-                        let is_str = s.selected_item()
-                            .map(|i| matches!(i.value, SettingValue::Str(_)))
-                            .unwrap_or(false);
-                        if is_str {
-                            let current = s.selected_value_str();
-                            let label = s.selected_item().map(|i| i.label.clone()).unwrap_or_else(|| id.to_string());
-                            let setting_id = id.to_string();
-                            self.field_editor_state =
-                                Some(FieldEditorState::new(&label, &current));
-                            self.pending_action =
-                                Some(PendingAction::EditSetting { setting_id });
-                            self.mode = InputMode::Editing;
-                        }
-                    }
-                }
-            }
-            Action::SettingsAddFieldGroup => {
-                if self.settings_state.is_some() {
-                    self.field_editor_state =
-                        Some(FieldEditorState::new("New field group name", ""));
-                    self.pending_action = Some(PendingAction::AddFieldGroup);
-                    self.mode = InputMode::Editing;
-                }
-            }
-            Action::SettingsDeleteFieldGroup => {
-                if let Some(ref mut s) = self.settings_state {
-                    if s.delete_selected_field_group() {
-                        s.apply_to_config(&mut self.config);
-                        self.sync_runtime_from_config();
-                    }
-                }
-            }
-            Action::SettingsRenameFieldGroup => {
-                if let Some(ref s) = self.settings_state {
-                    if let Some(idx) = s.selected_field_group_index() {
-                        let name = s.field_groups.get(idx)
-                            .map(|(n, _)| n.clone()).unwrap_or_default();
-                        self.field_editor_state =
-                            Some(FieldEditorState::new("Group name", &name));
-                        self.pending_action =
-                            Some(PendingAction::RenameFieldGroup { index: idx });
-                        self.mode = InputMode::Editing;
-                    }
-                }
-            }
-            Action::SettingsExport => {
-                // Prompt for export path, defaulting to ./bibtui.yaml
-                self.field_editor_state =
-                    Some(FieldEditorState::for_path("Export path", "bibtui.yaml"));
-                self.path_completions.clear();
-                self.pending_action = Some(PendingAction::ExportSettings);
-                self.mode = InputMode::Editing;
-            }
-            Action::SettingsImport => {
-                self.field_editor_state =
-                    Some(FieldEditorState::for_path("Import path", ""));
-                self.path_completions.clear();
-                self.pending_action = Some(PendingAction::ImportSettings);
-                self.mode = InputMode::Editing;
-            }
+            Action::EnterSettings
+            | Action::ExitSettings
+            | Action::SettingsMoveDown
+            | Action::SettingsMoveUp
+            | Action::SettingsMoveToTop
+            | Action::SettingsMoveToBottom
+            | Action::SettingsPageDown
+            | Action::SettingsPageUp
+            | Action::SettingsToggle
+            | Action::SettingsEdit
+            | Action::SettingsAddFieldGroup
+            | Action::SettingsDeleteFieldGroup
+            | Action::SettingsRenameFieldGroup
+            | Action::SettingsExport
+            | Action::SettingsImport => self.handle_settings_action(action),
             Action::EditTabComplete => self.do_field_tab_complete(),
         }
     }
@@ -1449,6 +999,38 @@ impl App {
             self.mode = InputMode::Settings;
             if !path_str.is_empty() {
                 self.export_settings(&path_str);
+            }
+            return;
+        }
+
+        // Export as CSL-JSON ──────────────────────────────────────────────────
+        if matches!(self.pending_action, Some(PendingAction::ExportJson)) {
+            let path_str = self
+                .field_editor_state
+                .as_ref()
+                .map(|e| e.value.trim().to_string())
+                .unwrap_or_default();
+            self.field_editor_state = None;
+            self.pending_action = None;
+            self.mode = InputMode::Normal;
+            if !path_str.is_empty() {
+                self.do_export_json(&path_str);
+            }
+            return;
+        }
+
+        // Export as RIS ───────────────────────────────────────────────────────
+        if matches!(self.pending_action, Some(PendingAction::ExportRis)) {
+            let path_str = self
+                .field_editor_state
+                .as_ref()
+                .map(|e| e.value.trim().to_string())
+                .unwrap_or_default();
+            self.field_editor_state = None;
+            self.pending_action = None;
+            self.mode = InputMode::Normal;
+            if !path_str.is_empty() {
+                self.do_export_ris(&path_str);
             }
             return;
         }
@@ -2431,6 +2013,22 @@ impl App {
                     self.spawn_import(doi_or_url);
                 }
             }
+            _ if cmd.starts_with("export-json") => {
+                let path = cmd["export-json".len()..].trim().to_string();
+                if path.is_empty() {
+                    self.handle_action(Action::ExportJson);
+                } else {
+                    self.do_export_json(&path);
+                }
+            }
+            _ if cmd.starts_with("export-ris") => {
+                let path = cmd["export-ris".len()..].trim().to_string();
+                if path.is_empty() {
+                    self.handle_action(Action::ExportRis);
+                } else {
+                    self.do_export_ris(&path);
+                }
+            }
             _ if cmd.starts_with("group ") => {
                 let group_name = cmd["group ".len()..].trim().to_string();
                 if !group_name.is_empty() {
@@ -2575,7 +2173,9 @@ impl App {
             | Some(PendingAction::NewFile)
             | Some(PendingAction::ImportUrl)
             | Some(PendingAction::AddFileAttachment { .. })
-            | Some(PendingAction::EditFileAttachment { .. }) => {
+            | Some(PendingAction::EditFileAttachment { .. })
+            | Some(PendingAction::ExportJson)
+            | Some(PendingAction::ExportRis) => {
                 // These are confirmed through confirm_edit(), not this path
             }
             None => {
@@ -2806,6 +2406,8 @@ impl App {
                 | Some(PendingAction::ImportUrl)
                 | Some(PendingAction::AddFileAttachment { .. })
                 | Some(PendingAction::EditFileAttachment { .. })
+                | Some(PendingAction::ExportJson)
+                | Some(PendingAction::ExportRis)
         );
         if !is_path_edit {
             return;
@@ -2875,6 +2477,36 @@ impl App {
             },
             Err(e) => {
                 self.status_message = Some(format!("Serialise failed: {}", e));
+            }
+        }
+    }
+
+    fn do_export_json(&mut self, path: &str) {
+        let path = expand_tilde(path);
+        match export_csl_json(&self.database) {
+            Ok(json) => match std::fs::write(&path, json) {
+                Ok(()) => {
+                    self.status_message = Some(format!("Exported {} entries as CSL-JSON to {}", self.database.entries.len(), path));
+                }
+                Err(e) => {
+                    self.status_message = Some(format!("Export failed: {}", e));
+                }
+            },
+            Err(e) => {
+                self.status_message = Some(format!("CSL-JSON serialisation failed: {}", e));
+            }
+        }
+    }
+
+    fn do_export_ris(&mut self, path: &str) {
+        let path = expand_tilde(path);
+        let ris = export_ris(&self.database);
+        match std::fs::write(&path, ris) {
+            Ok(()) => {
+                self.status_message = Some(format!("Exported {} entries as RIS to {}", self.database.entries.len(), path));
+            }
+            Err(e) => {
+                self.status_message = Some(format!("Export failed: {}", e));
             }
         }
     }
@@ -4122,6 +3754,360 @@ impl App {
             self.status_message = Some(format!("Group: {}", group_name));
         } else {
             self.status_message = Some(format!("Group not found: {}", group_name));
+        }
+    }
+
+    // ── Field editor (vim modal) action handler ───────────────────────────
+
+    fn handle_field_editor_action(&mut self, action: Action) {
+        match action {
+            Action::EditUndo => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.undo_edit();
+                }
+                self.update_field_completions();
+            }
+            Action::EditPut => {
+                // Use unnamed register (set by x/dw/yy) if non-empty, else fall back to clipboard.
+                let text_result = self.field_editor_state.as_ref().map(|editor| {
+                    if !editor.unnamed_register.is_empty() {
+                        Ok(editor.unnamed_register.clone())
+                    } else {
+                        crate::util::clipboard::read_from_clipboard()
+                            .map_err(|e| format!("Clipboard error: {e}"))
+                    }
+                });
+                match text_result {
+                    Some(Ok(text)) if !text.is_empty() => {
+                        if let Some(ref mut editor) = self.field_editor_state {
+                            editor.save_undo_snapshot();
+                            editor.put(&text);
+                        }
+                        self.update_field_completions();
+                    }
+                    Some(Err(e)) => self.status_message = Some(e),
+                    _ => {}
+                }
+            }
+            Action::EditYank => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    let text = editor.value.clone();
+                    editor.unnamed_register = text.clone();
+                    match crate::util::clipboard::copy_to_clipboard(&text) {
+                        Ok(()) => self.status_message = Some(format!("Yanked: {text}")),
+                        Err(e) => self.status_message = Some(format!("Clipboard error: {e}")),
+                    }
+                }
+            }
+            Action::EditEnterNormal => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.enter_normal();
+                }
+            }
+            Action::EditEnterInsert => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.save_undo_snapshot();
+                    editor.editing_mode = EditingMode::Insert;
+                }
+            }
+            Action::EditEnterInsertAfter => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.save_undo_snapshot();
+                    // Advance cursor one char past current position (like vim `a`)
+                    if editor.cursor < editor.value.len() {
+                        let next = editor.value[editor.cursor..]
+                            .chars()
+                            .next()
+                            .map(|c| c.len_utf8())
+                            .unwrap_or(0);
+                        editor.cursor += next;
+                    }
+                    editor.editing_mode = EditingMode::Insert;
+                }
+            }
+            Action::EditEnterInsertAtEnd => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.save_undo_snapshot();
+                    editor.cursor = editor.value.len();
+                    editor.editing_mode = EditingMode::Insert;
+                }
+            }
+            Action::EditEnterInsertAtHome => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.save_undo_snapshot();
+                    editor.cursor = 0;
+                    editor.editing_mode = EditingMode::Insert;
+                }
+            }
+            Action::EditMoveWordFwd => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.move_word_fwd();
+                }
+            }
+            Action::EditMoveWordBwd => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.move_word_bwd();
+                }
+            }
+            Action::EditMoveWordEnd => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.move_word_end();
+                }
+            }
+            Action::EditMoveBigWordFwd => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.move_big_word_fwd();
+                }
+            }
+            Action::EditMoveBigWordBwd => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.move_big_word_bwd();
+                }
+            }
+            Action::EditMoveBigWordEnd => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.move_big_word_end();
+                }
+            }
+            Action::EditDeleteWordFwd => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.save_undo_snapshot();
+                    editor.delete_word_fwd();
+                }
+                self.update_field_completions();
+            }
+            Action::EditDeleteToEnd => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.save_undo_snapshot();
+                    editor.delete_to_end();
+                }
+                self.update_field_completions();
+            }
+            Action::EditChangeToEnd => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.save_undo_snapshot();
+                    editor.delete_to_end();
+                    editor.editing_mode = EditingMode::Insert;
+                }
+                self.update_field_completions();
+            }
+            Action::EditSubstituteChar => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.save_undo_snapshot();
+                    editor.delete();
+                    editor.editing_mode = EditingMode::Insert;
+                }
+                self.update_field_completions();
+            }
+            Action::EditSubstituteLine => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.save_undo_snapshot();
+                    editor.clear_value();
+                    editor.editing_mode = EditingMode::Insert;
+                }
+                self.update_field_completions();
+            }
+            Action::EditToggleCase => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.save_undo_snapshot();
+                    editor.toggle_case_at_cursor();
+                }
+                self.update_field_completions();
+            }
+            Action::EditReplaceChar(c) => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.save_undo_snapshot();
+                    editor.replace_char_at_cursor(c);
+                }
+            }
+            Action::EditFindCharFwd(c) => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.find_char_fwd(c);
+                }
+            }
+            Action::EditFindCharBwd(c) => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.find_char_bwd(c);
+                }
+            }
+            Action::EditDeleteCharBack => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.save_undo_snapshot();
+                    editor.backspace();
+                    if editor.editing_mode == EditingMode::Normal
+                        && !editor.value.is_empty()
+                        && editor.cursor >= editor.value.len()
+                    {
+                        editor.cursor = editor
+                            .value
+                            .char_indices()
+                            .last()
+                            .map(|(i, _)| i)
+                            .unwrap_or(0);
+                    }
+                }
+                self.update_field_completions();
+            }
+            Action::EditDeleteWordBack => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.save_undo_snapshot();
+                    editor.delete_word_back();
+                }
+                self.update_field_completions();
+            }
+            Action::EditDeleteToHome => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.save_undo_snapshot();
+                    editor.delete_to_home();
+                }
+                self.update_field_completions();
+            }
+            Action::EditConfirmAndMoveDown => {
+                self.confirm_edit();
+                self.move_cursor(1);
+                self.start_edit_field();
+            }
+            Action::EditConfirmAndMoveUp => {
+                self.confirm_edit();
+                self.move_cursor(-1);
+                self.start_edit_field();
+            }
+            _ => {}
+        }
+    }
+
+    // ── Settings action handler ───────────────────────────────────────────
+
+    fn handle_settings_action(&mut self, action: Action) {
+        match action {
+            Action::EnterSettings => {
+                let mut s = SettingsState::new(&self.config);
+                let row_count = s.rows.len();
+                if self.last_settings_cursor < row_count {
+                    s.cursor = self.last_settings_cursor;
+                }
+                self.settings_state = Some(s);
+                self.mode = InputMode::Settings;
+            }
+            Action::ExitSettings => {
+                if let Some(ref s) = self.settings_state {
+                    self.last_settings_cursor = s.cursor;
+                }
+                self.settings_state = None;
+                self.mode = InputMode::Normal;
+            }
+            Action::SettingsMoveDown => {
+                if let Some(ref mut s) = self.settings_state {
+                    s.move_down();
+                }
+            }
+            Action::SettingsMoveUp => {
+                if let Some(ref mut s) = self.settings_state {
+                    s.move_up();
+                }
+            }
+            Action::SettingsMoveToTop => {
+                if let Some(ref mut s) = self.settings_state {
+                    s.move_to_top();
+                }
+            }
+            Action::SettingsMoveToBottom => {
+                if let Some(ref mut s) = self.settings_state {
+                    s.move_to_bottom();
+                }
+            }
+            Action::SettingsPageDown => {
+                if let Some(ref mut s) = self.settings_state {
+                    s.move_page_down();
+                }
+            }
+            Action::SettingsPageUp => {
+                if let Some(ref mut s) = self.settings_state {
+                    s.move_page_up();
+                }
+            }
+            Action::SettingsToggle => {
+                if let Some(ref mut s) = self.settings_state {
+                    if s.selected_item().map(|i| i.value.is_cyclic()).unwrap_or(false) {
+                        s.toggle_selected();
+                        s.apply_to_config(&mut self.config);
+                        self.sync_runtime_from_config();
+                    }
+                }
+            }
+            Action::SettingsEdit => {
+                if let Some(ref s) = self.settings_state {
+                    if s.selected_is_field_group() {
+                        if let Some(idx) = s.selected_field_group_index() {
+                            let fields_csv = s.field_groups.get(idx)
+                                .map(|(_, f)| f.clone()).unwrap_or_default();
+                            self.field_editor_state =
+                                Some(FieldEditorState::new("Fields (comma-separated)", &fields_csv));
+                            self.pending_action =
+                                Some(PendingAction::EditFieldGroupFields { index: idx });
+                            self.mode = InputMode::Editing;
+                        }
+                    } else if let Some(id) = s.selected_id() {
+                        let is_str = s.selected_item()
+                            .map(|i| matches!(i.value, SettingValue::Str(_)))
+                            .unwrap_or(false);
+                        if is_str {
+                            let current = s.selected_value_str();
+                            let label = s.selected_item().map(|i| i.label.clone()).unwrap_or_else(|| id.to_string());
+                            let setting_id = id.to_string();
+                            self.field_editor_state =
+                                Some(FieldEditorState::new(&label, &current));
+                            self.pending_action =
+                                Some(PendingAction::EditSetting { setting_id });
+                            self.mode = InputMode::Editing;
+                        }
+                    }
+                }
+            }
+            Action::SettingsAddFieldGroup => {
+                if self.settings_state.is_some() {
+                    self.field_editor_state =
+                        Some(FieldEditorState::new("New field group name", ""));
+                    self.pending_action = Some(PendingAction::AddFieldGroup);
+                    self.mode = InputMode::Editing;
+                }
+            }
+            Action::SettingsDeleteFieldGroup => {
+                if let Some(ref mut s) = self.settings_state {
+                    if s.delete_selected_field_group() {
+                        s.apply_to_config(&mut self.config);
+                        self.sync_runtime_from_config();
+                    }
+                }
+            }
+            Action::SettingsRenameFieldGroup => {
+                if let Some(ref s) = self.settings_state {
+                    if let Some(idx) = s.selected_field_group_index() {
+                        let name = s.field_groups.get(idx)
+                            .map(|(n, _)| n.clone()).unwrap_or_default();
+                        self.field_editor_state =
+                            Some(FieldEditorState::new("Group name", &name));
+                        self.pending_action =
+                            Some(PendingAction::RenameFieldGroup { index: idx });
+                        self.mode = InputMode::Editing;
+                    }
+                }
+            }
+            Action::SettingsExport => {
+                self.field_editor_state =
+                    Some(FieldEditorState::for_path("Export path", "bibtui.yaml"));
+                self.path_completions.clear();
+                self.pending_action = Some(PendingAction::ExportSettings);
+                self.mode = InputMode::Editing;
+            }
+            Action::SettingsImport => {
+                self.field_editor_state =
+                    Some(FieldEditorState::for_path("Import path", ""));
+                self.path_completions.clear();
+                self.pending_action = Some(PendingAction::ImportSettings);
+                self.mode = InputMode::Editing;
+            }
+            _ => {}
         }
     }
 }

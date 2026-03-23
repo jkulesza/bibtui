@@ -144,7 +144,7 @@ pub fn render_main_screen(f: &mut Frame, app: &mut App) {
 
     // Field editor overlay (e.g. group name input)
     if let Some(ref editor_state) = app.field_editor_state {
-        crate::tui::components::field_editor::render_field_editor(f, area, editor_state, &app.theme);
+        editor_state.render(f, area, &app.theme);
     }
 
     // Citation preview overlay

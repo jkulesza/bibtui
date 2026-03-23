@@ -291,7 +291,7 @@ fn format_authors_ieee(raw: &str) -> String {
         2 => format!("{} and {}", fmt[0], fmt[1]),
         _ => {
             let head = fmt[..fmt.len() - 1].join(", ");
-            format!("{}, and {}", head, fmt.last().unwrap())
+            format!("{}, and {}", head, fmt.last().expect("fmt.len() >= 3 in this arm"))
         }
     }
 }
@@ -310,7 +310,7 @@ fn format_single_ieee(author: &str) -> String {
             0 => String::new(),
             1 => words[0].to_string(),
             _ => {
-                let last     = *words.last().unwrap();
+                let last     = *words.last().expect("words.len() >= 2 in this arm");
                 let given    = words[..words.len() - 1].join(" ");
                 let initials = build_initials(&given);
                 if initials.is_empty() { last.to_string() } else { format!("{} {}", initials, last) }

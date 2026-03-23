@@ -22,7 +22,8 @@ A terminal UI BibTeX manager written in Rust. Designed as a lightweight, keyboar
 - LaTeX markup rendered to Unicode for display (`L` to toggle)
 - Assigned groups shown in the entry detail header alongside the entry type
 - ISO 4 journal abbreviation: the Journal column always shows the abbreviated form; a save action syncs `journal_full` and `journal_abbrev` companion fields
-- Configurable columns, sort, theme, and citekey templates via YAML
+- Configurable columns, sort, theme, citekey templates, and **keybinding overrides** via YAML
+- Export entries to **CSL-JSON** (Zotero/Pandoc compatible) or **RIS** via `:export-json` / `:export-ris`
 - In-TUI settings editor (`S`) with live config import/export, `Tab`-completion path dialogs, and field group management
 - Validate command (`v`) dry-runs all save actions and shows which fields would change, without modifying the file
 - Full-screen help modal (`?`) with complete keyboard reference
@@ -217,7 +218,7 @@ standard BibTeX abbreviations (`jan`–`dec`). Use `←`/`→` to step one month
 press `Tab` to cycle through matches. Any recognized form (`january`, `1`, `Jan`, etc.)
 is normalized to the three-letter abbreviation on save.
 
-Path dialogs (settings export/import, and the import entry dialog) support `Tab`
+Path dialogs (settings export/import, import entry, and export dialogs) support `Tab`
 completion: the first press fills the longest common prefix of all matches; subsequent
 presses cycle through candidates. Leading `~` is expanded to the home directory.
 
@@ -256,6 +257,8 @@ Open with `:` from the entry list.
 | `:group <name>` | Filter to a named group |
 | `:search <query>` | Apply a search query |
 | `:import <doi-or-url-or-path>` | Import entry from DOI, URL, or local PDF file |
+| `:export-json [path]` | Export all entries as CSL-JSON (prompts for path if omitted) |
+| `:export-ris [path]` | Export all entries as RIS (prompts for path if omitted) |
 
 Example: `:sort year`, `:sort author`, `:sort title`, `:sort citation_key`
 
@@ -348,7 +351,22 @@ field_groups:
     fields: [isbn, issn, lccn, eprint, archiveprefix, primaryclass]
 ```
 
-See `bibtui.yaml.example` for all options including columns, citekey templates, and save normalization.
+```yaml
+# Override or add keybindings on a per-mode basis
+keybindings:
+  normal:
+    "ctrl-n": "AddEntry"      # add entry with Ctrl-N
+    "ctrl-d": "DeleteEntry"   # delete with Ctrl-D
+    "J":      "ExportJson"    # export CSL-JSON
+    "R":      "ExportRis"     # export RIS
+  detail:
+    "ctrl-r": "RegenCitekey"  # regenerate citekey
+```
+
+Supported modes: `normal`, `detail`, `search`, `editing`, `settings`, `citation_preview`, `dialog`, `command`.
+Use `"None"` as the action to intentionally unbind a key.
+
+See `bibtui.yaml.example` for all options including columns, citekey templates, save normalization, and a full keybinding reference.
 
 ## Import
 
@@ -378,7 +396,7 @@ PDF candidates are tried in order (Unpaywall OA → publisher PDF → ANS direct
 cargo test
 ```
 
-All 940 tests pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, journal abbreviation, TUI component state machines, config loading, and import pipeline). Line coverage: ~77%.
+All 1014 tests pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, journal abbreviation, TUI component state machines, config loading, import pipeline, and export serialisation). Line coverage: ~77%.
 
 Coverage analysis runs automatically in CI via `cargo-llvm-cov`. To run locally:
 
@@ -387,6 +405,22 @@ cargo llvm-cov --workspace --summary-only
 ```
 
 ## Changelog
+
+### 0.33.0
+
+- **CSL-JSON and RIS export**: new `:export-json [path]` and `:export-ris [path]` commands (and bindable `ExportJson` / `ExportRis` actions) serialize all entries to Citation Style Language JSON or RIS format; path dialogs with `Tab` completion are shown when no path is given inline
+- **Dirty-entry roundtrip integration test**: new test edits a field via the `Database` API, serializes with `serialize_entry`, rewrites `raw_file`, and verifies the changed field is present in the re-parsed output while all other bytes are identical
+- **Expanded test fixtures**: `special_chars.bib` (accents, math, ampersands), `string_macros.bib` (`@String` macro definitions), `multi_file_a.bib` / `multi_file_b.bib` (two-file scenario with overlapping citekeys); 10 new fixture-based roundtrip tests
+- **`FieldEditorState::render()`**: the free function `render_field_editor` has been moved into the `FieldEditorState` impl block; call sites updated to `editor_state.render(f, area, theme)`
+- Expanded test coverage: 1014 tests, ~77% line coverage
+
+### 0.32.0
+
+- **User-configurable keybindings**: add a `keybindings:` section to `bibtui.yaml` to override or add key bindings on a per-mode basis; use `"None"` to intentionally unbind a built-in key; all action names are documented in `bibtui.yaml.example`
+- **JabRef regex keyword group filtering**: keyword groups with `regex: true` in the JabRef `@Comment` block now use real `regex::Regex` matching; previously the flag was parsed but silently ignored
+- **App module split**: `src/app.rs` (6 000+ lines) reorganized into `src/app/mod.rs` and `src/app/actions.rs`; no behavior change
+- **Library panic fix**: the BibTeX parser no longer panics with `assert_eq!` on unexpected input; the bad byte position is returned as an `anyhow` error instead
+- Expanded test coverage: 13 new tests for citekey modifiers, regex group filtering, and keybinding configuration
 
 ### 0.31.0
 

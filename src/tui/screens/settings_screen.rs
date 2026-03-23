@@ -6,7 +6,6 @@ use ratatui::Frame;
 
 use crate::app::App;
 use crate::tui::components::dialog::render_dialog;
-use crate::tui::components::field_editor::render_field_editor;
 use crate::tui::components::settings::render_settings;
 
 pub fn render_settings_screen(f: &mut Frame, app: &mut App) {
@@ -54,7 +53,7 @@ pub fn render_settings_screen(f: &mut Frame, app: &mut App) {
             }
         }
 
-        render_field_editor(f, area, editor_state, &app.theme);
+        editor_state.render(f, area, &app.theme);
     }
     if let Some(ref mut dialog) = app.dialog_state {
         render_dialog(f, area, dialog, &app.theme);
