@@ -6,7 +6,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::config::schema::{Config, CustomFieldGroup};
+use crate::config::schema::{ColumnConfig, ColumnWidth, Config, CustomFieldGroup};
 use crate::tui::theme::Theme;
 
 // ── Setting value ─────────────────────────────────────────────────────────────
@@ -58,6 +58,7 @@ pub enum SettingRow {
     Section(&'static str),
     Item(usize),       // index into SettingsState.items
     FieldGroup(usize), // index into SettingsState.field_groups
+    Column(usize),     // index into SettingsState.columns
 }
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -70,6 +71,48 @@ pub struct SettingsState {
     pub scroll_offset: usize,
     /// Custom field groups: (name, comma-separated field list).
     pub field_groups: Vec<(String, String)>,
+    /// Entry-list columns: (field, header, width_spec).
+    ///
+    /// `width_spec` encodes width and optional max: `"fixed:12"`,
+    /// `"percent:20"`, `"flex"`, `"percent:20 max:30"`, etc.
+    pub columns: Vec<(String, String, String)>,
+}
+
+// ── Column width helpers ───────────────────────────────────────────────────────
+
+/// Encode a `ColumnWidth` + optional max into an editable string.
+pub fn format_width_spec(width: &ColumnWidth, max_width: Option<u16>) -> String {
+    let base = match width {
+        ColumnWidth::Fixed(n)   => format!("fixed:{}", n),
+        ColumnWidth::Percent(n) => format!("percent:{}", n),
+        ColumnWidth::Flex       => "flex".to_string(),
+    };
+    match max_width {
+        Some(m) => format!("{} max:{}", base, m),
+        None    => base,
+    }
+}
+
+/// Parse an editable width string back to `(ColumnWidth, Option<u16>)`.
+///
+/// Accepted forms: `"flex"`, `"fixed:12"`, `"percent:20"`,
+/// optionally followed by `" max:N"`.
+pub fn parse_width_spec(s: &str) -> (ColumnWidth, Option<u16>) {
+    let s = s.trim();
+    let (main, max_part) = s.find(" max:")
+        .map(|pos| (&s[..pos], Some(&s[pos + 5..])))
+        .unwrap_or((s, None));
+    let max_w: Option<u16> = max_part.and_then(|p| p.trim().parse().ok());
+    let width = if main.trim() == "flex" {
+        ColumnWidth::Flex
+    } else if let Some(rest) = main.trim().strip_prefix("fixed:") {
+        ColumnWidth::Fixed(rest.trim().parse().unwrap_or(10))
+    } else if let Some(rest) = main.trim().strip_prefix("percent:") {
+        ColumnWidth::Percent(rest.trim().parse().unwrap_or(10))
+    } else {
+        ColumnWidth::Flex
+    };
+    (width, max_w)
 }
 
 /// Standard BibTeX entry types shown in the Citekey Templates section.
@@ -493,10 +536,17 @@ impl SettingsState {
             rows.push(SettingRow::Item(base + i));
         }
 
+        // ── Columns (one row per display column) ──
+        rows.push(SettingRow::Section("Columns"));
+        let columns: Vec<(String, String, String)> = config.display.columns.iter()
+            .map(|c| (c.field.clone(), c.header.clone(), format_width_spec(&c.width, c.max_width)))
+            .collect();
+        for i in 0..columns.len() {
+            rows.push(SettingRow::Column(i));
+        }
+
         // ── Field Groups (one row per group) ──
         rows.push(SettingRow::Section("Field Groups"));
-        let fg_rows_start = rows.len();
-        let _ = fg_rows_start; // used only to document intent
         let field_groups: Vec<(String, String)> = config.field_groups.iter()
             .map(|fg| (fg.name.clone(), fg.fields.join(", ")))
             .collect();
@@ -506,14 +556,17 @@ impl SettingsState {
 
         let cursor = rows
             .iter()
-            .position(|r| matches!(r, SettingRow::Item(_) | SettingRow::FieldGroup(_)))
+            .position(|r| matches!(r, SettingRow::Item(_) | SettingRow::FieldGroup(_) | SettingRow::Column(_)))
             .unwrap_or(0);
 
-        SettingsState { items, rows, cursor, scroll_offset: 0, field_groups }
+        SettingsState { items, rows, cursor, scroll_offset: 0, field_groups, columns }
     }
 
     fn is_selectable_row(&self, idx: usize) -> bool {
-        matches!(self.rows.get(idx), Some(SettingRow::Item(_)) | Some(SettingRow::FieldGroup(_)))
+        matches!(
+            self.rows.get(idx),
+            Some(SettingRow::Item(_)) | Some(SettingRow::FieldGroup(_)) | Some(SettingRow::Column(_))
+        )
     }
 
     pub fn move_down(&mut self) {
@@ -656,6 +709,86 @@ impl SettingsState {
     pub fn set_field_group_fields(&mut self, index: usize, fields_csv: String) {
         if let Some(fg) = self.field_groups.get_mut(index) {
             fg.1 = fields_csv;
+        }
+    }
+
+    // ── Column management ────────────────────────────────────────────────────
+
+    /// True when the currently selected row is a column entry.
+    pub fn selected_is_column(&self) -> bool {
+        matches!(self.rows.get(self.cursor), Some(SettingRow::Column(_)))
+    }
+
+    /// Index into `columns` for the selected row, if it is a column entry.
+    pub fn selected_column_index(&self) -> Option<usize> {
+        match self.rows.get(self.cursor) {
+            Some(SettingRow::Column(i)) => Some(*i),
+            _ => None,
+        }
+    }
+
+    /// The section name of the most-recently-passed Section header at or
+    /// before the cursor.  Used for context-sensitive `a` / `x` / `r`.
+    pub fn current_section(&self) -> Option<&'static str> {
+        let mut last: Option<&'static str> = None;
+        for (i, row) in self.rows.iter().enumerate() {
+            if i > self.cursor { break; }
+            if let SettingRow::Section(name) = row {
+                last = Some(name);
+            }
+        }
+        last
+    }
+
+    /// Append a new column and move the cursor to it.
+    pub fn add_column(&mut self, field: String, header: String, width_spec: String) {
+        let idx = self.columns.len();
+        self.columns.push((field, header, width_spec));
+        let insert_at = self.rows.iter().rposition(|r| matches!(r, SettingRow::Column(_)))
+            .map(|i| i + 1)
+            .unwrap_or_else(|| {
+                self.rows.iter().rposition(|r| matches!(r, SettingRow::Section("Columns")))
+                    .map(|i| i + 1)
+                    .unwrap_or(self.rows.len())
+            });
+        self.rows.insert(insert_at, SettingRow::Column(idx));
+        self.cursor = insert_at;
+    }
+
+    /// Delete the currently selected column.  Returns `true` if one was deleted.
+    pub fn delete_selected_column(&mut self) -> bool {
+        let idx = match self.rows.get(self.cursor) {
+            Some(SettingRow::Column(i)) => *i,
+            _ => return false,
+        };
+        self.columns.remove(idx);
+        self.rows.remove(self.cursor);
+        for row in &mut self.rows {
+            if let SettingRow::Column(i) = row {
+                if *i > idx { *i -= 1; }
+            }
+        }
+        if self.cursor >= self.rows.len() {
+            self.cursor = self.cursor.saturating_sub(1);
+        }
+        while self.cursor > 0 && !self.is_selectable_row(self.cursor) {
+            self.cursor -= 1;
+        }
+        true
+    }
+
+    /// Update the width spec of a column by index.
+    pub fn set_column_width(&mut self, index: usize, width_spec: String) {
+        if let Some(col) = self.columns.get_mut(index) {
+            col.2 = width_spec;
+        }
+    }
+
+    /// Update the field name and header of a column by index.
+    pub fn set_column_name(&mut self, index: usize, field: String, header: String) {
+        if let Some(col) = self.columns.get_mut(index) {
+            col.0 = field;
+            col.1 = header;
         }
     }
 
@@ -834,6 +967,19 @@ impl SettingsState {
         if let Some(item) = self.items.iter_mut().find(|i| i.id == "titlecase.stop_words") {
             item.value = SettingValue::Str(config.titlecase.stop_words.join(", "));
         }
+        // Apply columns
+        config.display.columns = self.columns.iter()
+            .filter(|(field, _, _)| !field.trim().is_empty())
+            .map(|(field, header, width_spec)| {
+                let (width, max_width) = parse_width_spec(width_spec);
+                ColumnConfig {
+                    field: field.trim().to_string(),
+                    header: header.trim().to_string(),
+                    width,
+                    max_width,
+                }
+            })
+            .collect();
         // Apply field groups
         config.field_groups = self.field_groups.iter()
             .filter(|(name, _)| !name.trim().is_empty())
@@ -1364,8 +1510,12 @@ pub fn render_settings(f: &mut Frame, area: Rect, state: &mut SettingsState, the
         .add_modifier(Modifier::BOLD);
     let section_sep_style = theme.border;
 
-    let default_field_groups: Vec<(String, String)> = Config::default().field_groups.iter()
+    let defaults = Config::default();
+    let default_field_groups: Vec<(String, String)> = defaults.field_groups.iter()
         .map(|fg| (fg.name.clone(), fg.fields.join(", ")))
+        .collect();
+    let default_columns: Vec<(String, String, String)> = defaults.display.columns.iter()
+        .map(|c| (c.field.clone(), c.header.clone(), format_width_spec(&c.width, c.max_width)))
         .collect();
 
     let lines: Vec<Line> = state
@@ -1431,6 +1581,42 @@ pub fn render_settings(f: &mut Frame, area: Rect, state: &mut SettingsState, the
                     Span::styled(default_hint, hint_style),
                 ])
             }
+            SettingRow::Column(col_idx) => {
+                let (field, header, width_spec) = match state.columns.get(*col_idx) {
+                    Some(c) => c,
+                    None => return Line::from(""),
+                };
+                let is_selected = row_idx == state.cursor;
+                let is_modified = !default_columns.iter()
+                    .any(|(df, dh, dw)| df == field && dh == header && dw == width_spec);
+
+                let base_style = if is_selected { theme.selected } else { Style::default() };
+                let cursor_ch = if is_selected { "▶" } else { " " };
+
+                let display_name = if header != field {
+                    format!("{} ({})", field, header)
+                } else {
+                    field.clone()
+                };
+                let label = format!(" {:<w$}", display_name, w = LABEL_W);
+                let val_trunc: String = width_spec.chars().take(VAL_W).collect();
+                let val_padded = format!("{:<w$}", val_trunc, w = VAL_W);
+                let mod_marker = if is_modified { "● " } else { "  " };
+                let val_style = if is_modified { modified_style } else { base_style };
+                let mod_style = if is_modified {
+                    Style::default().fg(Color::Yellow)
+                } else {
+                    base_style
+                };
+
+                Line::from(vec![
+                    Span::styled(format!(" {} [C] ", cursor_ch), base_style),
+                    Span::styled(label, base_style),
+                    Span::styled(val_padded, val_style),
+                    Span::styled(mod_marker, mod_style),
+                    Span::styled("fixed:N / percent:N / flex [max:N]", theme.label),
+                ])
+            }
             SettingRow::FieldGroup(fg_idx) => {
                 let (name, fields_csv) = match state.field_groups.get(*fg_idx) {
                     Some(fg) => fg,
@@ -1489,7 +1675,9 @@ pub fn render_settings(f: &mut Frame, area: Rect, state: &mut SettingsState, the
     );
 
     // ── Hint bar ────────────────────────────────────────────────────────────
-    let action_hint = if state.selected_is_field_group() {
+    let action_hint = if state.selected_is_column() {
+        "e: edit width  r: rename (field|header)  a: add column  x: delete column"
+    } else if state.selected_is_field_group() {
         "e: edit fields  r: rename  a: add group  x: delete group"
     } else {
         match state.selected_item().map(|i| &i.value) {

@@ -1144,6 +1144,63 @@ impl App {
             return;
         }
 
+        // Add a new display column ────────────────────────────────────────────
+        if matches!(self.pending_action, Some(PendingAction::AddColumn)) {
+            let input = self.field_editor_state.as_ref()
+                .map(|e| e.value.trim().to_string()).unwrap_or_default();
+            self.pending_action = None;
+            self.field_editor_state = None;
+            self.mode = InputMode::Settings;
+            if !input.is_empty() {
+                let (field, header) = parse_field_header(&input);
+                if let Some(ref mut s) = self.settings_state {
+                    s.add_column(field, header, "flex".to_string());
+                    s.apply_to_config(&mut self.config);
+                }
+                self.sync_runtime_from_config();
+            }
+            return;
+        }
+
+        // Edit column width ───────────────────────────────────────────────────
+        if matches!(self.pending_action, Some(PendingAction::EditColumnWidth { .. })) {
+            let index = match self.pending_action.take() {
+                Some(PendingAction::EditColumnWidth { index }) => index,
+                _ => return,
+            };
+            let width_spec = self.field_editor_state.as_ref()
+                .map(|e| e.value.trim().to_string()).unwrap_or_default();
+            self.field_editor_state = None;
+            self.mode = InputMode::Settings;
+            if let Some(ref mut s) = self.settings_state {
+                s.set_column_width(index, width_spec);
+                s.apply_to_config(&mut self.config);
+            }
+            self.sync_runtime_from_config();
+            return;
+        }
+
+        // Rename a display column ─────────────────────────────────────────────
+        if matches!(self.pending_action, Some(PendingAction::RenameColumn { .. })) {
+            let index = match self.pending_action.take() {
+                Some(PendingAction::RenameColumn { index }) => index,
+                _ => return,
+            };
+            let input = self.field_editor_state.as_ref()
+                .map(|e| e.value.trim().to_string()).unwrap_or_default();
+            self.field_editor_state = None;
+            self.mode = InputMode::Settings;
+            if !input.is_empty() {
+                let (field, header) = parse_field_header(&input);
+                if let Some(ref mut s) = self.settings_state {
+                    s.set_column_name(index, field, header);
+                    s.apply_to_config(&mut self.config);
+                }
+                self.sync_runtime_from_config();
+            }
+            return;
+        }
+
         // Add a new file attachment ───────────────────────────────────────────
         if matches!(self.pending_action, Some(PendingAction::AddFileAttachment { .. })) {
             let entry_key = match self.pending_action.take() {
@@ -2244,6 +2301,9 @@ impl App {
             | Some(PendingAction::AddFieldGroup)
             | Some(PendingAction::EditFieldGroupFields { .. })
             | Some(PendingAction::RenameFieldGroup { .. })
+            | Some(PendingAction::AddColumn)
+            | Some(PendingAction::EditColumnWidth { .. })
+            | Some(PendingAction::RenameColumn { .. })
             | Some(PendingAction::NewFile)
             | Some(PendingAction::ImportUrl)
             | Some(PendingAction::AddFileAttachment { .. })
@@ -4125,7 +4185,17 @@ impl App {
             }
             Action::SettingsEdit => {
                 if let Some(ref s) = self.settings_state {
-                    if s.selected_is_field_group() {
+                    if s.selected_is_column() {
+                        if let Some(idx) = s.selected_column_index() {
+                            let width_spec = s.columns.get(idx)
+                                .map(|(_, _, w)| w.clone()).unwrap_or_default();
+                            self.field_editor_state =
+                                Some(FieldEditorState::new("Width (fixed:N / percent:N / flex [max:N])", &width_spec));
+                            self.pending_action =
+                                Some(PendingAction::EditColumnWidth { index: idx });
+                            self.mode = InputMode::Editing;
+                        }
+                    } else if s.selected_is_field_group() {
                         if let Some(idx) = s.selected_field_group_index() {
                             let fields_csv = s.field_groups.get(idx)
                                 .map(|(_, f)| f.clone()).unwrap_or_default();
@@ -4154,15 +4224,29 @@ impl App {
             }
             Action::SettingsAddFieldGroup => {
                 if self.settings_state.is_some() {
-                    self.field_editor_state =
-                        Some(FieldEditorState::new("New field group name", ""));
-                    self.pending_action = Some(PendingAction::AddFieldGroup);
+                    let in_columns = self.settings_state.as_ref()
+                        .map(|s| s.current_section() == Some("Columns"))
+                        .unwrap_or(false);
+                    if in_columns {
+                        self.field_editor_state =
+                            Some(FieldEditorState::new("Column field name (field or field|header)", ""));
+                        self.pending_action = Some(PendingAction::AddColumn);
+                    } else {
+                        self.field_editor_state =
+                            Some(FieldEditorState::new("New field group name", ""));
+                        self.pending_action = Some(PendingAction::AddFieldGroup);
+                    }
                     self.mode = InputMode::Editing;
                 }
             }
             Action::SettingsDeleteFieldGroup => {
                 if let Some(ref mut s) = self.settings_state {
-                    if s.delete_selected_field_group() {
+                    let deleted = if s.selected_is_column() {
+                        s.delete_selected_column()
+                    } else {
+                        s.delete_selected_field_group()
+                    };
+                    if deleted {
                         s.apply_to_config(&mut self.config);
                         self.sync_runtime_from_config();
                     }
@@ -4170,7 +4254,18 @@ impl App {
             }
             Action::SettingsRenameFieldGroup => {
                 if let Some(ref s) = self.settings_state {
-                    if let Some(idx) = s.selected_field_group_index() {
+                    if s.selected_is_column() {
+                        if let Some(idx) = s.selected_column_index() {
+                            let current = s.columns.get(idx)
+                                .map(|(f, h, _)| if f == h { f.clone() } else { format!("{}|{}", f, h) })
+                                .unwrap_or_default();
+                            self.field_editor_state =
+                                Some(FieldEditorState::new("field or field|header", &current));
+                            self.pending_action =
+                                Some(PendingAction::RenameColumn { index: idx });
+                            self.mode = InputMode::Editing;
+                        }
+                    } else if let Some(idx) = s.selected_field_group_index() {
                         let name = s.field_groups.get(idx)
                             .map(|(n, _)| n.clone()).unwrap_or_default();
                         self.field_editor_state =
@@ -4310,6 +4405,20 @@ fn collect_group_names(node: &GroupNode, names: &mut Vec<String>) {
 /// Directory entries are returned with a trailing `/`.
 /// Expand a leading `~` to the user's home directory (Unix/macOS).
 /// Returns the input unchanged if `~` cannot be resolved or is not present.
+/// Parse `"field"` or `"field|header"` into `(field, header)`.
+/// When no `|` separator is present, the header defaults to the field name.
+fn parse_field_header(s: &str) -> (String, String) {
+    if let Some(pos) = s.find('|') {
+        let field = s[..pos].trim().to_string();
+        let header = s[pos + 1..].trim().to_string();
+        let header = if header.is_empty() { field.clone() } else { header };
+        (field, header)
+    } else {
+        let field = s.trim().to_string();
+        (field.clone(), field)
+    }
+}
+
 fn expand_tilde(s: &str) -> String {
     if s == "~" || s.starts_with("~/") {
         if let Some(home) = std::env::var_os("HOME") {

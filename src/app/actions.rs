@@ -205,4 +205,10 @@ pub(super) enum PendingAction {
     ExportRis,
     /// Waiting for the user to pick a new type for an existing entry.
     ChangeEntryType { entry_key: String },
+    /// Waiting for the user to type a field name for a new display column.
+    AddColumn,
+    /// Waiting for the user to edit the width spec of a column.
+    EditColumnWidth { index: usize },
+    /// Waiting for the user to rename a column (field|header string).
+    RenameColumn { index: usize },
 }
