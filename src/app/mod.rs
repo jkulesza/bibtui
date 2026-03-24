@@ -699,6 +699,7 @@ impl App {
 
             Action::TitlecaseField => self.titlecase_selected_field(),
             Action::NormalizeAuthor => self.normalize_author_field(),
+            Action::ChangeEntryType => self.start_change_entry_type(),
             Action::OpenFile => self.open_file(),
             Action::OpenWeb => self.open_web(),
             Action::ToggleBraces => {
@@ -1474,6 +1475,40 @@ impl App {
 
     // ── Entry CRUD ──
 
+    fn start_change_entry_type(&mut self) {
+        let Some(entry_key) = self.detail_entry_key.clone() else { return };
+        let types = vec![
+            "Article".to_string(),
+            "Book".to_string(),
+            "InProceedings".to_string(),
+            "TechReport".to_string(),
+            "PhdThesis".to_string(),
+            "MastersThesis".to_string(),
+            "Misc".to_string(),
+            "InBook".to_string(),
+            "InCollection".to_string(),
+            "Proceedings".to_string(),
+            "Unpublished".to_string(),
+            "Booklet".to_string(),
+            "Manual".to_string(),
+        ];
+        // Pre-select the entry's current type in the picker
+        let current = self
+            .database
+            .entries
+            .get(&entry_key)
+            .map(|e| e.entry_type.display_name().to_string());
+        let selected = current
+            .as_deref()
+            .and_then(|name| types.iter().position(|t| t == name))
+            .unwrap_or(0);
+        let mut dialog = DialogState::type_picker_titled("Change Entry Type", types);
+        dialog.select(selected);
+        self.dialog_state = Some(dialog);
+        self.pending_action = Some(PendingAction::ChangeEntryType { entry_key });
+        self.mode = InputMode::Dialog;
+    }
+
     fn start_add_entry(&mut self) {
         let types = vec![
             "Article".to_string(),
@@ -1525,6 +1560,35 @@ impl App {
         }
         self.mode = InputMode::Detail;
         self.status_message = Some(format!("Added new {} entry", type_name));
+    }
+
+    fn apply_entry_type_change(&mut self, entry_key: &str, type_name: &str) {
+        let new_type = EntryType::from_str(type_name);
+        if let Some(entry) = self.database.entries.get_mut(entry_key) {
+            if entry.entry_type == new_type {
+                self.mode = InputMode::Detail;
+                return;
+            }
+            let old_type = entry.entry_type.clone();
+            self.push_undo(UndoItem::EntryTypeChanged {
+                entry_key: entry_key.to_string(),
+                old_type,
+            });
+            let entry = self.database.entries.get_mut(entry_key).unwrap();
+            entry.entry_type = new_type;
+            entry.dirty = true;
+        }
+        // Rebuild detail state to reflect new required/optional categorisation
+        if self.detail_entry_key.as_deref() == Some(entry_key) {
+            if let Some(entry) = self.database.entries.get(entry_key) {
+                let snapshot = entry.clone();
+                if let Some(ref mut detail) = self.detail_state {
+                    detail.refresh(&snapshot);
+                }
+            }
+        }
+        self.mode = InputMode::Detail;
+        self.status_message = Some(format!("Entry type changed to {}", type_name));
     }
 
     fn start_delete_entry(&mut self) {
@@ -2096,6 +2160,16 @@ impl App {
                         let selected = dialog.selected();
                         if let Some(type_name) = options.get(selected) {
                             self.add_entry_of_type(&type_name.clone());
+                        }
+                    }
+                }
+            }
+            Some(PendingAction::ChangeEntryType { entry_key }) => {
+                if let Some(dialog) = dialog {
+                    if let DialogKind::TypePicker { options, .. } = &dialog.kind {
+                        let selected = dialog.selected();
+                        if let Some(type_name) = options.get(selected).cloned() {
+                            self.apply_entry_type_change(&entry_key, &type_name);
                         }
                     }
                 }
@@ -3380,6 +3454,20 @@ impl App {
                     self.close_detail();
                 }
                 self.status_message = Some(format!("Undo: removed '{}'", entry_key));
+            }
+            UndoItem::EntryTypeChanged { entry_key, old_type } => {
+                let old_name = old_type.display_name().to_string();
+                if let Some(entry) = self.database.entries.get_mut(&entry_key) {
+                    entry.entry_type = old_type;
+                    entry.dirty = true;
+                    if self.detail_entry_key.as_deref() == Some(entry_key.as_str()) {
+                        let snapshot = entry.clone();
+                        if let Some(ref mut detail) = self.detail_state {
+                            detail.refresh(&snapshot);
+                        }
+                    }
+                }
+                self.status_message = Some(format!("Undo: type reverted to {}", old_name));
             }
             UndoItem::CitekeyChanged { old_key, new_key, entry_snapshot } => {
                 self.database.entries.shift_remove(&new_key);

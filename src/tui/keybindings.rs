@@ -136,6 +136,7 @@ fn map_detail_key(key: KeyEvent, last_key: Option<char>) -> Option<Action> {
         KeyCode::Char('w') => Some(Action::OpenWeb),
         KeyCode::Tab => Some(Action::EditGroups),
         KeyCode::Char('c') => Some(Action::RegenCitekey),
+        KeyCode::Char('t') => Some(Action::ChangeEntryType),
         KeyCode::Char('L') => Some(Action::ToggleLatex),
         KeyCode::Char('B') => Some(Action::ToggleBraces),
         KeyCode::Char('u') => Some(Action::Undo),
@@ -471,6 +472,7 @@ pub fn action_from_name(name: &str) -> Option<Action> {
         "DialogYank"                => Some(Action::DialogYank),
         "ShowHelp"                  => Some(Action::ShowHelp),
         "TitlecaseField"            => Some(Action::TitlecaseField),
+        "ChangeEntryType"           => Some(Action::ChangeEntryType),
         "ToggleBraces"              => Some(Action::ToggleBraces),
         "ToggleLatex"               => Some(Action::ToggleLatex),
         "NormalizeAuthor"           => Some(Action::NormalizeAuthor),
@@ -667,6 +669,7 @@ mod tests {
         assert_eq!(map_key(key(KeyCode::Char('n')), &InputMode::Detail, None, false, false), Some(Action::DetailNextMatch));
         assert_eq!(map_key(key(KeyCode::Char('/')), &InputMode::Detail, None, false, false), Some(Action::EnterDetailSearch));
         assert_eq!(map_key(key(KeyCode::Char('c')), &InputMode::Detail, None, false, false), Some(Action::RegenCitekey));
+        assert_eq!(map_key(key(KeyCode::Char('t')), &InputMode::Detail, None, false, false), Some(Action::ChangeEntryType));
         assert_eq!(map_key(key(KeyCode::Char('u')), &InputMode::Detail, None, false, false), Some(Action::Undo));
         // Navigation
         assert_eq!(map_key(key(KeyCode::Char('G')), &InputMode::Detail, None, false, false), Some(Action::MoveToBottom));

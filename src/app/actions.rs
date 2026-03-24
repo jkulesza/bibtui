@@ -41,6 +41,7 @@ pub enum Action {
     EditCursorEnd,
     EditTabComplete,
     AddEntry,
+    ChangeEntryType,
     DeleteEntry,
     DuplicateEntry,
     YankCitekey,
@@ -140,6 +141,11 @@ pub(super) enum UndoItem {
     EntryDeleted { entry: Entry },
     /// An entry was added (new or duplicated); undo removes it.
     EntryAdded { entry_key: String },
+    /// An entry's type was changed; undo restores the old type.
+    EntryTypeChanged {
+        entry_key: String,
+        old_type: crate::bib::model::EntryType,
+    },
     /// The citation key was regenerated; undo restores the old key.
     CitekeyChanged {
         old_key: String,
@@ -197,4 +203,6 @@ pub(super) enum PendingAction {
     ExportJson,
     /// Waiting for the user to type a path for RIS export.
     ExportRis,
+    /// Waiting for the user to pick a new type for an existing entry.
+    ChangeEntryType { entry_key: String },
 }
