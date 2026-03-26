@@ -2690,8 +2690,8 @@ impl App {
     /// - One file  →  `citekey.ext`
     /// - N files   →  `citekey_1.ext`, `citekey_2.ext`, …
     ///
-    /// Only dirty entries with a `file` field are processed.  The actual file is
-    /// renamed on disk; if the rename fails the entry is left unchanged.
+    /// All entries with a `file` field are processed, regardless of dirty state.
+    /// The actual file is renamed on disk; if the rename fails the entry is left unchanged.
     fn sync_filenames(&mut self) {
         if !self.config.save.sync_filenames {
             return;
@@ -2706,7 +2706,7 @@ impl App {
             .database
             .entries
             .iter()
-            .filter(|(_, e)| e.dirty && e.fields.contains_key("file"))
+            .filter(|(_, e)| e.fields.contains_key("file"))
             .map(|(k, _)| k.clone())
             .collect();
 
@@ -2808,9 +2808,6 @@ impl App {
         let mut renames = Vec::new();
 
         for (_, entry) in &self.database.entries {
-            if !entry.dirty {
-                continue;
-            }
             let file_val = match entry.fields.get("file") {
                 Some(v) => v,
                 None => continue,

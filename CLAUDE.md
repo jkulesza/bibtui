@@ -67,6 +67,7 @@ tests/
 - **Parser**: Hand-written recursive descent, not a library. Preserves all formatting including bare month tokens (`month = apr,`), case-protecting braces, and JabRef `@Comment` group blocks.
 - **LaTeX rendering**: Must run BEFORE `strip_case_braces`. In `MATH_SYMBOLS` table, longer patterns must come before their prefix-patterns (e.g. `\infty` before `\in`).
 - **TUI**: ratatui + crossterm with a component architecture. Event-driven rendering with viewport culling for performance.
+- **`sync_filenames`**: When enabled, renames attached files to match the citation key on every save — applies to **all** entries with a `file` field, not just dirty ones. An entry is marked dirty if its `file` path changed, so it will be re-serialized. The rename target preserves the original subdirectory (e.g. `PDF/old.pdf` → `PDF/citekey.pdf`).
 
 ## Config File
 

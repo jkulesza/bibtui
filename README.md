@@ -406,6 +406,10 @@ cargo llvm-cov --workspace --summary-only
 
 ## Changelog
 
+### 0.35.1
+
+- **`sync_filenames` applies to all entries**: previously only dirty (modified) entries had their attached files renamed on save; now all entries with a `file` field are processed on every save, keeping the database consistent regardless of whether the entry was edited in the current session
+
 ### 0.33.0
 
 - **CSL-JSON and RIS export**: new `:export-json [path]` and `:export-ris [path]` commands (and bindable `ExportJson` / `ExportRis` actions) serialize all entries to Citation Style Language JSON or RIS format; path dialogs with `Tab` completion are shown when no path is given inline
