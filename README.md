@@ -115,6 +115,7 @@ bibtui --config ~/dotfiles/bibtui.yaml references.bib
 | `u` | Undo last change |
 | `:` | Open command palette |
 | `?` | Show full-screen help modal |
+| `Esc` | Reset sort to configured default |
 
 ### Search mode
 
@@ -143,7 +144,7 @@ The detail header shows the entry type and its currently assigned groups.
 | `f` | Add file attachment |
 | `d` | Delete selected field |
 | `T` | Convert selected field to title case |
-| `a` | Normalize author names to "Last, First" form |
+| `a` | Normalize person-name fields (`author`, `editor`, etc.) to "Last, First" form |
 | `o` | Open attached file(s) in OS default viewer |
 | `w` | Open DOI / URL in default browser; if none exists, fetches DOI from metadata via Crossref |
 | `Tab` | Edit entry's group assignments |
@@ -157,7 +158,7 @@ The detail header shows the entry type and its currently assigned groups.
 
 ### Field editor (Editing mode)
 
-The field editor uses vim-style modal editing. Opening a field starts in **Normal mode**; the title bar shows `— INSERT` when in Insert mode.
+The field editor uses vim-style modal editing. Opening a non-empty field starts in **Normal mode**; opening an empty field starts directly in **Insert mode**. The title bar shows `— INSERT` or `— REPLACE` when in those modes. Empty `title` / `booktitle` fields are pre-filled with `{}` and the cursor is placed inside the braces so case-protection is applied automatically.
 
 #### Normal mode
 
@@ -167,6 +168,7 @@ The field editor uses vim-style modal editing. Opening a field starts in **Norma
 | `a` | Enter Insert mode after cursor |
 | `A` | Enter Insert mode at end of line |
 | `I` | Enter Insert mode at start of line |
+| `R` | Enter Replace mode (overwrites characters; Backspace undoes one char at a time) |
 | `h` / `←` | Move cursor left |
 | `l` / `→` | Move cursor right |
 | `0` / `Home` | Jump to start |
@@ -174,13 +176,19 @@ The field editor uses vim-style modal editing. Opening a field starts in **Norma
 | `w` / `W` | Move to start of next word / WORD |
 | `b` / `B` | Move to start of current/previous word / WORD |
 | `e` / `E` | Move to end of current/next word / WORD |
-| `f{c}` | Find next occurrence of character `c` |
-| `F{c}` | Find previous occurrence of character `c` |
+| `f{c}` | Find next occurrence of character `c` (cursor lands on `c`) |
+| `F{c}` | Find previous occurrence of character `c` (cursor lands on `c`) |
+| `t{c}` | Move cursor to char just before next occurrence of `c` |
+| `T{c}` | Move cursor to char just after previous occurrence of `c` |
 | `j` / `↓` | Save edit and move to next field |
 | `k` / `↑` | Save edit and move to previous field |
 | `x` | Delete character under cursor |
 | `X` | Delete character before cursor |
 | `dw` | Delete to start of next word |
+| `dt{c}` | Delete from cursor to (not including) next `c` |
+| `df{c}` | Delete from cursor through (including) next `c` |
+| `dT{c}` | Delete from (not including) previous `c` back to cursor |
+| `dF{c}` | Delete from (including) previous `c` back to cursor |
 | `D` | Delete to end of line |
 | `C` | Change to end of line (delete + enter Insert mode) |
 | `s` | Substitute character (delete + enter Insert mode) |
@@ -208,7 +216,7 @@ The field editor uses vim-style modal editing. Opening a field starts in **Norma
 | `Enter` | Confirm edit |
 | `Esc` | Return to Normal mode |
 
-Operations that delete text (`x`, `dw`, `D`, `s`, `S`, `Ctrl-W`, `Ctrl-U`) save the deleted text to the unnamed register so it can be restored with `p`. Entering Insert mode via `i`/`a`/`A`/`I` snapshots the field value for undo with `u`.
+Operations that delete text (`x`, `dw`, `dt{c}`, `df{c}`, `dT{c}`, `dF{c}`, `D`, `s`, `S`, `Ctrl-W`, `Ctrl-U`) save the deleted text to the unnamed register so it can be restored with `p`. Entering Insert mode via `i`/`a`/`A`/`I` snapshots the field value for undo with `u`. In Replace mode (`R`) each overwritten character is individually reversible with `Backspace`.
 
 Long values scroll horizontally; `<` and `>` at the edges indicate hidden text.  The cursor is kept near the visual midpoint: it moves freely between the nearest edge and the centre, then the text scrolls while the cursor stays fixed at the centre.
 
@@ -396,7 +404,7 @@ PDF candidates are tried in order (Unpaywall OA → publisher PDF → ANS direct
 cargo test
 ```
 
-All 1014 tests pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, journal abbreviation, TUI component state machines, config loading, import pipeline, and export serialisation). Line coverage: ~77%.
+All 1014 tests pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, journal abbreviation, TUI component state machines, config loading, import pipeline, and export serialisation). Line coverage: ~75%.
 
 Coverage analysis runs automatically in CI via `cargo-llvm-cov`. To run locally:
 
@@ -405,6 +413,38 @@ cargo llvm-cov --workspace --summary-only
 ```
 
 ## Changelog
+
+### 0.42.0
+
+- **Vim delete-to / find-to operators**: `t{c}` / `T{c}` move the cursor to just before/after the next/previous occurrence of `c`; `dt{c}` deletes from cursor to (not including) the next `c`; `df{c}` deletes through (including) the next `c`; `dT{c}` / `dF{c}` mirror these backward — all consistent with standard vim behaviour
+- Three-key sequences are tracked via a new `second_last_key` field on `App`; non-character keys reset the chain; 3-key matches take priority over 2-key matches in the dispatch table
+- `t` and `T` added to the pending-key set so they never fire as single keystrokes
+
+### 0.41.0
+
+- **ESC resets sort in Normal mode**: pressing `Esc` from the entry list restores the sort field and direction to whatever was configured at startup (i.e. the `display.default_sort` value); a status message confirms the reset
+
+### 0.40.0
+
+- **Vim Replace mode (`R`)**: pressing `R` in the field editor's Normal mode enters Replace mode, which overwrites characters in place rather than inserting; each overwritten character is individually reversible with `Backspace` (the original characters are stored on a per-replacement undo stack); `Esc` exits Replace mode and returns to Normal
+- The field editor title bar now shows `— REPLACE` when in Replace mode (alongside the existing `— INSERT` indicator)
+
+### 0.39.0
+
+- **Normalize person-name fields** (`a` in detail view): the normalization command now applies to all person-name fields (`author`, `editor`, `editora`, `editorb`, `editorc`, `bookauthor`, `afterword`, `translator`) rather than `author` alone
+- Renamed internal action `NormalizeAuthor` → `NormalizeNames`; the keybinding (`a` in detail mode) is unchanged
+
+### 0.38.0
+
+- **Empty `title` / `booktitle` pre-filled with `{}`**: opening an empty title or booktitle field now pre-populates it with `{}` and places the cursor inside the braces in Insert mode, so case-protection is applied automatically without extra keystrokes
+
+### 0.37.0
+
+- **Sort entries by citation key on save**: the `save.entry_sort_order` config option (default `citation_key`) controls the order of entries in the written `.bib` file; this keeps the file consistently ordered regardless of when entries were added or edited
+
+### 0.36.0
+
+- **INSERT mode indicator for blank fields and Add Field**: opening a field that has no existing text now starts directly in Insert mode (rather than Normal mode); the editor title bar shows `— INSERT` to indicate this; the Add Field name-entry step also shows `— INSERT` since it is always in Insert mode
 
 ### 0.35.1
 
