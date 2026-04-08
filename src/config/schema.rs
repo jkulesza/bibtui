@@ -172,6 +172,10 @@ pub struct SaveConfig {
     pub journal_field_content: String,
     /// User-supplied full-name → abbreviation overrides (case-insensitive).
     pub journal_abbreviations: IndexMap<String, String>,
+    /// Sort order for entries in the written file.
+    /// `"citation_key"` (default) — alphabetical by citation key (case-insensitive);
+    /// `"none"` — preserve original file order.
+    pub entry_sort_order: String,
 }
 
 impl Default for SaveConfig {
@@ -194,6 +198,7 @@ impl Default for SaveConfig {
             save_action_abbreviate_journal: false,
             journal_field_content: "full".to_string(),
             journal_abbreviations: IndexMap::new(),
+            entry_sort_order: "citation_key".to_string(),
         }
     }
 }

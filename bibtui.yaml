@@ -8,7 +8,7 @@ display:
   group_sidebar_width: 30
   columns:
   - field: dirty
-    header: ' '
+    header: ''
     width: !Fixed 2
   - field: file_indicator
     header: ⎘
@@ -29,8 +29,8 @@ display:
   - field: title
     header: Title
     width: Flex
-  - field: journal
-    header: Journal
+  - field: citekey
+    header: citekey
     width: !Percent 15
   default_sort:
     field: citation_key
@@ -58,6 +58,7 @@ citekey:
 entry_types: {}
 save:
   align_fields: true
+  entry_sort_order: none
   field_order: alphabetical
   sync_filenames: true
   save_action_escape_underscores: true
@@ -120,3 +121,4 @@ field_groups:
 - name: LANL
   fields:
   - classification_key
+keybindings: {}

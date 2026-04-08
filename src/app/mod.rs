@@ -2893,6 +2893,9 @@ impl App {
         // Update raw file for dirty entries
         self.sync_dirty_entries();
 
+        // Re-order entries in the raw file if configured.
+        self.sort_entries_for_save();
+
         // Write (normalise blank lines so no more than one blank line appears anywhere)
         let output = normalize_blank_lines(write_bib_file(&self.database.raw_file));
         match std::fs::write(&self.bib_path, &output) {
@@ -3312,6 +3315,53 @@ impl App {
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+
+    /// Reorder `Entry` slots in `raw_file.items` according to `config.save.entry_sort_order`,
+    /// then rebuild `raw_index` in all database entries so future saves remain correct.
+    fn sort_entries_for_save(&mut self) {
+        if self.config.save.entry_sort_order == "none" {
+            return;
+        }
+
+        // Positions of every Entry item in the raw list.
+        let entry_indices: Vec<usize> = self
+            .database
+            .raw_file
+            .items
+            .iter()
+            .enumerate()
+            .filter_map(|(i, item)| if matches!(item, RawItem::Entry(_)) { Some(i) } else { None })
+            .collect();
+
+        if entry_indices.len() < 2 {
+            return;
+        }
+
+        // Extract those items, sort them by citation key (case-insensitive).
+        let mut sorted: Vec<RawItem> = entry_indices
+            .iter()
+            .map(|&i| self.database.raw_file.items[i].clone())
+            .collect();
+        sorted.sort_by(|a, b| {
+            let ka = if let RawItem::Entry(e) = a { e.citation_key.to_lowercase() } else { String::new() };
+            let kb = if let RawItem::Entry(e) = b { e.citation_key.to_lowercase() } else { String::new() };
+            ka.cmp(&kb)
+        });
+
+        // Write them back into the same index slots (non-entry items stay put).
+        for (&idx, item) in entry_indices.iter().zip(sorted) {
+            self.database.raw_file.items[idx] = item;
+        }
+
+        // Rebuild raw_index for every database entry so future saves are correct.
+        for (i, item) in self.database.raw_file.items.iter().enumerate() {
+            if let RawItem::Entry(re) = item {
+                if let Some(db_entry) = self.database.entries.get_mut(&re.citation_key) {
+                    db_entry.raw_index = i;
                 }
             }
         }

@@ -148,6 +148,11 @@ save:
   # Field ordering strategy: 'jabref' preserves JabRef order; 'alpha' sorts alphabetically
   field_order: jabref
 
+  # Sort order for entries in the written file.
+  # 'citation_key' (default) — alphabetical by citation key (case-insensitive)
+  # 'none'         — preserve original file order
+  entry_sort_order: citation_key
+
   # Rename attached files to match the citation key on save.
   sync_filenames: false
 
