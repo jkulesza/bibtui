@@ -22,7 +22,7 @@ use crate::util::citation::format_citation;
 use crate::util::export::{export_csl_json, export_ris};
 use crate::bib::parser::{build_database, parse_bib_file};
 use crate::bib::writer::{normalize_blank_lines, serialize_entry, write_bib_file};
-use crate::config::schema::Config;
+use crate::config::schema::{Config, SortConfig};
 use crate::search::engine::SearchEngine;
 use crate::search::filter::filter_by_group;
 use crate::tui::components::command_palette::CommandPaletteState;
@@ -75,10 +75,13 @@ pub struct App {
     pub validate_results_state: Option<ValidateResultsState>,
     pub help_state: Option<HelpState>,
 
-    // Search
+    // Search / sort
     pub search_engine: SearchEngine,
     pub filtered_indices: Option<Vec<usize>>,
     pub sorted_keys: Vec<String>,
+    /// The sort that was active when the file was loaded (or last explicitly set
+    /// as the default). ESC in Normal mode restores this.
+    pub default_sort: SortConfig,
 
     // Pending action context
     pending_action: Option<PendingAction>,
@@ -126,6 +129,7 @@ impl App {
         let render_latex = config.display.render_latex;
         let user_bindings = build_user_bindings(&config.keybindings);
 
+        let default_sort = config.display.default_sort.clone();
         let app = App {
             database,
             config,
@@ -156,6 +160,7 @@ impl App {
             search_engine: SearchEngine::new(),
             filtered_indices: None,
             sorted_keys,
+            default_sort,
             pending_action: None,
             path_completions: Vec::new(),
             path_completion_idx: 0,
@@ -181,6 +186,7 @@ impl App {
         let show_braces = config.display.show_braces;
         let render_latex = config.display.render_latex;
         let user_bindings = build_user_bindings(&config.keybindings);
+        let default_sort = config.display.default_sort.clone();
 
         let app = App {
             database,
@@ -215,6 +221,7 @@ impl App {
             search_engine: SearchEngine::new(),
             filtered_indices: None,
             sorted_keys,
+            default_sort,
             pending_action: Some(PendingAction::NewFile),
             path_completions: Vec::new(),
             path_completion_idx: 0,
@@ -375,6 +382,19 @@ impl App {
             Action::MoveToBottom => self.move_to_bottom(),
             Action::PageDown => self.move_cursor(20),
             Action::PageUp => self.move_cursor(-20),
+            Action::ResetSort => {
+                let current = &self.config.display.default_sort;
+                if current.field != self.default_sort.field || current.ascending != self.default_sort.ascending {
+                    self.config.display.default_sort = self.default_sort.clone();
+                    self.sorted_keys = sort_entries(&self.database.entries, &self.config);
+                    self.entry_list_state.select(0);
+                    let dir = if self.default_sort.ascending { "↑" } else { "↓" };
+                    self.status_message = Some(format!(
+                        "Sort reset to default: {} {}",
+                        self.default_sort.field, dir
+                    ));
+                }
+            }
             Action::EnterSearch => {
                 self.mode = InputMode::Search;
                 self.search_bar_state.clear();

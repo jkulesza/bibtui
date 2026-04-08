@@ -11,6 +11,7 @@ pub enum Action {
     PageUp,
     EnterSearch,
     ExitSearch,
+    ResetSort,
     ConfirmSearch,
     SearchChar(char),
     SearchBackspace,
