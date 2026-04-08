@@ -39,8 +39,13 @@ pub struct FieldEditorState {
 impl FieldEditorState {
     /// Create an editor for an existing field (value-only editing).
     pub fn new(field_name: &str, value: &str) -> Self {
-        // Start in Normal mode; cursor on last char (or 0 if empty).
-        let cursor = value.char_indices().last().map(|(i, _)| i).unwrap_or(0);
+        // Empty value → start in Insert mode at position 0.
+        // Non-empty value → start in Normal mode, cursor on last char.
+        let (editing_mode, cursor) = if value.is_empty() {
+            (EditingMode::Insert, 0)
+        } else {
+            (EditingMode::Normal, value.char_indices().last().map(|(i, _)| i).unwrap_or(0))
+        };
         FieldEditorState {
             is_month: field_name.eq_ignore_ascii_case("month"),
             field_name: field_name.to_string(),
@@ -52,7 +57,7 @@ impl FieldEditorState {
             is_path: false,
             completions: Vec::new(),
             completion_idx: 0,
-            editing_mode: EditingMode::Normal,
+            editing_mode,
             undo_stack: Vec::new(),
             unnamed_register: String::new(),
         }
@@ -110,8 +115,8 @@ impl FieldEditorState {
             is_month: false,
             completions: Vec::new(),
             completion_idx: 0,
-            // Name phase is always insert-like; value phase starts in Normal.
-            editing_mode: EditingMode::Normal,
+            // Name phase is always insert-like; start Insert so both phases show the indicator.
+            editing_mode: EditingMode::Insert,
             undo_stack: Vec::new(),
             unnamed_register: String::new(),
         }
@@ -499,14 +504,14 @@ impl FieldEditorState {
 
         f.render_widget(Clear, editor_area);
 
-        // Append "— INSERT" to the title when in Insert mode (not editing field name).
-        let mode_suffix = if self.editing_mode == EditingMode::Insert && !self.editing_name {
+        // Append "— INSERT" to the title when in Insert mode (including name-editing phase).
+        let mode_suffix = if self.editing_mode == EditingMode::Insert {
             " \u{2014} INSERT"
         } else {
             ""
         };
         let title = if self.is_new && self.editing_name {
-            " New Field \u{2014} Enter name ".to_string()
+            format!(" New Field \u{2014} Enter name{} ", mode_suffix)
         } else if self.is_new {
             format!(" New Field '{}' \u{2014} Enter value{} ", self.field_name, mode_suffix)
         } else {
