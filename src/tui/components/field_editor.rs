@@ -10,6 +10,7 @@ use crate::tui::theme::Theme;
 pub enum EditingMode {
     Insert,
     Normal,
+    Replace,
 }
 
 pub struct FieldEditorState {
@@ -34,6 +35,10 @@ pub struct FieldEditorState {
     pub undo_stack: Vec<(String, usize)>,
     /// Unnamed register: set by `x` and `dw`; read by `p`.
     pub unnamed_register: String,
+    /// Per-keystroke undo for Replace mode: each entry is (byte_pos, original_text).
+    /// `original_text` is the character that was overwritten (empty string if we appended).
+    /// Cleared when leaving Replace mode.
+    pub replace_undo_stack: Vec<(usize, String)>,
 }
 
 impl FieldEditorState {
@@ -67,6 +72,7 @@ impl FieldEditorState {
             editing_mode,
             undo_stack: Vec::new(),
             unnamed_register: String::new(),
+            replace_undo_stack: Vec::new(),
         }
     }
 
@@ -86,6 +92,7 @@ impl FieldEditorState {
             editing_mode: EditingMode::Insert,
             undo_stack: Vec::new(),
             unnamed_register: String::new(),
+            replace_undo_stack: Vec::new(),
         }
     }
 
@@ -106,6 +113,7 @@ impl FieldEditorState {
             editing_mode: EditingMode::Insert,
             undo_stack: Vec::new(),
             unnamed_register: String::new(),
+            replace_undo_stack: Vec::new(),
         }
     }
 
@@ -126,6 +134,7 @@ impl FieldEditorState {
             editing_mode: EditingMode::Insert,
             undo_stack: Vec::new(),
             unnamed_register: String::new(),
+            replace_undo_stack: Vec::new(),
         }
     }
 
@@ -177,6 +186,24 @@ impl FieldEditorState {
         if self.is_new && self.editing_name {
             self.field_name.insert(self.name_cursor, c);
             self.name_cursor += c.len_utf8();
+        } else if self.editing_mode == EditingMode::Replace && self.cursor < self.value.len() {
+            // Overwrite the character under the cursor, then advance.
+            let char_len = self.value[self.cursor..]
+                .chars()
+                .next()
+                .map(|ch| ch.len_utf8())
+                .unwrap_or(0);
+            // Record the original character so backspace can restore it.
+            let original = self.value[self.cursor..self.cursor + char_len].to_string();
+            self.replace_undo_stack.push((self.cursor, original));
+            self.value.drain(self.cursor..self.cursor + char_len);
+            self.value.insert(self.cursor, c);
+            self.cursor += c.len_utf8();
+        } else if self.editing_mode == EditingMode::Replace {
+            // Appending past end of text in Replace mode — record as empty original.
+            self.replace_undo_stack.push((self.cursor, String::new()));
+            self.value.insert(self.cursor, c);
+            self.cursor += c.len_utf8();
         } else {
             self.value.insert(self.cursor, c);
             self.cursor += c.len_utf8();
@@ -193,6 +220,29 @@ impl FieldEditorState {
                     .unwrap_or(0);
                 self.field_name.drain(prev..self.name_cursor);
                 self.name_cursor = prev;
+            }
+        } else if self.editing_mode == EditingMode::Replace {
+            if let Some((pos, original)) = self.replace_undo_stack.pop() {
+                // Remove the character we typed at `pos`.
+                let typed_len = self.value[pos..]
+                    .chars()
+                    .next()
+                    .map(|ch| ch.len_utf8())
+                    .unwrap_or(0);
+                self.value.drain(pos..pos + typed_len);
+                // Restore the original character (empty string = it was an append, nothing to restore).
+                if !original.is_empty() {
+                    self.value.insert_str(pos, &original);
+                }
+                self.cursor = pos;
+            } else if self.cursor > 0 {
+                // Nothing left to restore — just move back.
+                let prev = self.value[..self.cursor]
+                    .char_indices()
+                    .last()
+                    .map(|(i, _)| i)
+                    .unwrap_or(0);
+                self.cursor = prev;
             }
         } else if self.cursor > 0 {
             let prev = self.value[..self.cursor]
@@ -427,6 +477,7 @@ impl FieldEditorState {
             return;
         }
         self.editing_mode = EditingMode::Normal;
+        self.replace_undo_stack.clear();
         // Clamp: cursor cannot be past the last char in Normal mode
         if !self.value.is_empty() && self.cursor >= self.value.len() {
             self.cursor = self.value.char_indices().last().map(|(i, _)| i).unwrap_or(0);
@@ -518,11 +569,11 @@ impl FieldEditorState {
 
         f.render_widget(Clear, editor_area);
 
-        // Append "— INSERT" to the title when in Insert mode (including name-editing phase).
-        let mode_suffix = if self.editing_mode == EditingMode::Insert {
-            " \u{2014} INSERT"
-        } else {
-            ""
+        // Append a mode indicator to the title.
+        let mode_suffix = match self.editing_mode {
+            EditingMode::Insert => " \u{2014} INSERT",
+            EditingMode::Replace => " \u{2014} REPLACE",
+            EditingMode::Normal => "",
         };
         let title = if self.is_new && self.editing_name {
             format!(" New Field \u{2014} Enter name{} ", mode_suffix)

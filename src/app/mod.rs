@@ -676,6 +676,7 @@ impl App {
             | Action::EditEnterInsertAfter
             | Action::EditEnterInsertAtEnd
             | Action::EditEnterInsertAtHome
+            | Action::EditEnterReplace
             | Action::EditMoveWordFwd
             | Action::EditMoveWordBwd
             | Action::EditMoveWordEnd
@@ -4039,6 +4040,13 @@ impl App {
                     editor.save_undo_snapshot();
                     editor.cursor = 0;
                     editor.editing_mode = EditingMode::Insert;
+                }
+            }
+            Action::EditEnterReplace => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.save_undo_snapshot();
+                    editor.replace_undo_stack.clear();
+                    editor.editing_mode = EditingMode::Replace;
                 }
             }
             Action::EditMoveWordFwd => {

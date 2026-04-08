@@ -64,6 +64,7 @@ pub enum Action {
     ToggleBraces,
     ToggleLatex,
     NormalizeNames,
+    EditEnterReplace,
     OpenFile,
     OpenWeb,
     CloseCitationPreview,

@@ -213,6 +213,7 @@ fn map_editing_normal_key(key: KeyEvent, last_key: Option<char>) -> Option<Actio
                 'a' => Some(Action::EditEnterInsertAfter),
                 'A' => Some(Action::EditEnterInsertAtEnd),
                 'I' => Some(Action::EditEnterInsertAtHome),
+                'R' => Some(Action::EditEnterReplace),
                 'h' => Some(Action::EditCursorLeft),
                 'l' => Some(Action::EditCursorRight),
                 '0' => Some(Action::EditCursorHome),
