@@ -39,18 +39,25 @@ pub struct FieldEditorState {
 impl FieldEditorState {
     /// Create an editor for an existing field (value-only editing).
     pub fn new(field_name: &str, value: &str) -> Self {
-        // Empty value → start in Insert mode at position 0.
-        // Non-empty value → start in Normal mode, cursor on last char.
-        let (editing_mode, cursor) = if value.is_empty() {
-            (EditingMode::Insert, 0)
+        // Title fields with an empty value are pre-filled with "{}" so the
+        // user types inside case-protection braces from the start.
+        let is_title = field_name.eq_ignore_ascii_case("title")
+            || field_name.eq_ignore_ascii_case("booktitle");
+        let (init_value, editing_mode, cursor) = if value.is_empty() {
+            if is_title {
+                ("{}".to_string(), EditingMode::Insert, 1) // cursor between the braces
+            } else {
+                (String::new(), EditingMode::Insert, 0)
+            }
         } else {
-            (EditingMode::Normal, value.char_indices().last().map(|(i, _)| i).unwrap_or(0))
+            let cursor = value.char_indices().last().map(|(i, _)| i).unwrap_or(0);
+            (value.to_string(), EditingMode::Normal, cursor)
         };
         FieldEditorState {
             is_month: field_name.eq_ignore_ascii_case("month"),
             field_name: field_name.to_string(),
             name_cursor: field_name.len(),
-            value: value.to_string(),
+            value: init_value,
             cursor,
             is_new: false,
             editing_name: false,
@@ -128,6 +135,13 @@ impl FieldEditorState {
             self.editing_name = false;
             self.completions.clear();
             self.completion_idx = 0;
+            // Pre-fill title fields with "{}" for case protection.
+            let is_title = self.field_name.eq_ignore_ascii_case("title")
+                || self.field_name.eq_ignore_ascii_case("booktitle");
+            if is_title && self.value.is_empty() {
+                self.value = "{}".to_string();
+                self.cursor = 1;
+            }
             true
         } else {
             false
@@ -904,7 +918,8 @@ mod tests {
 
     #[test]
     fn test_backspace_at_start_is_noop() {
-        let mut e = FieldEditorState::new("title", "");
+        // Use a non-title field so the value starts empty (title gets pre-filled).
+        let mut e = FieldEditorState::new("author", "");
         e.backspace();
         assert_eq!(e.value, "");
         assert_eq!(e.cursor, 0);
@@ -1269,7 +1284,8 @@ mod tests {
 
     #[test]
     fn test_enter_normal_empty_text() {
-        let mut e = FieldEditorState::new("title", "");
+        // Use a non-title field so the value starts empty (title gets pre-filled).
+        let mut e = FieldEditorState::new("author", "");
         e.enter_normal();
         assert_eq!(e.editing_mode, EditingMode::Normal);
         assert_eq!(e.cursor, 0);
