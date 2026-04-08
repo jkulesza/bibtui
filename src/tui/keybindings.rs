@@ -127,7 +127,7 @@ fn map_detail_key(key: KeyEvent, last_key: Option<char>) -> Option<Action> {
             Some(Action::PageUp)
         }
         KeyCode::Char('e') | KeyCode::Char('i') | KeyCode::Enter => Some(Action::EditField),
-        KeyCode::Char('a') => Some(Action::NormalizeAuthor),
+        KeyCode::Char('a') => Some(Action::NormalizeNames),
         KeyCode::Char('A') => Some(Action::AddField),
         KeyCode::Char('f') => Some(Action::AddFileAttachment),
         KeyCode::Char('d') => Some(Action::DeleteField),
@@ -475,7 +475,7 @@ pub fn action_from_name(name: &str) -> Option<Action> {
         "ChangeEntryType"           => Some(Action::ChangeEntryType),
         "ToggleBraces"              => Some(Action::ToggleBraces),
         "ToggleLatex"               => Some(Action::ToggleLatex),
-        "NormalizeAuthor"           => Some(Action::NormalizeAuthor),
+        "NormalizeNames"            => Some(Action::NormalizeNames),
         "OpenFile"                  => Some(Action::OpenFile),
         "OpenWeb"                   => Some(Action::OpenWeb),
         "CloseCitationPreview"      => Some(Action::CloseCitationPreview),
@@ -660,7 +660,7 @@ mod tests {
         assert_eq!(map_key(key(KeyCode::Char('e')), &InputMode::Detail, None, false, false), Some(Action::EditField));
         assert_eq!(map_key(key(KeyCode::Char('i')), &InputMode::Detail, None, false, false), Some(Action::EditField));
         assert_eq!(map_key(key(KeyCode::Enter), &InputMode::Detail, None, false, false), Some(Action::EditField));
-        assert_eq!(map_key(key(KeyCode::Char('a')), &InputMode::Detail, None, false, false), Some(Action::NormalizeAuthor));
+        assert_eq!(map_key(key(KeyCode::Char('a')), &InputMode::Detail, None, false, false), Some(Action::NormalizeNames));
         assert_eq!(map_key(key(KeyCode::Char('A')), &InputMode::Detail, None, false, false), Some(Action::AddField));
         assert_eq!(map_key(key(KeyCode::Char('f')), &InputMode::Detail, None, false, false), Some(Action::AddFileAttachment));
         assert_eq!(map_key(key(KeyCode::Char('d')), &InputMode::Detail, None, false, false), Some(Action::DeleteField));

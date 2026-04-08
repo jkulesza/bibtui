@@ -915,7 +915,7 @@ pub fn render_entry_detail(
     let hint = if is_searching || !state.search_query.is_empty() {
         " [e]dit  [A]dd  [d]el  [/] search  [n/N] next/prev  [Esc] clear search "
     } else {
-        " [e]dit  [A]dd field  add [f]ile  [d]el  [T]itlecase  norm [a]uthor  [o]pen  [w]eb  [Tab] groups  [c]itekey  [/] search  [Esc] back "
+        " [e]dit  [A]dd field  add [f]ile  [d]el  [T]itlecase  norm n[a]mes  [o]pen  [w]eb  [Tab] groups  [c]itekey  [/] search  [Esc] back "
     };
     let block = Block::default()
         .borders(Borders::ALL)

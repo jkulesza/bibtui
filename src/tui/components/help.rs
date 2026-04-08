@@ -96,7 +96,7 @@ pub fn render_help(f: &mut Frame, area: Rect, _state: &HelpState, theme: &Theme)
                 ("A",            "add file attachment"),
                 ("d",            "delete field / file"),
                 ("T",            "title-case field"),
-                ("N",            "normalize author"),
+                ("a",            "normalize names"),
                 ("c",            "regenerate cite key"),
                 ("Tab",          "assign groups"),
                 ("o / w",        "open file / web (w fetches DOI if absent)"),

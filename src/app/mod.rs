@@ -698,7 +698,7 @@ impl App {
             | Action::EditConfirmAndMoveUp => self.handle_field_editor_action(action),
 
             Action::TitlecaseField => self.titlecase_selected_field(),
-            Action::NormalizeAuthor => self.normalize_author_field(),
+            Action::NormalizeNames => self.normalize_names_field(),
             Action::ChangeEntryType => self.start_change_entry_type(),
             Action::OpenFile => self.open_file(),
             Action::OpenWeb => self.open_web(),
@@ -1802,19 +1802,26 @@ impl App {
         }
     }
 
-    fn normalize_author_field(&mut self) {
-        let (field_name, is_author) = match self
+    fn normalize_names_field(&mut self) {
+        const NAME_FIELDS: &[&str] = &[
+            "author", "editor", "editora", "editorb", "editorc",
+            "bookauthor", "afterword", "translator",
+        ];
+        let field_name = match self
             .detail_state
             .as_ref()
             .and_then(|d| d.selected_field())
-            .map(|(name, _)| (name.to_string(), name == "author"))
+            .map(|(name, _)| name.to_string())
         {
-            Some(pair) => pair,
+            Some(n) => n,
             None => return,
         };
 
-        if !is_author {
-            self.status_message = Some("N only works on the 'author' field".to_string());
+        if !NAME_FIELDS.iter().any(|&f| f.eq_ignore_ascii_case(&field_name)) {
+            self.status_message = Some(format!(
+                "'{}' is not a person-name field",
+                field_name
+            ));
             return;
         }
 
@@ -1838,10 +1845,10 @@ impl App {
                         }
                     }
                     self.status_message =
-                        Some("Author names normalized to 'Last, First' form".to_string());
+                        Some(format!("'{}' normalized to 'Last, First' form", field_name));
                 } else {
                     self.status_message =
-                        Some("Author names already in 'Last, First' form".to_string());
+                        Some(format!("'{}' already in 'Last, First' form", field_name));
                 }
             }
         }

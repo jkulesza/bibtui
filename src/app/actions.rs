@@ -63,7 +63,7 @@ pub enum Action {
     TitlecaseField,
     ToggleBraces,
     ToggleLatex,
-    NormalizeAuthor,
+    NormalizeNames,
     OpenFile,
     OpenWeb,
     CloseCitationPreview,
