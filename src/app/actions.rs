@@ -122,6 +122,18 @@ pub enum Action {
     EditReplaceChar(char),
     EditFindCharFwd(char),
     EditFindCharBwd(char),
+    /// `t{c}` — move cursor to the char just before next occurrence of c.
+    EditFindToCharFwd(char),
+    /// `T{c}` — move cursor to the char just after prev occurrence of c.
+    EditFindToCharBwd(char),
+    /// `dt{c}` — delete from cursor to (but not including) next occurrence of c.
+    EditDeleteToChar(char),
+    /// `df{c}` — delete from cursor through (including) next occurrence of c.
+    EditDeleteThroughChar(char),
+    /// `dT{c}` — delete from (but not including) prev occurrence of c to cursor.
+    EditDeleteToCharBack(char),
+    /// `dF{c}` — delete from (including) prev occurrence of c to cursor.
+    EditDeleteThroughCharBack(char),
     EditDeleteCharBack,
     EditDeleteWordBack,
     EditDeleteToHome,

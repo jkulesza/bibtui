@@ -97,6 +97,25 @@ The annotated example is at `bibtui.yaml.example`. A local `bibtui.yaml` in the 
 - `test.bib` — Scratch file for ad-hoc testing.
 - `tests/fixtures/` — Checked-in fixture files for integration tests.
 
+## Vim Modal Editing (field editor)
+
+The field editor (`FieldEditorState`) implements a vim-like modal editor with Normal, Insert, and Replace modes. All vim operations are consistent with standard vim behavior:
+
+- **Mode transitions**: `i`/`a`/`A`/`I` enter Insert; `R` enters Replace; `Esc` returns to Normal (in Insert/Replace → Normal; in Normal → CancelEdit)
+- **2-key sequences** (tracked via `last_key: Option<char>`):
+  - `r{c}` — replace char at cursor with c
+  - `f{c}` / `F{c}` — find char forward/backward (inclusive, cursor lands ON c)
+  - `t{c}` / `T{c}` — find to char forward/backward (exclusive, cursor stops BEFORE/AFTER c)
+  - `dw` — delete word forward; `yy` — yank whole field value
+- **3-key sequences** (tracked via `second_last_key: Option<char>` in addition to `last_key`):
+  - `dt{c}` — delete from cursor to (but NOT including) next c
+  - `df{c}` — delete from cursor through (including) next c
+  - `dT{c}` — delete from (but NOT including) prev c backward to cursor
+  - `dF{c}` — delete from (including) prev c backward to cursor
+- Key history is maintained in `App.last_key` and `App.second_last_key`. Only `KeyCode::Char` keys advance the chain; any non-char key resets both to `None`.
+- The routing in `map_editing_normal_key` checks `(second_last_key, last_key)` tuples for 3-key sequences FIRST, then `last_key` for 2-key sequences, then single-key actions.
+- Pending keys (`r`, `f`, `F`, `t`, `T`, `d`, `y`) return `None` from `map_key` to wait for the next keypress.
+
 ## Interactive Testing
 
 ```sh

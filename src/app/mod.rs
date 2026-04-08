@@ -59,6 +59,7 @@ pub struct App {
     pub should_quit: bool,
     pub status_message: Option<String>,
     pub last_key: Option<char>,
+    pub second_last_key: Option<char>,
 
     // Component states
     pub entry_list_state: EntryListState,
@@ -144,6 +145,7 @@ impl App {
             should_quit: false,
             status_message: None,
             last_key: None,
+            second_last_key: None,
             entry_list_state: EntryListState::new(),
             group_tree_state,
             search_bar_state: SearchBarState::new(),
@@ -202,6 +204,7 @@ impl App {
             should_quit: false,
             status_message: None,
             last_key: None,
+            second_last_key: None,
             entry_list_state: EntryListState::new(),
             group_tree_state,
             search_bar_state: SearchBarState::new(),
@@ -316,14 +319,22 @@ impl App {
     }
 
     fn handle_key(&mut self, key: KeyEvent) {
-        // Track last key for multi-key combos (gg, dd, yy)
+        // Track last key for multi-key combos (gg, dd, yy, dt{c}, df{c}, …)
         let last = self.last_key;
+        let second_last = self.second_last_key;
 
-        // Update last_key tracking
-        self.last_key = match key.code {
-            KeyCode::Char(c) => Some(c),
-            _ => None,
-        };
+        // Update key-history tracking.  Only char keys advance the chain;
+        // non-char keys (arrows, Esc, …) reset both slots.
+        match key.code {
+            KeyCode::Char(c) => {
+                self.second_last_key = self.last_key;
+                self.last_key = Some(c);
+            }
+            _ => {
+                self.second_last_key = None;
+                self.last_key = None;
+            }
+        }
 
         let is_message_dialog = matches!(
             self.dialog_state.as_ref().map(|d| &d.kind),
@@ -346,7 +357,7 @@ impl App {
             return;
         }
 
-        if let Some(action) = map_key(key, &self.mode, last, is_message_dialog, edit_normal) {
+        if let Some(action) = map_key(key, &self.mode, second_last, last, is_message_dialog, edit_normal) {
             self.handle_action(action);
         }
     }
@@ -712,6 +723,12 @@ impl App {
             | Action::EditReplaceChar(_)
             | Action::EditFindCharFwd(_)
             | Action::EditFindCharBwd(_)
+            | Action::EditFindToCharFwd(_)
+            | Action::EditFindToCharBwd(_)
+            | Action::EditDeleteToChar(_)
+            | Action::EditDeleteThroughChar(_)
+            | Action::EditDeleteToCharBack(_)
+            | Action::EditDeleteThroughCharBack(_)
             | Action::EditDeleteCharBack
             | Action::EditDeleteWordBack
             | Action::EditDeleteToHome
@@ -4159,6 +4176,44 @@ impl App {
                 if let Some(ref mut editor) = self.field_editor_state {
                     editor.find_char_bwd(c);
                 }
+            }
+            Action::EditFindToCharFwd(c) => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.find_to_char_fwd(c);
+                }
+            }
+            Action::EditFindToCharBwd(c) => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.find_to_char_bwd(c);
+                }
+            }
+            Action::EditDeleteToChar(c) => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.save_undo_snapshot();
+                    editor.delete_to_char(c);
+                }
+                self.update_field_completions();
+            }
+            Action::EditDeleteThroughChar(c) => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.save_undo_snapshot();
+                    editor.delete_through_char(c);
+                }
+                self.update_field_completions();
+            }
+            Action::EditDeleteToCharBack(c) => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.save_undo_snapshot();
+                    editor.delete_to_char_back(c);
+                }
+                self.update_field_completions();
+            }
+            Action::EditDeleteThroughCharBack(c) => {
+                if let Some(ref mut editor) = self.field_editor_state {
+                    editor.save_undo_snapshot();
+                    editor.delete_through_char_back(c);
+                }
+                self.update_field_completions();
             }
             Action::EditDeleteCharBack => {
                 if let Some(ref mut editor) = self.field_editor_state {

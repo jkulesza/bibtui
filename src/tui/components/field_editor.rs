@@ -376,6 +376,85 @@ impl FieldEditorState {
         }
     }
 
+    /// Move cursor to the char just before next occurrence of `c` (`t{c}`).
+    pub fn find_to_char_fwd(&mut self, c: char) {
+        let step = self.value[self.cursor..]
+            .chars()
+            .next()
+            .map(|ch| ch.len_utf8())
+            .unwrap_or(0);
+        let start = self.cursor + step;
+        if let Some(pos) = find_next_char(&self.value, start, c) {
+            if let Some((prev_pos, _)) = self.value[..pos].char_indices().next_back() {
+                if prev_pos >= self.cursor {
+                    self.cursor = prev_pos;
+                }
+            }
+        }
+    }
+
+    /// Move cursor to the char just after prev occurrence of `c` (`T{c}`).
+    pub fn find_to_char_bwd(&mut self, c: char) {
+        if let Some(pos) = find_prev_char(&self.value, self.cursor, c) {
+            let next = pos + self.value[pos..].chars().next().map(|ch| ch.len_utf8()).unwrap_or(0);
+            if next <= self.cursor {
+                self.cursor = next;
+            }
+        }
+    }
+
+    /// Delete from cursor to (but not including) next occurrence of `c` (`dt{c}`).
+    pub fn delete_to_char(&mut self, c: char) {
+        let step = self.value[self.cursor..]
+            .chars()
+            .next()
+            .map(|ch| ch.len_utf8())
+            .unwrap_or(0);
+        let start = self.cursor + step;
+        if let Some(pos) = find_next_char(&self.value, start, c) {
+            self.unnamed_register = self.value[self.cursor..pos].to_string();
+            self.value.drain(self.cursor..pos);
+            self.cursor = clamp_normal(self.cursor, &self.value);
+        }
+    }
+
+    /// Delete from cursor through (including) next occurrence of `c` (`df{c}`).
+    pub fn delete_through_char(&mut self, c: char) {
+        let step = self.value[self.cursor..]
+            .chars()
+            .next()
+            .map(|ch| ch.len_utf8())
+            .unwrap_or(0);
+        let start = self.cursor + step;
+        if let Some(pos) = find_next_char(&self.value, start, c) {
+            let end = pos + self.value[pos..].chars().next().map(|ch| ch.len_utf8()).unwrap_or(0);
+            self.unnamed_register = self.value[self.cursor..end].to_string();
+            self.value.drain(self.cursor..end);
+            self.cursor = clamp_normal(self.cursor, &self.value);
+        }
+    }
+
+    /// Delete from (but not including) prev occurrence of `c` to cursor (`dT{c}`).
+    pub fn delete_to_char_back(&mut self, c: char) {
+        if let Some(pos) = find_prev_char(&self.value, self.cursor, c) {
+            let after = pos + self.value[pos..].chars().next().map(|ch| ch.len_utf8()).unwrap_or(0);
+            if after < self.cursor {
+                self.unnamed_register = self.value[after..self.cursor].to_string();
+                self.value.drain(after..self.cursor);
+                self.cursor = clamp_normal(after, &self.value);
+            }
+        }
+    }
+
+    /// Delete from (including) prev occurrence of `c` to cursor (`dF{c}`).
+    pub fn delete_through_char_back(&mut self, c: char) {
+        if let Some(pos) = find_prev_char(&self.value, self.cursor, c) {
+            self.unnamed_register = self.value[pos..self.cursor].to_string();
+            self.value.drain(pos..self.cursor);
+            self.cursor = clamp_normal(pos, &self.value);
+        }
+    }
+
     /// Delete from start of previous word to cursor (Insert-mode Ctrl-W).
     pub fn delete_word_back(&mut self) {
         let start = word_bwd(&self.value, self.cursor);
