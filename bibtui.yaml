@@ -33,7 +33,7 @@ display:
     header: citekey
     width: !Percent 15
   default_sort:
-    field: citation_key
+    field: none
     ascending: true
   show_braces: false
   render_latex: true

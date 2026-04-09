@@ -115,7 +115,7 @@ bibtui --config ~/dotfiles/bibtui.yaml references.bib
 | `u` | Undo last change |
 | `:` | Open command palette |
 | `?` | Show full-screen help modal |
-| `Esc` | Reset sort to configured default |
+| `Esc` | Clear active search filter (if any); otherwise reset sort to configured default |
 
 ### Search mode
 
@@ -261,6 +261,7 @@ Open with `:` from the entry list.
 | `:q` | Quit (warns if unsaved changes) |
 | `:q!` | Force quit without saving |
 | `:sort <field>` | Sort by field (repeat to toggle direction) |
+| `:sort none` | Clear sort and restore file order |
 | `:sort` | Toggle sort direction |
 | `:group <name>` | Filter to a named group |
 | `:search <query>` | Apply a search query |
@@ -268,7 +269,7 @@ Open with `:` from the entry list.
 | `:export-json [path]` | Export all entries as CSL-JSON (prompts for path if omitted) |
 | `:export-ris [path]` | Export all entries as RIS (prompts for path if omitted) |
 
-Example: `:sort year`, `:sort author`, `:sort title`, `:sort citation_key`
+Example: `:sort year`, `:sort author`, `:sort title`, `:sort citation_key`, `:sort none`
 
 When `save.sync_filenames` is enabled, saving with `:w` or `:wq` shows a scrollable
 preview of any file renames that will be performed, with `[y]es` / `[n]o` to proceed
@@ -413,6 +414,13 @@ cargo llvm-cov --workspace --summary-only
 ```
 
 ## Changelog
+
+### 0.44.0
+
+- **`Esc` clears confirmed search filter**: after pressing `Enter` to lock search results, pressing `Esc` from the entry list now clears the search filter and restores the full list; a second `Esc` then resets the sort to the configured default as before
+- **`:sort none` restores file order**: the special field name `none` skips sorting entirely and returns entries in the order they appear in the `.bib` file (IndexMap insertion order); any active search is re-evaluated against the new ordering so filtered indices stay consistent
+- Any `:sort` command executed while a search filter is active now re-runs the search against the new `sorted_keys`, keeping filtered indices valid
+- Expanded test coverage: 6 new tests; `app/mod.rs` line coverage 53% → 55%, overall 75.54% → 75.78%
 
 ### 0.42.0
 

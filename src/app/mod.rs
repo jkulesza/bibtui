@@ -5821,6 +5821,113 @@ mod tests {
         assert_eq!(get_sort_value(entry, "nonexistent"), "");
     }
 
+    #[test]
+    fn test_sort_none_returns_file_order() {
+        // When field is "none", keys come back in IndexMap insertion order
+        // (Smith2020 first, Doe2021 second — file order).
+        let (app, _tmp) = make_app();
+        let mut cfg = default_config();
+        cfg.display.default_sort.field = "none".to_string();
+        let keys = sort_entries(&app.database.entries, &cfg);
+        assert_eq!(keys[0], "Smith2020");
+        assert_eq!(keys[1], "Doe2021");
+    }
+
+    #[test]
+    fn test_sort_command_none_sets_file_order() {
+        // `:sort none` must set the sort field to "none" and rebuild sorted_keys
+        // in file (insertion) order regardless of any prior sort.
+        let (mut app, _tmp) = make_app();
+        // First sort by citation_key (default) — Doe2021 first.
+        assert_eq!(app.sorted_keys[0], "Doe2021");
+        // Now reset to file order via command.
+        app.handle_action(Action::EnterCommand);
+        for c in "sort none".chars() { app.handle_action(Action::CommandChar(c)); }
+        app.handle_action(Action::ExecuteCommand);
+        assert_eq!(app.config.display.default_sort.field, "none");
+        assert_eq!(app.sorted_keys[0], "Smith2020",
+            "sorted_keys[0] should be Smith2020 (file order) after :sort none");
+        let msg = app.status_message.as_deref().unwrap_or("");
+        assert!(msg.contains("file order"), "status should mention file order");
+    }
+
+    #[test]
+    fn test_sort_command_none_reruns_active_search() {
+        // After a search is confirmed, `:sort none` must re-run the search so
+        // filtered_indices stays valid against the new sorted_keys.
+        let (mut app, _tmp) = make_app();
+        // Search for "Smith" — matches Smith2020 only.
+        app.handle_action(Action::EnterSearch);
+        for c in "Smith".chars() { app.handle_action(Action::SearchChar(c)); }
+        app.handle_action(Action::ConfirmSearch);
+        assert!(app.filtered_indices.is_some());
+        // Now change sort order.
+        app.handle_action(Action::EnterCommand);
+        for c in "sort none".chars() { app.handle_action(Action::CommandChar(c)); }
+        app.handle_action(Action::ExecuteCommand);
+        // filtered_indices should still be Some (search is still active)
+        // and its single entry should index Smith2020 in the new sorted_keys.
+        let indices = app.filtered_indices.as_ref().expect("filter still active");
+        assert_eq!(indices.len(), 1);
+        let matched_key = app.sorted_keys.get(indices[0]).expect("valid index");
+        assert_eq!(matched_key, "Smith2020");
+    }
+
+    #[test]
+    fn test_reset_sort_clears_active_search_filter() {
+        // ESC (ResetSort) while filtered_indices is set clears the filter
+        // instead of touching the sort config.
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::EnterSearch);
+        for c in "Smith".chars() { app.handle_action(Action::SearchChar(c)); }
+        app.handle_action(Action::ConfirmSearch);
+        assert!(app.filtered_indices.is_some(), "filter should be active");
+        // ESC in Normal mode.
+        app.handle_action(Action::ResetSort);
+        assert!(app.filtered_indices.is_none(), "ESC should clear the filter");
+        assert!(app.search_bar_state.query.is_empty(), "search query should be cleared");
+        let msg = app.status_message.as_deref().unwrap_or("");
+        assert!(msg.contains("cleared"), "status should say search was cleared");
+    }
+
+    #[test]
+    fn test_reset_sort_falls_through_to_sort_reset_when_no_filter() {
+        // ESC (ResetSort) with no active filter and a non-default sort still
+        // restores the configured default sort.
+        let (mut app, _tmp) = make_app();
+        // Change the sort away from the default.
+        app.handle_action(Action::EnterCommand);
+        for c in "sort year".chars() { app.handle_action(Action::CommandChar(c)); }
+        app.handle_action(Action::ExecuteCommand);
+        assert_eq!(app.config.display.default_sort.field, "year");
+        // No search filter active.
+        assert!(app.filtered_indices.is_none());
+        // ESC should restore the default sort (citation_key).
+        app.handle_action(Action::ResetSort);
+        assert_eq!(app.config.display.default_sort.field, "citation_key");
+    }
+
+    #[test]
+    fn test_sort_command_reruns_search_after_sort_change() {
+        // Any :sort command while a search is active must recompute filtered_indices
+        // against the new sorted_keys order.
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::EnterSearch);
+        for c in "Doe".chars() { app.handle_action(Action::SearchChar(c)); }
+        app.handle_action(Action::ConfirmSearch);
+        let before = app.filtered_indices.clone().unwrap();
+        // Change sort — sorted_keys order changes.
+        app.handle_action(Action::EnterCommand);
+        for c in "sort year".chars() { app.handle_action(Action::CommandChar(c)); }
+        app.handle_action(Action::ExecuteCommand);
+        let after = app.filtered_indices.as_ref().expect("filter stays active");
+        // The matched key must still be Doe2021 regardless of index position.
+        let matched_key = app.sorted_keys.get(after[0]).expect("valid index");
+        assert_eq!(matched_key, "Doe2021");
+        // The index into the new sorted_keys may differ from before.
+        let _ = before; // suppress unused warning
+    }
+
     // ── find_group_node ───────────────────────────────────────────────────────
 
     #[test]

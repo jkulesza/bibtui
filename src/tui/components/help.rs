@@ -66,6 +66,7 @@ pub fn render_help(f: &mut Frame, area: Rect, _state: &HelpState, theme: &Theme)
                 ("h / l",           "focus groups / list"),
                 ("S",               "settings"),
                 ("?",               "help"),
+                ("Esc",             "clear search filter / reset sort"),
             ],
         ),
         (
@@ -74,7 +75,7 @@ pub fn render_help(f: &mut Frame, area: Rect, _state: &HelpState, theme: &Theme)
                 (":w",              "save"),
                 (":q",              "quit"),
                 (":q!",             "force quit"),
-                (":sort <field>",   "sort by field"),
+                (":sort <field>",   "sort by field; :sort none = file order"),
                 (":group <name>",   "filter to group"),
                 (":search <query>", "apply search"),
                 (":import <doi/isbn/url>","import from DOI, ISBN, or URL"),
