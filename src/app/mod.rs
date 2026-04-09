@@ -394,16 +394,24 @@ impl App {
             Action::PageDown => self.move_cursor(20),
             Action::PageUp => self.move_cursor(-20),
             Action::ResetSort => {
-                let current = &self.config.display.default_sort;
-                if current.field != self.default_sort.field || current.ascending != self.default_sort.ascending {
-                    self.config.display.default_sort = self.default_sort.clone();
-                    self.sorted_keys = sort_entries(&self.database.entries, &self.config);
+                if self.filtered_indices.is_some() {
+                    // Active search filter: ESC clears it and returns to full list
+                    self.filtered_indices = None;
+                    self.search_bar_state.clear();
                     self.entry_list_state.select(0);
-                    let dir = if self.default_sort.ascending { "↑" } else { "↓" };
-                    self.status_message = Some(format!(
-                        "Sort reset to default: {} {}",
-                        self.default_sort.field, dir
-                    ));
+                    self.status_message = Some("Search cleared".to_string());
+                } else {
+                    let current = &self.config.display.default_sort;
+                    if current.field != self.default_sort.field || current.ascending != self.default_sort.ascending {
+                        self.config.display.default_sort = self.default_sort.clone();
+                        self.sorted_keys = sort_entries(&self.database.entries, &self.config);
+                        self.entry_list_state.select(0);
+                        let dir = if self.default_sort.ascending { "↑" } else { "↓" };
+                        self.status_message = Some(format!(
+                            "Sort reset to default: {} {}",
+                            self.default_sort.field, dir
+                        ));
+                    }
                 }
             }
             Action::EnterSearch => {
@@ -2153,25 +2161,32 @@ impl App {
             }
             _ if cmd.starts_with("sort ") || cmd == "sort" => {
                 let field = cmd.trim_start_matches("sort").trim().to_string();
-                if field.is_empty() {
+                let msg = if field == "none" {
+                    self.config.display.default_sort.field = "none".to_string();
+                    "Sort cleared (file order)".to_string()
+                } else if field.is_empty() {
                     // Toggle ascending/descending on current sort field
                     self.config.display.default_sort.ascending =
                         !self.config.display.default_sort.ascending;
+                    let dir = if self.config.display.default_sort.ascending { "↑" } else { "↓" };
+                    format!("Sorted by {} {}", self.config.display.default_sort.field, dir)
                 } else if self.config.display.default_sort.field == field {
                     // Same field: toggle direction
                     self.config.display.default_sort.ascending =
                         !self.config.display.default_sort.ascending;
+                    let dir = if self.config.display.default_sort.ascending { "↑" } else { "↓" };
+                    format!("Sorted by {} {}", self.config.display.default_sort.field, dir)
                 } else {
                     self.config.display.default_sort.field = field.clone();
                     self.config.display.default_sort.ascending = true;
-                }
+                    let dir = if self.config.display.default_sort.ascending { "↑" } else { "↓" };
+                    format!("Sorted by {} {}", self.config.display.default_sort.field, dir)
+                };
                 self.sorted_keys = sort_entries(&self.database.entries, &self.config);
+                // Re-run search so filtered_indices stays consistent with new sorted_keys
+                self.update_search();
                 self.entry_list_state.select(0);
-                let dir = if self.config.display.default_sort.ascending { "↑" } else { "↓" };
-                self.status_message = Some(format!(
-                    "Sorted by {} {}",
-                    self.config.display.default_sort.field, dir
-                ));
+                self.status_message = Some(msg);
             }
             _ if cmd.starts_with("import ") => {
                 let doi_or_url = cmd["import ".len()..].trim().to_string();
@@ -4471,11 +4486,15 @@ fn action_label_for_field(field: &str, cfg: &crate::config::schema::SaveConfig) 
 }
 
 fn sort_entries(entries: &IndexMap<String, Entry>, config: &Config) -> Vec<String> {
-    let mut keys: Vec<String> = entries.keys().cloned().collect();
+    let keys: Vec<String> = entries.keys().cloned().collect();
 
     let field = &config.display.default_sort.field;
-    let ascending = config.display.default_sort.ascending;
+    if field == "none" {
+        return keys;
+    }
 
+    let ascending = config.display.default_sort.ascending;
+    let mut keys = keys;
     keys.sort_by(|a, b| {
         let ea = entries.get(a);
         let eb = entries.get(b);
