@@ -1536,6 +1536,23 @@ pub fn render_settings(f: &mut Frame, area: Rect, state: &mut SettingsState, the
         .map(|c| (c.field.clone(), c.header.clone(), format_width_spec(&c.width, c.max_width)))
         .collect();
 
+    // Compute dynamic column widths from the available line width.
+    //
+    // Row structure:  prefix(7) + " "+label(1+LABEL_W) + val + mod(2) + hint
+    // For Item rows:  hint = "default: "(9) + default_val
+    // fixed overhead consumed before flexible columns:
+    let total_w = list_inner.width as usize;
+    let row_overhead = 7 + 1 + LABEL_W + 2; // 36
+    let flexible = total_w.saturating_sub(row_overhead);
+    // val_w: half of (flexible - "default: " prefix), min VAL_W, max 60
+    let val_w = if flexible > 9 {
+        ((flexible - 9) / 2).max(VAL_W).min(60)
+    } else {
+        VAL_W
+    };
+    // default_w: whatever remains after val_w and the 9-char "default: " label
+    let default_w = flexible.saturating_sub(val_w + 9).max(VAL_W / 2);
+
     let lines: Vec<Line> = state
         .rows
         .iter()
@@ -1545,7 +1562,7 @@ pub fn render_settings(f: &mut Frame, area: Rect, state: &mut SettingsState, the
         .map(|(row_idx, row)| match row {
             SettingRow::Section(name) => {
                 let label = format!(" ── {} ", name);
-                let fill_w = (list_inner.width as usize).saturating_sub(label.len());
+                let fill_w = total_w.saturating_sub(label.len());
                 let fill = "─".repeat(fill_w);
                 Line::from(vec![
                     Span::styled(label, theme.header),
@@ -1570,11 +1587,11 @@ pub fn render_settings(f: &mut Frame, area: Rect, state: &mut SettingsState, the
 
                 let label = format!(" {:<w$}", item.label, w = LABEL_W);
                 let val_str = item.value.display();
-                let val_trunc: String = val_str.chars().take(VAL_W).collect();
-                let val_padded = format!("{:<w$}", val_trunc, w = VAL_W);
+                let val_trunc: String = val_str.chars().take(val_w).collect();
+                let val_padded = format!("{:<w$}", val_trunc, w = val_w);
 
                 let default_str = item.default.display();
-                let default_trunc: String = default_str.chars().take(VAL_W).collect();
+                let default_trunc: String = default_str.chars().take(default_w).collect();
 
                 let mod_marker = if is_modified { "● " } else { "  " };
                 let default_hint = format!("default: {}", default_trunc);
@@ -1617,8 +1634,8 @@ pub fn render_settings(f: &mut Frame, area: Rect, state: &mut SettingsState, the
                     field.clone()
                 };
                 let label = format!(" {:<w$}", display_name, w = LABEL_W);
-                let val_trunc: String = width_spec.chars().take(VAL_W).collect();
-                let val_padded = format!("{:<w$}", val_trunc, w = VAL_W);
+                let val_trunc: String = width_spec.chars().take(val_w).collect();
+                let val_padded = format!("{:<w$}", val_trunc, w = val_w);
                 let mod_marker = if is_modified { "● " } else { "  " };
                 let val_style = if is_modified { modified_style } else { base_style };
                 let mod_style = if is_modified {
@@ -1648,8 +1665,8 @@ pub fn render_settings(f: &mut Frame, area: Rect, state: &mut SettingsState, the
                 let cursor_ch = if is_selected { "▶" } else { " " };
 
                 let label = format!(" {:<w$}", name, w = LABEL_W);
-                let val_trunc: String = fields_csv.chars().take(VAL_W).collect();
-                let val_padded = format!("{:<w$}", val_trunc, w = VAL_W);
+                let val_trunc: String = fields_csv.chars().take(val_w).collect();
+                let val_padded = format!("{:<w$}", val_trunc, w = val_w);
                 let mod_marker = if is_modified { "● " } else { "  " };
                 let val_style = if is_modified { modified_style } else { base_style };
                 let mod_style = if is_modified {
