@@ -167,6 +167,9 @@ pub struct SaveConfig {
     /// Create/sync `journal_abbrev` (ISO 4) and `journal_full` companion fields,
     /// and rewrite `journal` per `journal_field_content`. Default: false.
     pub save_action_abbreviate_journal: bool,
+    /// Regenerate all citation keys from their configured templates on save.
+    /// Default: true.
+    pub save_action_regenerate_citekeys: bool,
     /// Controls what the `journal` field holds after the abbreviation save action.
     /// `"full"` (default) — journal field holds the full name; `"abbreviated"` — journal field holds the ISO 4 abbrev.
     pub journal_field_content: String,
@@ -196,6 +199,7 @@ impl Default for SaveConfig {
             save_action_ordinals_to_superscript: true,
             save_action_unicode_to_latex: true,
             save_action_abbreviate_journal: false,
+            save_action_regenerate_citekeys: true,
             journal_field_content: "full".to_string(),
             journal_abbreviations: IndexMap::new(),
             entry_sort_order: "citation_key".to_string(),

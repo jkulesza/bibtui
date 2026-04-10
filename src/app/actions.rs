@@ -29,6 +29,7 @@ pub enum Action {
     DeleteField,
     EditGroups,
     RegenCitekey,
+    RegenAllCitekeys,
     ConfirmEdit,
     CancelEdit,
     EditChar(char),

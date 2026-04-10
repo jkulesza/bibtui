@@ -418,6 +418,13 @@ impl SettingsState {
                 default: SettingValue::Bool(defaults.save.save_action_abbreviate_journal),
             },
             SettingItem {
+                id: "save_actions.regenerate_citekeys".into(),
+                label: "regenerate_citekeys".into(),
+                description: "Regenerate all citation keys from their configured templates on save. Default: true.".into(),
+                value: SettingValue::Bool(config.save.save_action_regenerate_citekeys),
+                default: SettingValue::Bool(defaults.save.save_action_regenerate_citekeys),
+            },
+            SettingItem {
                 id: "save_actions.journal_field_content".into(),
                 label: "journal_field_content".into(),
                 description: "Controls what the journal field holds after the abbreviate_journal save action: \
@@ -471,7 +478,7 @@ impl SettingsState {
         //                                20  theme.header_fg
         //                                21  theme.search_match
         //                                22  theme.border_color
-        //  Save Actions (23–34):
+        //  Save Actions (23–35):
         //                                23  escape_underscores
         //                                24  escape_ampersands
         //                                25  cleanup_url
@@ -484,8 +491,9 @@ impl SettingsState {
         //                                32  ordinals_to_superscript
         //                                33  unicode_to_latex
         //                                34  abbreviate_journal
-        //  Display (continued):          35  journal_field_content
-        //                                36+ citekey templates
+        //                                35  regenerate_citekeys
+        //  Display (continued):          36  journal_field_content
+        //                                37+ citekey templates
         let mut rows: Vec<SettingRow> = vec![
             SettingRow::Section("General"),
             SettingRow::Item(11), // bib_file
@@ -498,7 +506,7 @@ impl SettingsState {
             SettingRow::Item(4),  // render_latex
             SettingRow::Item(5),  // show_braces
             SettingRow::Item(6),  // abbreviate_authors
-            SettingRow::Item(35), // journal_field_content
+            SettingRow::Item(36), // journal_field_content
             SettingRow::Item(13), // default_sort.field
             SettingRow::Item(14), // default_sort.ascending
             SettingRow::Section("Save"),
@@ -518,6 +526,7 @@ impl SettingsState {
             SettingRow::Item(32), // ordinals_to_superscript
             SettingRow::Item(33), // unicode_to_latex
             SettingRow::Item(34), // abbreviate_journal
+            SettingRow::Item(35), // regenerate_citekeys
             SettingRow::Section("Citation"),
             SettingRow::Item(10), // style
             SettingRow::Section("Titlecase"),
@@ -941,6 +950,9 @@ impl SettingsState {
                 }
                 "save_actions.abbreviate_journal" => {
                     if let SettingValue::Bool(v) = item.value { config.save.save_action_abbreviate_journal = v; }
+                }
+                "save_actions.regenerate_citekeys" => {
+                    if let SettingValue::Bool(v) = item.value { config.save.save_action_regenerate_citekeys = v; }
                 }
                 "save_actions.journal_field_content" => {
                     if let SettingValue::Choice { options, index } = &item.value {

@@ -492,6 +492,7 @@ impl App {
             Action::DeleteField => self.delete_field(),
             Action::EditGroups => self.start_edit_groups(),
             Action::RegenCitekey => self.regen_citekey(),
+            Action::RegenAllCitekeys => self.regen_all_citekeys(),
             Action::ConfirmEdit => self.confirm_edit(),
             Action::CancelEdit => {
                 let is_new_file =
@@ -1573,6 +1574,90 @@ impl App {
                     }
                 }
             }
+        }
+    }
+
+    /// Regenerate citation keys for all entries using their configured templates.
+    /// Returns the number of keys changed.  When `push_undo` is true each rename
+    /// is pushed to the undo stack.
+    fn regen_all_citekeys_impl(&mut self, push_undo: bool) -> usize {
+        let keys: Vec<String> = self.database.entries.keys().cloned().collect();
+        let mut renamed = 0usize;
+
+        for key in keys {
+            let (base_new_key, skip) = {
+                let Some(entry) = self.database.entries.get(&key) else { continue };
+                let type_name = entry.entry_type.display_name().to_lowercase();
+                let template = self.config.citekey.templates.get(&type_name)
+                    .cloned()
+                    .unwrap_or_else(|| format!("{}_{{}}", type_name));
+                let base = generate_citekey(&template, &entry.fields);
+                let skip = base == key;
+                (base, skip)
+            };
+
+            if skip {
+                continue;
+            }
+
+            // Resolve collisions with a numeric suffix.
+            let new_key = if !self.database.entries.contains_key(&base_new_key) {
+                base_new_key.clone()
+            } else {
+                let mut n = 2usize;
+                loop {
+                    let candidate = format!("{}_{}", base_new_key, n);
+                    if !self.database.entries.contains_key(&candidate) {
+                        break candidate;
+                    }
+                    n += 1;
+                }
+            };
+
+            if new_key == key {
+                continue;
+            }
+
+            if let Some(mut entry) = self.database.entries.shift_remove(&key) {
+                if push_undo {
+                    self.push_undo(UndoItem::CitekeyChanged {
+                        old_key: key.clone(),
+                        new_key: new_key.clone(),
+                        entry_snapshot: entry.clone(),
+                    });
+                }
+                entry.citation_key = new_key.clone();
+                entry.dirty = true;
+                self.database.entries.insert(new_key.clone(), entry);
+                renamed += 1;
+
+                if self.detail_entry_key.as_deref() == Some(key.as_str()) {
+                    self.detail_entry_key = Some(new_key);
+                }
+            }
+        }
+
+        renamed
+    }
+
+    fn regen_all_citekeys(&mut self) {
+        let renamed = self.regen_all_citekeys_impl(true);
+
+        if renamed > 0 {
+            self.sorted_keys = sort_entries(&self.database.entries, &self.config);
+            let new_key = self.detail_entry_key.clone();
+            if let (Some(ref key), Some(ref mut detail)) = (new_key, self.detail_state.as_mut()) {
+                if let Some(entry) = self.database.entries.get(key) {
+                    detail.refresh(entry);
+                }
+            }
+            self.status_message = Some(format!(
+                "{} citation key{} regenerated",
+                renamed,
+                if renamed == 1 { "" } else { "s" }
+            ));
+        } else {
+            self.status_message = Some("All citation keys are up to date".to_string());
         }
     }
 
@@ -2940,6 +3025,15 @@ impl App {
 
         // Apply save actions (field normalisations) to all entries.
         self.apply_save_actions();
+
+        // Regenerate all citation keys from templates (after field normalisations
+        // so the keys are based on the final, normalised field values).
+        if self.config.save.save_action_regenerate_citekeys {
+            let n = self.regen_all_citekeys_impl(false);
+            if n > 0 {
+                self.sorted_keys = sort_entries(&self.database.entries, &self.config);
+            }
+        }
 
         // Backup — only when the file already exists (skip for brand-new libraries).
         if self.config.general.backup_on_save && self.bib_path.exists() {

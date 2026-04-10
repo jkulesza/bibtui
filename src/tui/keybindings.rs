@@ -94,6 +94,7 @@ fn map_normal_key(key: KeyEvent, last_key: Option<char>) -> Option<Action> {
         KeyCode::Char('S') => Some(Action::EnterSettings),
         KeyCode::Char('v') => Some(Action::Validate),
         KeyCode::Char('I') => Some(Action::ImportEntry),
+        KeyCode::Char('C') => Some(Action::RegenAllCitekeys),
         KeyCode::Esc => Some(Action::ResetSort),
         _ => None,
     }
@@ -456,6 +457,7 @@ pub fn action_from_name(name: &str) -> Option<Action> {
         "DeleteField"               => Some(Action::DeleteField),
         "EditGroups"                => Some(Action::EditGroups),
         "RegenCitekey"              => Some(Action::RegenCitekey),
+        "RegenAllCitekeys"          => Some(Action::RegenAllCitekeys),
         "ConfirmEdit"               => Some(Action::ConfirmEdit),
         "CancelEdit"                => Some(Action::CancelEdit),
         "EditBackspace"             => Some(Action::EditBackspace),

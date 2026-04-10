@@ -57,6 +57,7 @@ pub fn render_help(f: &mut Frame, area: Rect, _state: &HelpState, theme: &Theme)
                 ("D",               "duplicate entry"),
                 ("y y",             "yank cite key"),
                 ("Space",           "citation preview"),
+                ("C",               "regenerate all cite keys"),
                 ("v",               "validate (preview save)"),
                 ("I",               "import entry from DOI, URL, or PDF file"),
                 ("u",               "undo"),
