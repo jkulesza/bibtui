@@ -8,6 +8,7 @@ pub fn render_latex(s: &str) -> String {
     let s = render_special_chars(&s);
     let s = render_accents(&s);
     let s = render_math_mode(&s);
+    let s = render_script_commands(&s);
     let s = render_text_commands(&s);
     // Non-breaking tilde → regular space
     s.replace('~', " ")
@@ -245,30 +246,32 @@ fn render_math_content(s: &str) -> String {
     result.replace('{', "").replace('}', "").replace('\\', "")
 }
 
+static SUP: &[(char, char)] = &[
+    ('0', '⁰'), ('1', '¹'), ('2', '²'), ('3', '³'), ('4', '⁴'),
+    ('5', '⁵'), ('6', '⁶'), ('7', '⁷'), ('8', '⁸'), ('9', '⁹'),
+    ('+', '⁺'), ('-', '⁻'), ('=', '⁼'), ('(', '⁽'), (')', '⁾'),
+    ('a', 'ᵃ'), ('b', 'ᵇ'), ('c', 'ᶜ'), ('d', 'ᵈ'), ('e', 'ᵉ'),
+    ('f', 'ᶠ'), ('g', 'ᵍ'), ('h', 'ʰ'), ('i', 'ⁱ'), ('j', 'ʲ'),
+    ('k', 'ᵏ'), ('l', 'ˡ'), ('m', 'ᵐ'), ('n', 'ⁿ'), ('o', 'ᵒ'),
+    ('p', 'ᵖ'), ('r', 'ʳ'), ('s', 'ˢ'), ('t', 'ᵗ'), ('u', 'ᵘ'),
+    ('v', 'ᵛ'), ('w', 'ʷ'), ('x', 'ˣ'), ('y', 'ʸ'), ('z', 'ᶻ'),
+];
+
+static SUB: &[(char, char)] = &[
+    ('0', '₀'), ('1', '₁'), ('2', '₂'), ('3', '₃'), ('4', '₄'),
+    ('5', '₅'), ('6', '₆'), ('7', '₇'), ('8', '₈'), ('9', '₉'),
+    ('+', '₊'), ('-', '₋'), ('=', '₌'), ('(', '₍'), (')', '₎'),
+    ('a', 'ₐ'), ('e', 'ₑ'), ('h', 'ₕ'), ('i', 'ᵢ'), ('j', 'ⱼ'),
+    ('k', 'ₖ'), ('l', 'ₗ'), ('m', 'ₘ'), ('n', 'ₙ'), ('o', 'ₒ'),
+    ('p', 'ₚ'), ('r', 'ᵣ'), ('s', 'ₛ'), ('t', 'ₜ'), ('u', 'ᵤ'),
+    ('v', 'ᵥ'), ('x', 'ₓ'),
+];
+
 fn render_superscripts(s: &str) -> String {
-    const SUP: &[(char, char)] = &[
-        ('0', '⁰'), ('1', '¹'), ('2', '²'), ('3', '³'), ('4', '⁴'),
-        ('5', '⁵'), ('6', '⁶'), ('7', '⁷'), ('8', '⁸'), ('9', '⁹'),
-        ('+', '⁺'), ('-', '⁻'), ('=', '⁼'), ('(', '⁽'), (')', '⁾'),
-        ('a', 'ᵃ'), ('b', 'ᵇ'), ('c', 'ᶜ'), ('d', 'ᵈ'), ('e', 'ᵉ'),
-        ('f', 'ᶠ'), ('g', 'ᵍ'), ('h', 'ʰ'), ('i', 'ⁱ'), ('j', 'ʲ'),
-        ('k', 'ᵏ'), ('l', 'ˡ'), ('m', 'ᵐ'), ('n', 'ⁿ'), ('o', 'ᵒ'),
-        ('p', 'ᵖ'), ('r', 'ʳ'), ('s', 'ˢ'), ('t', 'ᵗ'), ('u', 'ᵘ'),
-        ('v', 'ᵛ'), ('w', 'ʷ'), ('x', 'ˣ'), ('y', 'ʸ'), ('z', 'ᶻ'),
-    ];
     apply_scripts(s, '^', SUP)
 }
 
 fn render_subscripts(s: &str) -> String {
-    const SUB: &[(char, char)] = &[
-        ('0', '₀'), ('1', '₁'), ('2', '₂'), ('3', '₃'), ('4', '₄'),
-        ('5', '₅'), ('6', '₆'), ('7', '₇'), ('8', '₈'), ('9', '₉'),
-        ('+', '₊'), ('-', '₋'), ('=', '₌'), ('(', '₍'), (')', '₎'),
-        ('a', 'ₐ'), ('e', 'ₑ'), ('h', 'ₕ'), ('i', 'ᵢ'), ('j', 'ⱼ'),
-        ('k', 'ₖ'), ('l', 'ₗ'), ('m', 'ₘ'), ('n', 'ₙ'), ('o', 'ₒ'),
-        ('p', 'ₚ'), ('r', 'ᵣ'), ('s', 'ₛ'), ('t', 'ₜ'), ('u', 'ᵤ'),
-        ('v', 'ᵥ'), ('x', 'ₓ'),
-    ];
     apply_scripts(s, '_', SUB)
 }
 
@@ -361,6 +364,52 @@ static MATH_SYMBOLS: &[(&str, &str)] = &[
     ("\\ldots", "…"),   ("\\cdots", "⋯"), ("\\vdots", "⋮"), ("\\ddots", "⋱"),
     ("\\hbar", "ℏ"),    ("\\wp", "℘"),    ("\\Re", "ℜ"),    ("\\Im", "ℑ"),
 ];
+
+// ── Script text commands ──────────────────────────────────────────────────────
+
+/// Handle `\textsuperscript{...}` and `\textsubscript{...}` outside math mode,
+/// converting the braced content to unicode super/subscript characters where
+/// possible, falling back to the character itself when no mapping exists.
+fn render_script_commands(s: &str) -> String {
+    let s = replace_script_command(s, r"\textsuperscript{", SUP);
+    replace_script_command(&s, r"\textsubscript{", SUB)
+}
+
+fn replace_script_command(s: &str, cmd: &str, map: &[(char, char)]) -> String {
+    if !s.contains(cmd) {
+        return s.to_string();
+    }
+    let lookup = |ch: char| map.iter().find(|(f, _)| *f == ch).map(|(_, t)| *t).unwrap_or(ch);
+    let mut result = String::new();
+    let mut remaining = s;
+    while let Some(pos) = remaining.find(cmd) {
+        result.push_str(&remaining[..pos]);
+        remaining = &remaining[pos + cmd.len()..];
+        let mut depth = 1usize;
+        let mut content = String::new();
+        let mut end = remaining.len();
+        for (idx, ch) in remaining.char_indices() {
+            match ch {
+                '{' => { depth += 1; content.push(ch); }
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = idx + ch.len_utf8();
+                        break;
+                    }
+                    content.push(ch);
+                }
+                _ => content.push(ch),
+            }
+        }
+        for ch in content.chars() {
+            result.push(lookup(ch));
+        }
+        remaining = &remaining[end..];
+    }
+    result.push_str(remaining);
+    result
+}
 
 // ── Text commands ─────────────────────────────────────────────────────────────
 
@@ -463,6 +512,23 @@ mod tests {
         assert_eq!(render_latex("\\emph{important}"), "important");
         // Nested
         assert_eq!(render_latex("\\textbf{\\textit{bold italic}}"), "bold italic");
+    }
+
+    #[test]
+    fn test_textsuperscript() {
+        assert_eq!(render_latex(r"\textsuperscript{th}"), "ᵗʰ");
+        assert_eq!(render_latex(r"8\textsuperscript{th}"), "8ᵗʰ");
+        assert_eq!(render_latex(r"\textsuperscript{2}"), "²");
+        assert_eq!(render_latex(r"CO\textsuperscript{2}"), "CO²");
+        // Characters without a superscript mapping pass through unchanged
+        assert_eq!(render_latex(r"\textsuperscript{Q}"), "Q");
+    }
+
+    #[test]
+    fn test_textsubscript() {
+        assert_eq!(render_latex(r"\textsubscript{2}"), "₂");
+        assert_eq!(render_latex(r"H\textsubscript{2}O"), "H₂O");
+        assert_eq!(render_latex(r"\textsubscript{n}"), "ₙ");
     }
 
     #[test]
