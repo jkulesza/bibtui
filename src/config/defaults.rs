@@ -90,35 +90,35 @@ pub fn default_columns() -> Vec<ColumnConfig> {
 
 pub fn default_citekey_templates() -> IndexMap<String, String> {
     let mut m = IndexMap::new();
-    m.insert(
-        "article".to_string(),
-        "Article_[year]_[journal_abbrev]_[authors]_[pages]".to_string(),
-    );
-    m.insert(
-        "book".to_string(),
-        "Book_[keywords:camel]_[year]_[auth]_[shorttitle:camel]".to_string(),
-    );
-    m.insert(
-        "techreport".to_string(),
-        "TechReport_[year]_[institution:abbr]_[number]_[authors]".to_string(),
-    );
-    m.insert(
-        "inproceedings".to_string(),
-        "Proceedings_[year]_[booktitle:abbr]_[authors]_[pages]".to_string(),
-    );
-    m.insert(
-        "phdthesis".to_string(),
-        "PhD-Thesis_[year]_[auth]".to_string(),
-    );
-    m.insert(
-        "mastersthesis".to_string(),
-        "MS-Thesis_[year]_[auth]".to_string(),
-    );
-    m.insert(
-        "misc".to_string(),
-        "Misc_[year]_[howpublished:camel]_[authors]_[title:camel]".to_string(),
-    );
+    m.insert("article".to_string(),       "Article_[year]_[auth]".to_string());
+    m.insert("book".to_string(),          "Book_[year]_[auth]".to_string());
+    m.insert("booklet".to_string(),       "Booklet_[year]_[auth]".to_string());
+    m.insert("inbook".to_string(),        "InBook_[year]_[auth]".to_string());
+    m.insert("incollection".to_string(),  "InCollection_[year]_[auth]".to_string());
+    m.insert("inproceedings".to_string(), "InProceedings_[year]_[auth]".to_string());
+    m.insert("manual".to_string(),        "Manual_[year]_[auth]".to_string());
+    m.insert("mastersthesis".to_string(), "MastersThesis_[year]_[auth]".to_string());
+    m.insert("misc".to_string(),          "Misc_[year]_[auth]".to_string());
+    m.insert("phdthesis".to_string(),     "PhdThesis_[year]_[auth]".to_string());
+    m.insert("proceedings".to_string(),   "Proceedings_[year]_[auth]".to_string());
+    m.insert("techreport".to_string(),    "TechReport_[year]_[auth]".to_string());
+    m.insert("unpublished".to_string(),   "Unpublished_[year]_[auth]".to_string());
     m
+}
+
+/// Fill in any citekey template entries that are absent or set to an empty
+/// string with the default value.  This ensures that a user's partial config
+/// (e.g. `inbook: ''`) still produces a sensible key rather than an empty one.
+pub fn normalize_citekey_templates(config: &mut super::schema::Config) {
+    let defaults = default_citekey_templates();
+    for (type_name, default_template) in &defaults {
+        let value = config.citekey.templates
+            .entry(type_name.clone())
+            .or_insert_with(|| default_template.clone());
+        if value.is_empty() {
+            *value = default_template.clone();
+        }
+    }
 }
 
 #[cfg(test)]

@@ -144,8 +144,8 @@ fn test_entry_count_complex() {
     let input = std::fs::read_to_string("tests/fixtures/complex_entries.bib").unwrap();
     let raw = parse_bib_file(&input).unwrap();
     let db = build_database(raw);
-    // 6 entries: Article (Marshak), Article (Brantley), Book, TechReport, IEEEtranBSTCTL, Misc
-    assert_eq!(db.entries.len(), 6);
+    // 7 entries: Article (Marshak), Article (Brantley), Book, TechReport, IEEEtranBSTCTL, InBook, Misc
+    assert_eq!(db.entries.len(), 7);
 }
 
 #[test]

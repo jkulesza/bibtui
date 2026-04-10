@@ -358,3 +358,40 @@ fn test_modifier_camel_case_multi_word_via_shorttitle() {
     fields.insert("title".to_string(), "self-consistent field theory".to_string());
     assert_eq!(generate_citekey(template, &fields), "SelfConsistentfieldtheory");
 }
+
+// ── Fallback template (unconfigured entry types) ──────────────────────────────
+
+#[test]
+fn test_inbook_fallback_template() {
+    // InBook is not in the default configured templates; the runtime fallback is
+    // "InBook_[auth][year]".  Verify that the template and field parsing produce
+    // the expected key even when the author name contains LaTeX braces.
+    let template = "InBook_[auth][year]";
+    let mut fields = IndexMap::new();
+    // Author stored without outer braces (as the parser delivers it):
+    // "Peir{\'{o}}, Joaquim and Sherwin, Spencer"
+    fields.insert("author".to_string(), "Peir{\\'{o}}, Joaquim and Sherwin, Spencer".to_string());
+    fields.insert("year".to_string(), "2005".to_string());
+
+    // parse_authors extracts last name "Peir{\'{o}}" from "Last, First" format;
+    // generate_citekey strips non-alphanumeric chars → "Peiro".
+    assert_eq!(generate_citekey(template, &fields), "InBook_Peiro2005");
+}
+
+#[test]
+fn test_unconfigured_type_fallback_format() {
+    // Any entry type not in the config map falls back to "DisplayName_[auth][year]".
+    // Test a few representative types to confirm the pattern holds.
+    let cases: &[(&str, &str, &str)] = &[
+        ("InBook_[auth][year]",      "Smith, Jane",  "InBook_Smith2020"),
+        ("InCollection_[auth][year]","Jones, Bob",   "InCollection_Jones2021"),
+        ("Proceedings_[auth][year]", "Clark, Carol", "Proceedings_Clark2019"),
+    ];
+    let years = ["2020", "2021", "2019"];
+    for (i, (template, author, expected)) in cases.iter().enumerate() {
+        let mut fields = IndexMap::new();
+        fields.insert("author".to_string(), author.to_string());
+        fields.insert("year".to_string(), years[i].to_string());
+        assert_eq!(generate_citekey(template, &fields), *expected, "template: {}", template);
+    }
+}

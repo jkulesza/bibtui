@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 
+use super::defaults::normalize_citekey_templates;
 use super::schema::Config;
 
 /// Load configuration with precedence: CLI flag > ./bibtui.yaml > $XDG_CONFIG_HOME/bibtui/config.yaml
@@ -29,8 +30,9 @@ pub fn load_config(cli_config: Option<&str>) -> Result<Config> {
         if path.exists() {
             let contents = std::fs::read_to_string(path)
                 .with_context(|| format!("Failed to read config file: {}", path.display()))?;
-            let config: Config = serde_yaml::from_str(&contents)
+            let mut config: Config = serde_yaml::from_str(&contents)
                 .with_context(|| format!("Failed to parse config file: {}", path.display()))?;
+            normalize_citekey_templates(&mut config);
             return Ok(config);
         }
     }
@@ -108,6 +110,38 @@ mod tests {
         let cfg = load_config(Some(path)).unwrap();
         let default = super::super::schema::Config::default();
         assert_eq!(cfg.general.backup_on_save, default.general.backup_on_save);
+    }
+
+    #[test]
+    fn test_load_config_empty_citekey_template_replaced_with_default() {
+        // Regression: a user's YAML with `inbook: ''` must NOT leave the template
+        // empty — it should be filled in with the default fallback so that
+        // generate_citekey never receives an empty template string.
+        let mut tmp = NamedTempFile::new().unwrap();
+        writeln!(tmp, "citekey:\n  templates:\n    inbook: ''").unwrap();
+        tmp.flush().unwrap();
+        let cfg = load_config(Some(tmp.path().to_str().unwrap())).unwrap();
+        let template = cfg.citekey.templates.get("inbook").expect("inbook must exist");
+        assert!(!template.is_empty(), "empty inbook template should be replaced with default");
+        assert!(template.contains("[year]"), "default template should contain [year]");
+        assert!(template.contains("[auth]"), "default template should contain [auth]");
+    }
+
+    #[test]
+    fn test_load_config_all_standard_types_present_after_normalize() {
+        // After loading any config, all standard entry types should have a
+        // non-empty template (either configured or filled in from defaults).
+        let mut tmp = NamedTempFile::new().unwrap();
+        writeln!(tmp, "").unwrap();
+        tmp.flush().unwrap();
+        let cfg = load_config(Some(tmp.path().to_str().unwrap())).unwrap();
+        for type_name in &["article", "book", "inbook", "inproceedings", "techreport",
+                           "phdthesis", "mastersthesis", "misc", "booklet", "incollection",
+                           "manual", "proceedings", "unpublished"] {
+            let t = cfg.citekey.templates.get(*type_name)
+                .unwrap_or_else(|| panic!("type '{}' missing from templates", type_name));
+            assert!(!t.is_empty(), "template for '{}' must not be empty", type_name);
+        }
     }
 
     #[test]

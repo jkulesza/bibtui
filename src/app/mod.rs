@@ -1540,14 +1540,15 @@ impl App {
     fn regen_citekey(&mut self) {
         if let Some(ref key) = self.detail_entry_key.clone() {
             if let Some(entry) = self.database.entries.get(key) {
-                let type_name = entry.entry_type.display_name().to_lowercase();
+                let display_name = entry.entry_type.display_name();
+                let type_name = display_name.to_lowercase();
                 let template = self
                     .config
                     .citekey
                     .templates
                     .get(&type_name)
                     .cloned()
-                    .unwrap_or_else(|| format!("{}_{{}}", type_name));
+                    .unwrap_or_else(|| format!("{}_[year]_[auth]", display_name));
 
                 let new_key = generate_citekey(&template, &entry.fields);
 
@@ -1587,10 +1588,11 @@ impl App {
         for key in keys {
             let (base_new_key, skip) = {
                 let Some(entry) = self.database.entries.get(&key) else { continue };
-                let type_name = entry.entry_type.display_name().to_lowercase();
+                let display_name = entry.entry_type.display_name();
+                let type_name = display_name.to_lowercase();
                 let template = self.config.citekey.templates.get(&type_name)
                     .cloned()
-                    .unwrap_or_else(|| format!("{}_{{}}", type_name));
+                    .unwrap_or_else(|| format!("{}_[year]_[auth]", display_name));
                 let base = generate_citekey(&template, &entry.fields);
                 let skip = base == key;
                 (base, skip)
@@ -2812,7 +2814,8 @@ impl App {
     fn import_settings(&mut self, path: &str) {
         match std::fs::read_to_string(path) {
             Ok(contents) => match serde_yaml::from_str::<crate::config::schema::Config>(&contents) {
-                Ok(cfg) => {
+                Ok(mut cfg) => {
+                    crate::config::defaults::normalize_citekey_templates(&mut cfg);
                     self.config = cfg;
                     self.sync_runtime_from_config();
                     // Refresh settings panel to reflect imported values
@@ -3872,16 +3875,15 @@ impl App {
                 let entry_type = EntryType::from_str(&imported.entry_type);
 
                 // Generate a citation key from the configured template.
-                let type_name = EntryType::from_str(&imported.entry_type)
-                    .display_name()
-                    .to_lowercase();
+                let display_name = entry_type.display_name();
+                let type_name = display_name.to_lowercase();
                 let template = self
                     .config
                     .citekey
                     .templates
                     .get(&type_name)
                     .cloned()
-                    .unwrap_or_else(|| format!("{}_{{}}", type_name));
+                    .unwrap_or_else(|| format!("{}_[year]_[auth]", display_name));
                 let temp_key = {
                     let key = generate_citekey(&template, &imported.fields);
                     if key.is_empty() { "imported_entry".to_string() } else { key }
@@ -5751,20 +5753,20 @@ mod tests {
     fn test_dirty_cleared_when_field_reverted_to_original() {
         // Use an entry whose citation key already matches the template output,
         // so that reverting the field also reverts the auto-generated key.
-        // Template: Article_{year}_{journal_abbrev}_{authors}_{pages}
-        // For year=2020, journal=Nature(→N), author=Smith → Article_2020_N_Smith
+        // Template: Article_[year]_[auth]
+        // For year=2020, author=Smith → Article_2020_Smith
         let mut tmp = NamedTempFile::new().unwrap();
-        write!(tmp, "@Article{{Article_2020_N_Smith,\n  author  = {{Smith, John}},\n  title   = {{My Paper}},\n  year    = {{2020}},\n  journal = {{Nature}},\n}}\n").unwrap();
+        write!(tmp, "@Article{{Article_2020_Smith,\n  author  = {{Smith, John}},\n  title   = {{My Paper}},\n  year    = {{2020}},\n  journal = {{Nature}},\n}}\n").unwrap();
         tmp.flush().unwrap();
         let app_result = App::new(tmp.path().to_path_buf(), default_config());
         let mut app = app_result.unwrap();
 
         app.handle_action(Action::OpenDetail);
-        app.detail_entry_key = Some("Article_2020_N_Smith".to_string());
+        app.detail_entry_key = Some("Article_2020_Smith".to_string());
 
         use crate::tui::components::field_editor::FieldEditorState;
 
-        // Modify the year field — key auto-regens to Article_2099_N_Smith.
+        // Modify the year field — key auto-regens to Article_2099_Smith.
         app.field_editor_state = Some(FieldEditorState::new("year", "2099"));
         app.handle_action(Action::ConfirmEdit);
         assert!(app.database.entries.values().any(|e| e.dirty), "should be dirty after change");
@@ -5793,11 +5795,10 @@ mod tests {
         app.handle_action(Action::ConfirmEdit);
 
         // Key should have been auto-regenerated to reflect the new year.
-        // Template: Article_{year}_{journal_abbrev}_{authors}_{pages}
-        // → Article_2023_N_Smith
+        // Template: Article_[year]_[auth]  →  Article_2023_Smith
         assert!(
-            app.database.entries.contains_key("Article_2023_N_Smith"),
-            "expected auto-regenerated key Article_2023_N_Smith; keys: {:?}",
+            app.database.entries.contains_key("Article_2023_Smith"),
+            "expected auto-regenerated key Article_2023_Smith; keys: {:?}",
             app.database.entries.keys().collect::<Vec<_>>()
         );
         assert!(!app.database.entries.contains_key("Smith2020"), "old key should be gone");

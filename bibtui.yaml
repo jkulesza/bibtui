@@ -49,16 +49,15 @@ citekey:
     phdthesis: PhD-Thesis_[year]_[auth]
     mastersthesis: MS-Thesis_[year]_[auth]
     misc: Misc_[year]_[howpublished:camel]_[authors]_[title:camel]
-    booklet: ''
-    inbook: ''
-    incollection: ''
-    manual: ''
-    proceedings: ''
-    unpublished: ''
+    booklet: Booklet_[year]_[auth]
+    inbook: InBook_[year]_[auth]
+    incollection: InCollection_[year]_[auth]
+    manual: Manual_[year]_[auth]
+    proceedings: Proceedings_[year]_[auth]
+    unpublished: Unpublished_[year]_[auth]
 entry_types: {}
 save:
   align_fields: true
-  entry_sort_order: none
   field_order: alphabetical
   sync_filenames: true
   save_action_escape_underscores: true
@@ -73,8 +72,10 @@ save:
   save_action_ordinals_to_superscript: true
   save_action_unicode_to_latex: true
   save_action_abbreviate_journal: true
+  save_action_regenerate_citekeys: true
   journal_field_content: full
   journal_abbreviations: {}
+  entry_sort_order: none
 theme:
   selected_bg: '#3b4261'
   selected_fg: '#c0caf5'

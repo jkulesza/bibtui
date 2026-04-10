@@ -6,6 +6,7 @@ use ratatui::{
     Frame,
 };
 
+use crate::bib::model::EntryType;
 use crate::config::schema::{ColumnConfig, ColumnWidth, Config, CustomFieldGroup};
 use crate::tui::theme::Theme;
 
@@ -444,17 +445,22 @@ impl SettingsState {
         // ── Citekey Templates (one item per standard entry type) ──
         let base = items.len(); // 11
         for type_name in CITEKEY_TYPES {
-            let current = config.citekey.templates.get(*type_name).cloned().unwrap_or_default();
-            let default_val = defaults.citekey.templates.get(*type_name).cloned().unwrap_or_default();
+            let entry_type = EntryType::from_str(type_name);
+            let display_name = entry_type.display_name();
+            let fallback = format!("{}_[year]_[auth]", display_name);
+            let current = config.citekey.templates.get(*type_name).cloned()
+                .unwrap_or_else(|| fallback.clone());
+            let default_val = defaults.citekey.templates.get(*type_name).cloned()
+                .unwrap_or_else(|| fallback.clone());
             items.push(SettingItem {
                 id: format!("citekey.template.{}", type_name),
-                label: type_name.to_string(),
+                label: display_name.to_string(),
                 description: format!(
                     "Citation key template for @{} entries. \
                      Tokens: [auth], [year], [title], [journal:abbr], [authors], \
                      [firstpage], [number], [institution:abbr], [booktitle:abbr]. \
                      Modifiers: :upper, :lower, :abbr, :camel, :(n), :regex(\"pat\",\"repl\").",
-                    type_name
+                    display_name
                 ),
                 value: SettingValue::Str(current),
                 default: SettingValue::Str(default_val),
