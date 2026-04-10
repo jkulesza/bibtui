@@ -146,6 +146,7 @@ fn map_detail_key(key: KeyEvent, last_key: Option<char>) -> Option<Action> {
         KeyCode::Char('/') => Some(Action::EnterDetailSearch),
         KeyCode::Char('n') => Some(Action::DetailNextMatch),
         KeyCode::Char('N') => Some(Action::DetailPrevMatch),
+        KeyCode::Char('?') => Some(Action::ShowHelp),
         _ => None,
     }
 }

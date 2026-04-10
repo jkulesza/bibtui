@@ -75,6 +75,7 @@ pub struct App {
     pub last_settings_cursor: usize,
     pub validate_results_state: Option<ValidateResultsState>,
     pub help_state: Option<HelpState>,
+    pub help_pre_mode: Option<InputMode>,
 
     // Search / sort
     pub search_engine: SearchEngine,
@@ -159,6 +160,7 @@ impl App {
             last_settings_cursor: 0,
             validate_results_state: None,
             help_state: None,
+            help_pre_mode: None,
             search_engine: SearchEngine::new(),
             filtered_indices: None,
             sorted_keys,
@@ -221,6 +223,7 @@ impl App {
             last_settings_cursor: 0,
             validate_results_state: None,
             help_state: None,
+            help_pre_mode: None,
             search_engine: SearchEngine::new(),
             filtered_indices: None,
             sorted_keys,
@@ -699,12 +702,13 @@ impl App {
                 }
             }
             Action::ShowHelp => {
+                self.help_pre_mode = Some(self.mode.clone());
                 self.help_state = Some(HelpState);
                 self.mode = InputMode::Help;
             }
             Action::CloseHelp => {
                 self.help_state = None;
-                self.mode = InputMode::Normal;
+                self.mode = self.help_pre_mode.take().unwrap_or(InputMode::Normal);
             }
 
             // ── Vim modal editing ──

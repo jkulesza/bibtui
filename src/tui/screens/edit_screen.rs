@@ -47,4 +47,9 @@ pub fn render_edit_screen(f: &mut Frame, app: &mut App) {
     if let Some(ref mut dialog) = app.dialog_state {
         crate::tui::components::dialog::render_dialog(f, area, dialog, &app.theme);
     }
+
+    // Help overlay
+    if let Some(ref state) = app.help_state {
+        crate::tui::components::help::render_help(f, area, state, &app.theme);
+    }
 }
