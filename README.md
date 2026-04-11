@@ -405,7 +405,7 @@ PDF candidates are tried in order (Unpaywall OA → publisher PDF → ANS direct
 cargo test
 ```
 
-All 1203 tests pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, journal abbreviation, TUI component state machines, config loading, import pipeline, and export serialisation). Line coverage: ~76%.
+All 1219 tests pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, journal abbreviation, TUI component state machines, config loading, import pipeline, and export serialisation). Line coverage: ~76%.
 
 Coverage analysis runs automatically in CI via `cargo-llvm-cov`. To run locally:
 
@@ -414,6 +414,14 @@ cargo llvm-cov --workspace --summary-only
 ```
 
 ## Changelog
+
+### 0.49.0
+
+- **Name disambiguator** (`M` on main screen): scans all person-name fields (author, editor, translator, etc.) for similar names using normalized last-name + first-initial grouping and nucleo fuzzy matching, then presents clusters of likely-duplicate names in a scrollable overlay
+- **Disambiguator merge workflow**: `Tab`/`Shift-Tab` to cycle the merge target within a cluster, `Enter` to apply all merges (replaces variant names with the selected canonical form across all entries, with full undo support)
+- **Disambiguator preview** (`Space`): shows all entries associated with the currently selected name variant, with j/k scrolling; press `Space` or `Esc` to close the preview
+- **Disambiguator remove** (`x`): removes the selected variant from a cluster to exclude incorrect matches; clusters with fewer than 2 remaining variants are auto-removed
+- Center-scroll behavior in the disambiguator keeps the focused cluster vertically centered
 
 ### 0.48.0
 

@@ -93,6 +93,14 @@ pub enum Action {
     // Validate
     Validate,
     CloseValidateResults,
+    // Name disambiguator
+    DisambiguateNames,
+    CloseNameDisambig,
+    ApplyNameDisambig,
+    DisambigCycleVariant,
+    DisambigCycleVariantReverse,
+    DisambigRemoveVariant,
+    DisambigPreview,
     // Import / Export
     ImportEntry,
     /// Export all entries as CSL-JSON to a user-specified path.
