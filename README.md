@@ -405,7 +405,7 @@ PDF candidates are tried in order (Unpaywall OA → publisher PDF → ANS direct
 cargo test
 ```
 
-All 1193 tests pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, journal abbreviation, TUI component state machines, config loading, import pipeline, and export serialisation). Line coverage: ~76%.
+All 1197 tests pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, journal abbreviation, TUI component state machines, config loading, import pipeline, and export serialisation). Line coverage: ~76%.
 
 Coverage analysis runs automatically in CI via `cargo-llvm-cov`. To run locally:
 
@@ -414,6 +414,10 @@ cargo llvm-cov --workspace --summary-only
 ```
 
 ## Changelog
+
+### 0.47.0
+
+- **Paste sanitization**: pasting multi-line text into the field editor now converts newlines, tabs, and other control characters to spaces so the text flows into a single line
 
 ### 0.46.0
 
