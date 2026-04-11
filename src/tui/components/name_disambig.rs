@@ -387,6 +387,70 @@ mod tests {
     }
 
     #[test]
+    fn test_preview_state() {
+        let mut s = NameDisambigState::new(vec![
+            make_cluster(&[("Smith, John", 3), ("J. Smith", 1)]),
+        ]);
+        assert!(s.preview.is_none());
+        s.preview = Some(NamePreview {
+            variant_name: "Smith, John".to_string(),
+            entries: vec!["k1 — Paper A".to_string(), "k2 — Paper B".to_string()],
+            scroll: 0,
+        });
+        assert!(s.preview.is_some());
+        assert_eq!(s.preview.as_ref().unwrap().entries.len(), 2);
+        // Scroll
+        s.preview.as_mut().unwrap().scroll = 1;
+        assert_eq!(s.preview.as_ref().unwrap().scroll, 1);
+        // Close
+        s.preview = None;
+        assert!(s.preview.is_none());
+    }
+
+    #[test]
+    fn test_remove_selected_variant_at_end_of_list() {
+        // When selected_variant is the last index in a 3+ variant cluster
+        let mut s = NameDisambigState::new(vec![
+            make_cluster(&[("A", 1), ("B", 2), ("C", 3)]),
+        ]);
+        s.clusters[0].selected_variant = 2; // select last
+        s.clusters[0].canonical = "C".to_string();
+        assert!(s.remove_variant());
+        // selected_variant should wrap to 0
+        assert_eq!(s.clusters[0].selected_variant, 0);
+        assert_eq!(s.clusters[0].canonical, "A");
+        assert_eq!(s.clusters[0].variants.len(), 2);
+    }
+
+    #[test]
+    fn test_cycle_variant_single_variant() {
+        // Edge case: cluster with 1 variant (shouldn't happen normally, but test it)
+        let mut s = NameDisambigState::new(vec![NameCluster {
+            canonical: "Solo".to_string(),
+            variants: vec![NameVariant { name: "Solo".to_string(), count: 5 }],
+            selected_variant: 0,
+        }]);
+        s.cycle_variant();
+        assert_eq!(s.clusters[0].selected_variant, 0);
+        s.cycle_variant_reverse();
+        assert_eq!(s.clusters[0].selected_variant, 0);
+    }
+
+    #[test]
+    fn test_move_down_empty() {
+        let mut s = NameDisambigState::new(vec![]);
+        s.move_down(); // should not panic
+        assert_eq!(s.cursor, 0);
+    }
+
+    #[test]
+    fn test_page_down_empty() {
+        let mut s = NameDisambigState::new(vec![]);
+        s.page_down(); // should not panic
+        assert_eq!(s.cursor, 0);
+    }
+
+    #[test]
     fn test_page_down_up() {
         let clusters: Vec<NameCluster> = (0..20)
             .map(|i| make_cluster(&[(&format!("Name{}", i), 1)]))

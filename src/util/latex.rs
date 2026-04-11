@@ -10,6 +10,8 @@ pub fn render_latex(s: &str) -> String {
     let s = render_math_mode(&s);
     let s = render_script_commands(&s);
     let s = render_text_commands(&s);
+    // Escaped ampersand → bare ampersand
+    let s = s.replace("\\&", "&");
     // Non-breaking tilde → regular space
     s.replace('~', " ")
 }
@@ -62,6 +64,21 @@ static SPECIAL_CHARS: &[(&str, &str)] = &[
     ("\\j{}", "ȷ"),
     ("\\l{}", "ł"),
     ("\\L{}", "Ł"),
+    // Symbol commands wrapped in \textsuperscript — must precede bare forms
+    ("\\textsuperscript{{\\textregistered}}", "®"),
+    ("\\textsuperscript{\\textregistered}", "®"),
+    ("\\textsuperscript{{\\texttrademark}}", "™"),
+    ("\\textsuperscript{\\texttrademark}", "™"),
+    // Symbol commands — braced form first, then bare with empty-group terminator
+    ("{\\textregistered}", "®"),
+    ("\\textregistered{}", "®"),
+    ("\\textregistered", "®"),
+    ("{\\textcopyright}", "©"),
+    ("\\textcopyright{}", "©"),
+    ("\\textcopyright", "©"),
+    ("{\\texttrademark}", "™"),
+    ("\\texttrademark{}", "™"),
+    ("\\texttrademark", "™"),
 ];
 
 // ── Accent substitutions ──────────────────────────────────────────────────────
@@ -537,6 +554,35 @@ mod tests {
         assert_eq!(render_latex("{\\ae}"), "æ");
         assert_eq!(render_latex("{\\AE}"), "Æ");
         assert_eq!(render_latex("{\\o}"), "ø");
+    }
+
+    #[test]
+    fn test_textregistered() {
+        assert_eq!(render_latex("{\\textregistered}"), "®");
+        assert_eq!(render_latex("\\textregistered{}"), "®");
+        assert_eq!(render_latex("\\textregistered"), "®");
+        assert_eq!(render_latex("MATLAB{\\textregistered}"), "MATLAB®");
+        // \textsuperscript wrapping should collapse to just the symbol
+        assert_eq!(render_latex(r"MCNP\textsuperscript{\textregistered}"), "MCNP®");
+        assert_eq!(render_latex(r"Code\textsuperscript{{\textregistered}}"), "Code®");
+    }
+
+    #[test]
+    fn test_escaped_ampersand() {
+        assert_eq!(render_latex("Smith \\& Jones"), "Smith & Jones");
+        assert_eq!(render_latex("A \\& B \\& C"), "A & B & C");
+        // Bare ampersand unchanged
+        assert_eq!(render_latex("A & B"), "A & B");
+    }
+
+    #[test]
+    fn test_textcopyright_and_texttrademark() {
+        assert_eq!(render_latex("{\\textcopyright}"), "©");
+        assert_eq!(render_latex("\\textcopyright{}"), "©");
+        assert_eq!(render_latex("\\textcopyright"), "©");
+        assert_eq!(render_latex("{\\texttrademark}"), "™");
+        assert_eq!(render_latex("\\texttrademark{}"), "™");
+        assert_eq!(render_latex("\\texttrademark"), "™");
     }
 
     #[test]

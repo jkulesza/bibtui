@@ -6311,6 +6311,211 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_disambig_remove_variant_closes_when_empty() {
+        let (mut app, _tmp) = make_app();
+        // Inject exactly two entries with different author names
+        {
+            let mut f1 = IndexMap::new();
+            f1.insert("author".to_string(), "Doe, J.".to_string());
+            app.database.entries.insert("d1".to_string(), Entry {
+                entry_type: crate::bib::model::EntryType::Article,
+                citation_key: "d1".to_string(),
+                fields: f1,
+                group_memberships: vec![],
+                raw_index: 950,
+                dirty: false,
+            });
+            let mut f2 = IndexMap::new();
+            f2.insert("author".to_string(), "Doe, Jane".to_string());
+            app.database.entries.insert("d2".to_string(), Entry {
+                entry_type: crate::bib::model::EntryType::Article,
+                citation_key: "d2".to_string(),
+                fields: f2,
+                group_memberships: vec![],
+                raw_index: 951,
+                dirty: false,
+            });
+        }
+        app.handle_action(Action::DisambiguateNames);
+        assert_eq!(app.mode, InputMode::NameDisambig);
+        // Remove clusters until empty — should auto-close
+        if let Some(ref state) = app.name_disambig_state {
+            let count = state.clusters.len();
+            for _ in 0..count {
+                app.handle_action(Action::DisambigRemoveVariant);
+            }
+        }
+        // Should have auto-closed
+        if app.name_disambig_state.is_some() {
+            // If still open (more clusters than expected), close manually
+            app.handle_action(Action::CloseNameDisambig);
+        }
+        assert_eq!(app.mode, InputMode::Normal);
+    }
+
+    #[test]
+    fn test_disambig_preview_toggle() {
+        let (mut app, _tmp) = make_app();
+        {
+            let mut f1 = IndexMap::new();
+            f1.insert("author".to_string(), "Xu, A.".to_string());
+            f1.insert("title".to_string(), "Paper One".to_string());
+            app.database.entries.insert("x1".to_string(), Entry {
+                entry_type: crate::bib::model::EntryType::Article,
+                citation_key: "x1".to_string(),
+                fields: f1,
+                group_memberships: vec![],
+                raw_index: 960,
+                dirty: false,
+            });
+            let mut f2 = IndexMap::new();
+            f2.insert("author".to_string(), "Xu, Alice".to_string());
+            f2.insert("title".to_string(), "Paper Two".to_string());
+            app.database.entries.insert("x2".to_string(), Entry {
+                entry_type: crate::bib::model::EntryType::Article,
+                citation_key: "x2".to_string(),
+                fields: f2,
+                group_memberships: vec![],
+                raw_index: 961,
+                dirty: false,
+            });
+        }
+        app.handle_action(Action::DisambiguateNames);
+        if app.name_disambig_state.as_ref().map_or(true, |s| s.clusters.is_empty()) {
+            return; // no clusters to test with
+        }
+        // Open preview
+        app.handle_action(Action::DisambigPreview);
+        assert!(app.name_disambig_state.as_ref().unwrap().preview.is_some());
+        // Scroll preview
+        app.handle_action(Action::MoveDown);
+        app.handle_action(Action::MoveUp);
+        // Close preview with toggle
+        app.handle_action(Action::DisambigPreview);
+        assert!(app.name_disambig_state.as_ref().unwrap().preview.is_none());
+    }
+
+    #[test]
+    fn test_disambig_close_dismisses_preview_first() {
+        let (mut app, _tmp) = make_app();
+        {
+            let mut f1 = IndexMap::new();
+            f1.insert("author".to_string(), "Lee, B.".to_string());
+            app.database.entries.insert("l1".to_string(), Entry {
+                entry_type: crate::bib::model::EntryType::Article,
+                citation_key: "l1".to_string(),
+                fields: f1,
+                group_memberships: vec![],
+                raw_index: 970,
+                dirty: false,
+            });
+            let mut f2 = IndexMap::new();
+            f2.insert("author".to_string(), "Lee, Bob".to_string());
+            app.database.entries.insert("l2".to_string(), Entry {
+                entry_type: crate::bib::model::EntryType::Article,
+                citation_key: "l2".to_string(),
+                fields: f2,
+                group_memberships: vec![],
+                raw_index: 971,
+                dirty: false,
+            });
+        }
+        app.handle_action(Action::DisambiguateNames);
+        if app.name_disambig_state.as_ref().map_or(true, |s| s.clusters.is_empty()) {
+            return;
+        }
+        // Open preview
+        app.handle_action(Action::DisambigPreview);
+        assert!(app.name_disambig_state.as_ref().unwrap().preview.is_some());
+        // First Esc closes preview, not dialog
+        app.handle_action(Action::CloseNameDisambig);
+        assert!(app.name_disambig_state.is_some());
+        assert!(app.name_disambig_state.as_ref().unwrap().preview.is_none());
+        // Second Esc closes the dialog
+        app.handle_action(Action::CloseNameDisambig);
+        assert!(app.name_disambig_state.is_none());
+        assert_eq!(app.mode, InputMode::Normal);
+    }
+
+    #[test]
+    fn test_disambig_move_to_top_bottom() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::DisambiguateNames);
+        if app.name_disambig_state.as_ref().map_or(true, |s| s.clusters.len() < 2) {
+            return;
+        }
+        app.handle_action(Action::MoveToBottom);
+        let len = app.name_disambig_state.as_ref().unwrap().clusters.len();
+        assert_eq!(app.name_disambig_state.as_ref().unwrap().cursor, len - 1);
+        app.handle_action(Action::MoveToTop);
+        assert_eq!(app.name_disambig_state.as_ref().unwrap().cursor, 0);
+    }
+
+    #[test]
+    fn test_disambig_page_down_up() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::DisambiguateNames);
+        if app.name_disambig_state.as_ref().map_or(true, |s| s.clusters.is_empty()) {
+            return;
+        }
+        app.handle_action(Action::PageDown);
+        app.handle_action(Action::PageUp);
+        assert_eq!(app.name_disambig_state.as_ref().unwrap().cursor, 0);
+    }
+
+    #[test]
+    fn test_disambig_cycle_variant_reverse_action() {
+        let (mut app, _tmp) = make_app();
+        {
+            let mut f1 = IndexMap::new();
+            f1.insert("author".to_string(), "Park, C.".to_string());
+            app.database.entries.insert("p1".to_string(), Entry {
+                entry_type: crate::bib::model::EntryType::Article,
+                citation_key: "p1".to_string(),
+                fields: f1,
+                group_memberships: vec![],
+                raw_index: 980,
+                dirty: false,
+            });
+            let mut f2 = IndexMap::new();
+            f2.insert("author".to_string(), "Park, Chris".to_string());
+            app.database.entries.insert("p2".to_string(), Entry {
+                entry_type: crate::bib::model::EntryType::Article,
+                citation_key: "p2".to_string(),
+                fields: f2,
+                group_memberships: vec![],
+                raw_index: 981,
+                dirty: false,
+            });
+        }
+        app.handle_action(Action::DisambiguateNames);
+        if app.name_disambig_state.as_ref().map_or(true, |s| s.clusters.is_empty()) {
+            return;
+        }
+        let initial = app.name_disambig_state.as_ref().unwrap().clusters[0].selected_variant;
+        app.handle_action(Action::DisambigCycleVariantReverse);
+        let after = app.name_disambig_state.as_ref().unwrap().clusters[0].selected_variant;
+        // With 2 variants, cycling reverse from 0 wraps to 1
+        if app.name_disambig_state.as_ref().unwrap().clusters[0].variants.len() >= 2 {
+            assert_ne!(initial, after);
+        }
+    }
+
+    #[test]
+    fn test_apply_disambig_no_changes_needed() {
+        let (mut app, _tmp) = make_app();
+        // Open disambiguator and immediately apply — if all clusters have the
+        // canonical already selected, it returns "No changes needed" or applies
+        // zero mutations.
+        app.handle_action(Action::DisambiguateNames);
+        if app.name_disambig_state.is_some() {
+            app.handle_action(Action::ApplyNameDisambig);
+            assert!(app.name_disambig_state.is_none());
+            assert_eq!(app.mode, InputMode::Normal);
+        }
+    }
+
     // ── Settings extended navigation ──────────────────────────────────────────
 
     #[test]

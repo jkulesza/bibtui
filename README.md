@@ -405,7 +405,7 @@ PDF candidates are tried in order (Unpaywall OA → publisher PDF → ANS direct
 cargo test
 ```
 
-All 1219 tests pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, journal abbreviation, TUI component state machines, config loading, import pipeline, and export serialisation). Line coverage: ~76%.
+All 1234 tests pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, journal abbreviation, TUI component state machines, config loading, import pipeline, and export serialisation). Line coverage: ~76%.
 
 Coverage analysis runs automatically in CI via `cargo-llvm-cov`. To run locally:
 
@@ -414,6 +414,12 @@ cargo llvm-cov --workspace --summary-only
 ```
 
 ## Changelog
+
+### 0.50.0
+
+- **LaTeX symbol rendering**: `\textregistered` → ®, `\textcopyright` → ©, `\texttrademark` → ™ in all three LaTeX forms (braced, bare with `{}`, and bare); `\textsuperscript{\textregistered}` collapses to just ® (e.g., `MCNP\textsuperscript{\textregistered}` → `MCNP®`)
+- **Escaped ampersand rendering**: `\&` now displays as `&` when LaTeX rendering is enabled
+- Expanded test coverage: 1234 tests, ~76% line coverage
 
 ### 0.49.0
 
