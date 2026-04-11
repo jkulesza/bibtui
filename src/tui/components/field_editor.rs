@@ -183,6 +183,9 @@ impl FieldEditorState {
     }
 
     pub fn push_char(&mut self, c: char) {
+        // Convert control characters (newlines, tabs, etc.) to spaces so that
+        // pasted multi-line text streams into a single line.
+        let c = if c.is_control() { ' ' } else { c };
         if self.is_new && self.editing_name {
             self.field_name.insert(self.name_cursor, c);
             self.name_cursor += c.len_utf8();
@@ -1860,6 +1863,42 @@ mod tests {
     #[test]
     fn test_find_prev_char_no_match() {
         assert_eq!(find_prev_char("hello", 5, 'z'), None);
+    }
+
+    #[test]
+    fn test_push_char_converts_newline_to_space() {
+        let mut editor = FieldEditorState::new("title", "hello");
+        editor.editing_mode = EditingMode::Insert;
+        editor.cursor = 5;
+        editor.push_char('\n');
+        assert_eq!(editor.value, "hello ");
+    }
+
+    #[test]
+    fn test_push_char_converts_tab_to_space() {
+        let mut editor = FieldEditorState::new("title", "hello");
+        editor.editing_mode = EditingMode::Insert;
+        editor.cursor = 5;
+        editor.push_char('\t');
+        assert_eq!(editor.value, "hello ");
+    }
+
+    #[test]
+    fn test_push_char_converts_carriage_return_to_space() {
+        let mut editor = FieldEditorState::new("title", "hello");
+        editor.editing_mode = EditingMode::Insert;
+        editor.cursor = 5;
+        editor.push_char('\r');
+        assert_eq!(editor.value, "hello ");
+    }
+
+    #[test]
+    fn test_push_char_preserves_normal_chars() {
+        let mut editor = FieldEditorState::new("title", "hello");
+        editor.editing_mode = EditingMode::Insert;
+        editor.cursor = 5;
+        editor.push_char('!');
+        assert_eq!(editor.value, "hello!");
     }
 }
 
