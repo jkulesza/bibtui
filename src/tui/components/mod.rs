@@ -9,4 +9,5 @@ pub mod group_tree;
 pub mod search_bar;
 pub mod settings;
 pub mod status_bar;
+pub mod name_disambig;
 pub mod validate_results;

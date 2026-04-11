@@ -25,6 +25,7 @@ pub fn map_key(
         InputMode::CitationPreview => map_citation_preview_key(key, last_key),
         InputMode::Settings => map_settings_key(key),
         InputMode::ValidateResults => map_validate_results_key(key),
+        InputMode::NameDisambig => map_name_disambig_key(key),
         InputMode::Help => Some(Action::CloseHelp),
     }
 }
@@ -41,6 +42,7 @@ pub enum InputMode {
     CitationPreview,
     Settings,
     ValidateResults,
+    NameDisambig,
     Help,
 }
 
@@ -95,6 +97,7 @@ fn map_normal_key(key: KeyEvent, last_key: Option<char>) -> Option<Action> {
         KeyCode::Char('v') => Some(Action::Validate),
         KeyCode::Char('I') => Some(Action::ImportEntry),
         KeyCode::Char('C') => Some(Action::RegenAllCitekeys),
+        KeyCode::Char('M') => Some(Action::DisambiguateNames),
         KeyCode::Esc => Some(Action::ResetSort),
         _ => None,
     }
@@ -338,6 +341,28 @@ fn map_validate_results_key(key: KeyEvent) -> Option<Action> {
     }
 }
 
+fn map_name_disambig_key(key: KeyEvent) -> Option<Action> {
+    match key.code {
+        KeyCode::Char('j') | KeyCode::Down => Some(Action::MoveDown),
+        KeyCode::Char('k') | KeyCode::Up => Some(Action::MoveUp),
+        KeyCode::Char('g') => Some(Action::MoveToTop),
+        KeyCode::Char('G') => Some(Action::MoveToBottom),
+        KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(Action::PageDown)
+        }
+        KeyCode::Char('b') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(Action::PageUp)
+        }
+        KeyCode::Tab => Some(Action::DisambigCycleVariant),
+        KeyCode::BackTab => Some(Action::DisambigCycleVariantReverse),
+        KeyCode::Char('x') => Some(Action::DisambigRemoveVariant),
+        KeyCode::Char(' ') => Some(Action::DisambigPreview),
+        KeyCode::Enter => Some(Action::ApplyNameDisambig),
+        KeyCode::Esc | KeyCode::Char('q') => Some(Action::CloseNameDisambig),
+        _ => None,
+    }
+}
+
 fn map_citation_preview_key(key: KeyEvent, last_key: Option<char>) -> Option<Action> {
     match key.code {
         KeyCode::Char('j') | KeyCode::Down => Some(Action::MoveDown),
@@ -520,6 +545,13 @@ pub fn action_from_name(name: &str) -> Option<Action> {
         "SettingsPageUp"            => Some(Action::SettingsPageUp),
         "Validate"                  => Some(Action::Validate),
         "CloseValidateResults"      => Some(Action::CloseValidateResults),
+        "DisambiguateNames"         => Some(Action::DisambiguateNames),
+        "CloseNameDisambig"         => Some(Action::CloseNameDisambig),
+        "ApplyNameDisambig"         => Some(Action::ApplyNameDisambig),
+        "DisambigCycleVariant"      => Some(Action::DisambigCycleVariant),
+        "DisambigCycleVariantReverse" => Some(Action::DisambigCycleVariantReverse),
+        "DisambigRemoveVariant"     => Some(Action::DisambigRemoveVariant),
+        "DisambigPreview"           => Some(Action::DisambigPreview),
         "ImportEntry"               => Some(Action::ImportEntry),
         "ExportJson"                => Some(Action::ExportJson),
         "ExportRis"                 => Some(Action::ExportRis),
@@ -563,6 +595,7 @@ fn mode_from_name(name: &str) -> Option<InputMode> {
         "citation_preview" => Some(InputMode::CitationPreview),
         "dialog"           => Some(InputMode::Dialog),
         "command"          => Some(InputMode::Command),
+        "name_disambig"    => Some(InputMode::NameDisambig),
         _ => None,
     }
 }
@@ -925,6 +958,21 @@ mod tests {
         assert_eq!(map_key(key(KeyCode::Esc),       &InputMode::ValidateResults, None, None, false, false), Some(Action::CloseValidateResults));
         assert_eq!(map_key(key(KeyCode::Char('q')), &InputMode::ValidateResults, None, None, false, false), Some(Action::CloseValidateResults));
         assert_eq!(map_key(key(KeyCode::F(1)),      &InputMode::ValidateResults, None, None, false, false), None);
+    }
+
+    // ── NameDisambig mode ──
+
+    #[test]
+    fn test_name_disambig_mode() {
+        assert_eq!(map_key(key(KeyCode::Char('j')), &InputMode::NameDisambig, None, None, false, false), Some(Action::MoveDown));
+        assert_eq!(map_key(key(KeyCode::Char('k')), &InputMode::NameDisambig, None, None, false, false), Some(Action::MoveUp));
+        assert_eq!(map_key(key(KeyCode::Tab),       &InputMode::NameDisambig, None, None, false, false), Some(Action::DisambigCycleVariant));
+        assert_eq!(map_key(key(KeyCode::BackTab),   &InputMode::NameDisambig, None, None, false, false), Some(Action::DisambigCycleVariantReverse));
+        assert_eq!(map_key(key(KeyCode::Enter),     &InputMode::NameDisambig, None, None, false, false), Some(Action::ApplyNameDisambig));
+        assert_eq!(map_key(key(KeyCode::Esc),       &InputMode::NameDisambig, None, None, false, false), Some(Action::CloseNameDisambig));
+        assert_eq!(map_key(key(KeyCode::Char('q')), &InputMode::NameDisambig, None, None, false, false), Some(Action::CloseNameDisambig));
+        assert_eq!(map_key(key(KeyCode::Char('G')), &InputMode::NameDisambig, None, None, false, false), Some(Action::MoveToBottom));
+        assert_eq!(map_key(key(KeyCode::Char('x')), &InputMode::NameDisambig, None, None, false, false), Some(Action::DisambigRemoveVariant));
     }
 
     // ── CitationPreview mode ──

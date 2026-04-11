@@ -161,6 +161,13 @@ pub fn render_main_screen(f: &mut Frame, app: &mut App) {
         );
     }
 
+    // Name disambiguator overlay
+    if let Some(ref mut nds) = app.name_disambig_state {
+        crate::tui::components::name_disambig::render_name_disambig(
+            f, area, nds, &app.theme,
+        );
+    }
+
     // Help overlay
     if let Some(ref state) = app.help_state {
         crate::tui::components::help::render_help(f, area, state, &app.theme);

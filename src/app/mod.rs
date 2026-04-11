@@ -17,6 +17,7 @@ use crate::bib::model::*;
 use crate::util::open::{effective_file_dir, parse_file_field, serialize_file_field};
 use crate::tui::components::citation_preview::CitationPreviewState;
 use crate::tui::components::help::HelpState;
+use crate::tui::components::name_disambig::{NameCluster, NameDisambigState, NamePreview, NameVariant};
 use crate::tui::components::validate_results::{Violation, ValidateResultsState};
 use crate::util::citation::format_citation;
 use crate::util::export::{export_csl_json, export_ris};
@@ -74,6 +75,7 @@ pub struct App {
     pub settings_state: Option<SettingsState>,
     pub last_settings_cursor: usize,
     pub validate_results_state: Option<ValidateResultsState>,
+    pub name_disambig_state: Option<NameDisambigState>,
     pub help_state: Option<HelpState>,
     pub help_pre_mode: Option<InputMode>,
 
@@ -159,6 +161,7 @@ impl App {
             settings_state: None,
             last_settings_cursor: 0,
             validate_results_state: None,
+            name_disambig_state: None,
             help_state: None,
             help_pre_mode: None,
             search_engine: SearchEngine::new(),
@@ -222,6 +225,7 @@ impl App {
             settings_state: None,
             last_settings_cursor: 0,
             validate_results_state: None,
+            name_disambig_state: None,
             help_state: None,
             help_pre_mode: None,
             search_engine: SearchEngine::new(),
@@ -371,7 +375,15 @@ impl App {
 
         match action {
             Action::MoveDown => {
-                if let Some(ref mut vrs) = self.validate_results_state {
+                if let Some(ref mut nds) = self.name_disambig_state {
+                    if let Some(ref mut preview) = nds.preview {
+                        if preview.scroll + 1 < preview.entries.len() {
+                            preview.scroll += 1;
+                        }
+                    } else {
+                        nds.move_down();
+                    }
+                } else if let Some(ref mut vrs) = self.validate_results_state {
                     // 24 is a safe inner-height fallback; render clamps anyway
                     let total = vrs.violations.len() * 4;
                     vrs.scroll_down(24, total);
@@ -383,7 +395,13 @@ impl App {
                 }
             }
             Action::MoveUp => {
-                if let Some(ref mut vrs) = self.validate_results_state {
+                if let Some(ref mut nds) = self.name_disambig_state {
+                    if let Some(ref mut preview) = nds.preview {
+                        preview.scroll = preview.scroll.saturating_sub(1);
+                    } else {
+                        nds.move_up();
+                    }
+                } else if let Some(ref mut vrs) = self.validate_results_state {
                     vrs.scroll_up();
                 } else {
                     self.move_cursor(-1);
@@ -392,10 +410,36 @@ impl App {
                     }
                 }
             }
-            Action::MoveToTop => self.move_to_top(),
-            Action::MoveToBottom => self.move_to_bottom(),
-            Action::PageDown => self.move_cursor(20),
-            Action::PageUp => self.move_cursor(-20),
+            Action::MoveToTop => {
+                if let Some(ref mut nds) = self.name_disambig_state {
+                    nds.cursor = 0;
+                } else {
+                    self.move_to_top();
+                }
+            }
+            Action::MoveToBottom => {
+                if let Some(ref mut nds) = self.name_disambig_state {
+                    if !nds.clusters.is_empty() {
+                        nds.cursor = nds.clusters.len() - 1;
+                    }
+                } else {
+                    self.move_to_bottom();
+                }
+            }
+            Action::PageDown => {
+                if let Some(ref mut nds) = self.name_disambig_state {
+                    nds.page_down();
+                } else {
+                    self.move_cursor(20);
+                }
+            }
+            Action::PageUp => {
+                if let Some(ref mut nds) = self.name_disambig_state {
+                    nds.page_up();
+                } else {
+                    self.move_cursor(-20);
+                }
+            }
             Action::ResetSort => {
                 if self.filtered_indices.is_some() {
                     // Active search filter: ESC clears it and returns to full list
@@ -654,6 +698,86 @@ impl App {
             Action::CloseValidateResults => {
                 self.validate_results_state = None;
                 self.mode = InputMode::Normal;
+            }
+            Action::DisambiguateNames => {
+                let clusters = self.build_name_clusters();
+                let count = clusters.len();
+                self.name_disambig_state = Some(NameDisambigState::new(clusters));
+                self.mode = InputMode::NameDisambig;
+                if count == 0 {
+                    self.status_message = Some("No similar author names found".to_string());
+                } else {
+                    self.status_message = Some(format!(
+                        "{} cluster{} of similar names",
+                        count,
+                        if count == 1 { "" } else { "s" },
+                    ));
+                }
+            }
+            Action::CloseNameDisambig => {
+                if let Some(ref mut nds) = self.name_disambig_state {
+                    if nds.preview.is_some() {
+                        nds.preview = None;
+                        return;
+                    }
+                }
+                self.name_disambig_state = None;
+                self.mode = InputMode::Normal;
+            }
+            Action::DisambigCycleVariant => {
+                if let Some(ref mut state) = self.name_disambig_state {
+                    state.cycle_variant();
+                }
+            }
+            Action::DisambigCycleVariantReverse => {
+                if let Some(ref mut state) = self.name_disambig_state {
+                    state.cycle_variant_reverse();
+                }
+            }
+            Action::DisambigPreview => {
+                if let Some(ref mut nds) = self.name_disambig_state {
+                    if nds.preview.is_some() {
+                        // Toggle off
+                        nds.preview = None;
+                    } else if let Some(cluster) = nds.clusters.get(nds.cursor) {
+                        let variant_name = cluster.variants[cluster.selected_variant].name.clone();
+                        let mut entries: Vec<String> = Vec::new();
+                        for (key, entry) in &self.database.entries {
+                            for &field in Self::NAME_FIELDS {
+                                if let Some(val) = entry.fields.get(field) {
+                                    let has_name = val.split(" and ")
+                                        .any(|n| n.trim() == variant_name);
+                                    if has_name {
+                                        let title = entry.fields.get("title")
+                                            .cloned()
+                                            .unwrap_or_default();
+                                        entries.push(format!("{} — {}", key, title));
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        entries.sort();
+                        nds.preview = Some(NamePreview {
+                            variant_name,
+                            entries,
+                            scroll: 0,
+                        });
+                    }
+                }
+            }
+            Action::DisambigRemoveVariant => {
+                if let Some(ref mut state) = self.name_disambig_state {
+                    state.remove_variant();
+                    if state.clusters.is_empty() {
+                        self.name_disambig_state = None;
+                        self.mode = InputMode::Normal;
+                        self.status_message = Some("All clusters removed".to_string());
+                    }
+                }
+            }
+            Action::ApplyNameDisambig => {
+                self.apply_name_disambiguation();
             }
             Action::EnterCommand => {
                 self.mode = InputMode::Command;
@@ -4583,6 +4707,242 @@ impl App {
             _ => {}
         }
     }
+
+    // ── Name disambiguator ──────────────────────────────────────────────────
+
+    /// Person-name fields that should be scanned for disambiguation.
+    const NAME_FIELDS: &'static [&'static str] = &[
+        "author", "editor", "editora", "editorb", "editorc",
+        "bookauthor", "translator",
+    ];
+
+    /// Build clusters of similar author names across all entries.
+    fn build_name_clusters(&mut self) -> Vec<NameCluster> {
+        use std::collections::HashMap;
+
+        // 1. Collect all unique person names and their usage counts.
+        let mut name_counts: HashMap<String, usize> = HashMap::new();
+        for entry in self.database.entries.values() {
+            for &field in Self::NAME_FIELDS {
+                if let Some(val) = entry.fields.get(field) {
+                    for name in val.split(" and ") {
+                        let name = name.trim();
+                        if !name.is_empty() {
+                            *name_counts.entry(name.to_string()).or_insert(0) += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        if name_counts.len() < 2 {
+            return Vec::new();
+        }
+
+        // 2. Normalize each name to a canonical comparison key: lowercase last
+        //    name + first-initial, so "Smith, J." and "Smith, John" compare.
+        fn normalize_key(name: &str) -> String {
+            let name = name.trim();
+            let (last, first) = if let Some(comma) = name.find(',') {
+                (name[..comma].trim(), name[comma + 1..].trim())
+            } else {
+                let parts: Vec<&str> = name.split_whitespace().collect();
+                if parts.len() >= 2 {
+                    (parts[parts.len() - 1], &name[..name.len() - parts[parts.len() - 1].len()])
+                } else {
+                    (name, "")
+                }
+            };
+            // Strip braces for comparison
+            let last_clean: String = last.chars().filter(|c| *c != '{' && *c != '}').collect();
+            let first_clean: String = first.trim().chars().filter(|c| *c != '{' && *c != '}').collect();
+            let first_initial = first_clean.chars().next().unwrap_or(' ');
+            format!("{}_{}", last_clean.to_lowercase(), first_initial.to_lowercase())
+        }
+
+        // 3. Group names by normalized key.
+        let mut groups: HashMap<String, Vec<String>> = HashMap::new();
+        for name in name_counts.keys() {
+            let key = normalize_key(name);
+            groups.entry(key).or_default().push(name.clone());
+        }
+
+        // 4. Also do fuzzy matching within last-name groups to catch typos.
+        //    Group by lowercase last name, then use nucleo within each group.
+        let mut last_name_groups: HashMap<String, Vec<String>> = HashMap::new();
+        for name in name_counts.keys() {
+            let name_trimmed = name.trim();
+            let last = if let Some(comma) = name_trimmed.find(',') {
+                name_trimmed[..comma].trim()
+            } else {
+                name_trimmed.split_whitespace().next_back().unwrap_or(name_trimmed)
+            };
+            let last_clean: String = last.chars().filter(|c| *c != '{' && *c != '}').collect();
+            last_name_groups.entry(last_clean.to_lowercase()).or_default().push(name.clone());
+        }
+
+        // Use nucleo fuzzy matching to find similar names within the same
+        // last-name bucket.
+        use nucleo_matcher::pattern::{AtomKind, CaseMatching, Normalization, Pattern};
+        use nucleo_matcher::{Config as NucleoConfig, Matcher, Utf32Str};
+
+        let mut matcher = Matcher::new(NucleoConfig::DEFAULT);
+
+        // For each last-name bucket with >1 name, check pairwise fuzzy scores
+        for (_last, bucket_names) in &last_name_groups {
+            if bucket_names.len() < 2 {
+                continue;
+            }
+            for i in 0..bucket_names.len() {
+                for j in (i + 1)..bucket_names.len() {
+                    let a = &bucket_names[i];
+                    let b = &bucket_names[j];
+                    let key_a = normalize_key(a);
+                    let key_b = normalize_key(b);
+                    if key_a == key_b {
+                        continue; // already grouped
+                    }
+                    let pattern = Pattern::new(
+                        a,
+                        CaseMatching::Ignore,
+                        Normalization::Smart,
+                        AtomKind::Fuzzy,
+                    );
+                    let mut buf = Vec::new();
+                    let haystack = Utf32Str::new(b, &mut buf);
+                    if let Some(score) = pattern.score(haystack, &mut matcher) {
+                        if score > 80 {
+                            let merged_key = key_a.clone();
+                            if let Some(existing) = groups.get_mut(&key_b) {
+                                let taken: Vec<String> = existing.drain(..).collect();
+                                groups.entry(merged_key).or_default().extend(taken);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 5. Remove empty groups and groups with only one unique name.
+        let mut clusters: Vec<NameCluster> = Vec::new();
+        for (_key, names) in &groups {
+            let mut unique: Vec<String> = names.clone();
+            unique.sort();
+            unique.dedup();
+            if unique.len() < 2 {
+                continue;
+            }
+            let mut variants: Vec<NameVariant> = unique
+                .iter()
+                .map(|n| NameVariant {
+                    name: n.clone(),
+                    count: *name_counts.get(n).unwrap_or(&0),
+                })
+                .collect();
+            variants.sort_by(|a, b| b.count.cmp(&a.count).then(a.name.cmp(&b.name)));
+            let canonical_idx = variants
+                .iter()
+                .enumerate()
+                .max_by_key(|(_, v)| v.name.len())
+                .map(|(i, _)| i)
+                .unwrap_or(0);
+            let canonical = variants[canonical_idx].name.clone();
+            clusters.push(NameCluster {
+                canonical,
+                variants,
+                selected_variant: canonical_idx,
+            });
+        }
+        clusters.sort_by(|a, b| a.canonical.to_lowercase().cmp(&b.canonical.to_lowercase()));
+        clusters
+    }
+
+    /// Apply name disambiguation: replace all variant names with the selected
+    /// canonical form in each cluster.
+    fn apply_name_disambiguation(&mut self) {
+        let state = match self.name_disambig_state.take() {
+            Some(s) => s,
+            None => return,
+        };
+        if state.clusters.is_empty() {
+            self.mode = InputMode::Normal;
+            return;
+        }
+
+        let mut replacements: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+        for cluster in &state.clusters {
+            for variant in &cluster.variants {
+                if variant.name != cluster.canonical {
+                    replacements.insert(variant.name.clone(), cluster.canonical.clone());
+                }
+            }
+        }
+
+        if replacements.is_empty() {
+            self.mode = InputMode::Normal;
+            self.status_message = Some("No changes needed".to_string());
+            return;
+        }
+
+        // Collect all mutations first (entry_key, field, old_val, new_val).
+        let mut mutations: Vec<(String, String, String, String)> = Vec::new();
+        for (key, entry) in &self.database.entries {
+            for &field in Self::NAME_FIELDS {
+                let val = match entry.fields.get(field) {
+                    Some(v) => v,
+                    None => continue,
+                };
+                let names: Vec<&str> = val.split(" and ").collect();
+                let mut changed = false;
+                let new_names: Vec<String> = names
+                    .iter()
+                    .map(|n| {
+                        let trimmed = n.trim();
+                        if let Some(canonical) = replacements.get(trimmed) {
+                            changed = true;
+                            canonical.clone()
+                        } else {
+                            trimmed.to_string()
+                        }
+                    })
+                    .collect();
+                if changed {
+                    mutations.push((
+                        key.clone(),
+                        field.to_string(),
+                        val.clone(),
+                        new_names.join(" and "),
+                    ));
+                }
+            }
+        }
+
+        let changed_count = mutations.len();
+        for (key, field, old_val, new_val) in mutations {
+            if self.undo_stack.len() >= MAX_UNDO {
+                self.undo_stack.remove(0);
+                self.save_generation = self.save_generation.and_then(|g: usize| g.checked_sub(1));
+            }
+            self.undo_stack.push(UndoItem::FieldChanged {
+                entry_key: key.clone(),
+                field_name: field.clone(),
+                old_value: Some(old_val),
+            });
+            if let Some(entry) = self.database.entries.get_mut(&key) {
+                entry.fields.insert(field, new_val);
+                entry.dirty = true;
+            }
+            self.dirty = true;
+        }
+
+        self.mode = InputMode::Normal;
+        self.status_message = Some(format!(
+            "Disambiguated: {} field{} updated",
+            changed_count,
+            if changed_count == 1 { "" } else { "s" },
+        ));
+    }
 }
 
 /// Return a short label describing which save action is responsible for
@@ -4622,6 +4982,7 @@ fn action_label_for_field(field: &str, cfg: &crate::config::schema::SaveConfig) 
         }
     }
 }
+
 
 fn sort_entries(entries: &IndexMap<String, Entry>, config: &Config) -> Vec<String> {
     let keys: Vec<String> = entries.keys().cloned().collect();
@@ -5855,6 +6216,99 @@ mod tests {
         assert_eq!(app.validate_results_state.as_ref().unwrap().scroll, 1);
         app.handle_action(Action::MoveUp);
         assert_eq!(app.validate_results_state.as_ref().unwrap().scroll, 0);
+    }
+
+    // ── Name disambiguator ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_disambiguate_names_opens_panel() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::DisambiguateNames);
+        assert!(app.name_disambig_state.is_some());
+        assert_eq!(app.mode, InputMode::NameDisambig);
+    }
+
+    #[test]
+    fn test_close_name_disambig_returns_to_normal() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::DisambiguateNames);
+        app.handle_action(Action::CloseNameDisambig);
+        assert!(app.name_disambig_state.is_none());
+        assert_eq!(app.mode, InputMode::Normal);
+    }
+
+    #[test]
+    fn test_disambig_navigate_clusters() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::DisambiguateNames);
+        if let Some(ref state) = app.name_disambig_state {
+            if state.clusters.len() >= 2 {
+                let initial = state.cursor;
+                app.handle_action(Action::MoveDown);
+                assert_eq!(app.name_disambig_state.as_ref().unwrap().cursor, initial + 1);
+                app.handle_action(Action::MoveUp);
+                assert_eq!(app.name_disambig_state.as_ref().unwrap().cursor, initial);
+            }
+        }
+    }
+
+    #[test]
+    fn test_disambig_cycle_variant() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::DisambiguateNames);
+        if let Some(ref state) = app.name_disambig_state {
+            if !state.clusters.is_empty() && state.clusters[0].variants.len() >= 2 {
+                let initial = state.clusters[0].selected_variant;
+                app.handle_action(Action::DisambigCycleVariant);
+                let next = app.name_disambig_state.as_ref().unwrap().clusters[0].selected_variant;
+                assert_ne!(next, initial);
+            }
+        }
+    }
+
+    #[test]
+    fn test_apply_name_disambig() {
+        let (mut app, _tmp) = make_app();
+        // Inject two entries with slightly different author names
+        {
+            let mut fields1 = IndexMap::new();
+            fields1.insert("author".to_string(), "Smith, J.".to_string());
+            app.database.entries.insert("k1".to_string(), Entry {
+                entry_type: crate::bib::model::EntryType::Article,
+                citation_key: "k1".to_string(),
+                fields: fields1,
+                group_memberships: vec![],
+                raw_index: 900,
+                dirty: false,
+            });
+            let mut fields2 = IndexMap::new();
+            fields2.insert("author".to_string(), "Smith, John".to_string());
+            app.database.entries.insert("k2".to_string(), Entry {
+                entry_type: crate::bib::model::EntryType::Article,
+                citation_key: "k2".to_string(),
+                fields: fields2,
+                group_memberships: vec![],
+                raw_index: 901,
+                dirty: false,
+            });
+        }
+        app.handle_action(Action::DisambiguateNames);
+        // Find the cluster that contains Smith variants
+        if let Some(ref state) = app.name_disambig_state {
+            let has_smith = state.clusters.iter().any(|c|
+                c.variants.iter().any(|v| v.name.contains("Smith"))
+            );
+            if has_smith {
+                app.handle_action(Action::ApplyNameDisambig);
+                assert!(app.name_disambig_state.is_none());
+                assert_eq!(app.mode, InputMode::Normal);
+                // Check that at least one entry was updated
+                let a1 = app.database.entries.get("k1").unwrap().fields.get("author").unwrap();
+                let a2 = app.database.entries.get("k2").unwrap().fields.get("author").unwrap();
+                // After disambiguation, both should have the same name
+                assert_eq!(a1, a2);
+            }
+        }
     }
 
     // ── Settings extended navigation ──────────────────────────────────────────
