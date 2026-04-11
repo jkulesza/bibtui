@@ -192,6 +192,7 @@ fn map_editing_insert_key(key: KeyEvent) -> Option<Action> {
         }
         KeyCode::Delete => Some(Action::EditDelete),
         KeyCode::Tab => Some(Action::EditTabComplete),
+        KeyCode::BackTab => Some(Action::EditTabCompleteReverse),
         KeyCode::Char(c) => Some(Action::EditChar(c)),
         _ => None,
     }
@@ -297,6 +298,7 @@ fn map_command_key(key: KeyEvent) -> Option<Action> {
         KeyCode::Esc => Some(Action::ExitCommand),
         KeyCode::Enter => Some(Action::ExecuteCommand),
         KeyCode::Tab => Some(Action::CommandTabComplete),
+        KeyCode::BackTab => Some(Action::CommandTabCompleteReverse),
         KeyCode::Backspace => Some(Action::CommandBackspace),
         KeyCode::Char(c) => Some(Action::CommandChar(c)),
         _ => None,
@@ -395,6 +397,7 @@ fn parse_bare_key(s: &str) -> Option<(KeyCode, KeyModifiers)> {
         "backspace" => Some((KeyCode::Backspace,  KeyModifiers::NONE)),
         "delete"    => Some((KeyCode::Delete,     KeyModifiers::NONE)),
         "tab"       => Some((KeyCode::Tab,        KeyModifiers::NONE)),
+        "backtab" | "shift-tab" => Some((KeyCode::BackTab, KeyModifiers::SHIFT)),
         "space"     => Some((KeyCode::Char(' '),  KeyModifiers::NONE)),
         "home"      => Some((KeyCode::Home,       KeyModifiers::NONE)),
         "end"       => Some((KeyCode::End,        KeyModifiers::NONE)),
@@ -470,6 +473,7 @@ pub fn action_from_name(name: &str) -> Option<Action> {
         "EditCursorHome"            => Some(Action::EditCursorHome),
         "EditCursorEnd"             => Some(Action::EditCursorEnd),
         "EditTabComplete"           => Some(Action::EditTabComplete),
+        "EditTabCompleteReverse"    => Some(Action::EditTabCompleteReverse),
         "AddEntry"                  => Some(Action::AddEntry),
         "DeleteEntry"               => Some(Action::DeleteEntry),
         "DuplicateEntry"            => Some(Action::DuplicateEntry),
@@ -483,6 +487,7 @@ pub fn action_from_name(name: &str) -> Option<Action> {
         "ExecuteCommand"            => Some(Action::ExecuteCommand),
         "CommandBackspace"          => Some(Action::CommandBackspace),
         "CommandTabComplete"        => Some(Action::CommandTabComplete),
+        "CommandTabCompleteReverse" => Some(Action::CommandTabCompleteReverse),
         "DialogConfirm"             => Some(Action::DialogConfirm),
         "DialogCancel"              => Some(Action::DialogCancel),
         "DialogToggle"              => Some(Action::DialogToggle),
@@ -757,6 +762,28 @@ mod tests {
         assert_eq!(
             map_key(key(KeyCode::Tab), &InputMode::Editing, None, None, false, false),
             Some(Action::EditTabComplete)
+        );
+    }
+
+    #[test]
+    fn test_editing_mode_backtab() {
+        assert_eq!(
+            map_key(
+                KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT),
+                &InputMode::Editing, None, None, false, false,
+            ),
+            Some(Action::EditTabCompleteReverse)
+        );
+    }
+
+    #[test]
+    fn test_command_mode_backtab() {
+        assert_eq!(
+            map_key(
+                KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT),
+                &InputMode::Command, None, None, false, false,
+            ),
+            Some(Action::CommandTabCompleteReverse)
         );
     }
 

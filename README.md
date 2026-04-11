@@ -212,7 +212,7 @@ The field editor uses vim-style modal editing. Opening a non-empty field starts 
 | `Backspace` / `Delete` | Delete character |
 | `Ctrl-W` | Delete word before cursor |
 | `Ctrl-U` | Delete to start of line |
-| `Tab` | Cycle through completions / filesystem path completion |
+| `Tab` / `Shift-Tab` | Cycle forward / backward through completions |
 | `Enter` | Confirm edit |
 | `Esc` | Return to Normal mode |
 
@@ -405,7 +405,7 @@ PDF candidates are tried in order (Unpaywall OA → publisher PDF → ANS direct
 cargo test
 ```
 
-All 1197 tests pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, journal abbreviation, TUI component state machines, config loading, import pipeline, and export serialisation). Line coverage: ~76%.
+All 1203 tests pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, journal abbreviation, TUI component state machines, config loading, import pipeline, and export serialisation). Line coverage: ~76%.
 
 Coverage analysis runs automatically in CI via `cargo-llvm-cov`. To run locally:
 
@@ -415,8 +415,10 @@ cargo llvm-cov --workspace --summary-only
 
 ## Changelog
 
-### 0.47.0
+### 0.48.0
 
+- **Shift-Tab reverse cycling**: `Shift-Tab` now cycles backward through tab-completion candidates in field editors, path dialogs, and the `:sort` command palette
+- **Smarter file-add autocomplete**: when adding a file attachment (`f`), Tab completion now sorts candidates with directories first, then files whose names do not match an existing citation key, then files that do — within each group, most recently modified files appear first
 - **Paste sanitization**: pasting multi-line text into the field editor now converts newlines, tabs, and other control characters to spaces so the text flows into a single line
 
 ### 0.46.0
