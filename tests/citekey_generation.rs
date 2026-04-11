@@ -93,13 +93,13 @@ fn test_bracket_last_first_format() {
 
 #[test]
 fn test_bracket_authn() {
-    // [auth2] — first two author last names
+    // [auth2] — first 2 characters of first author's last name (JabRef semantics)
     let template = "[auth2][year]";
     let mut fields = IndexMap::new();
     fields.insert("author".to_string(), "Alice Adams and Bob Brown and Carol Clark".to_string());
     fields.insert("year".to_string(), "2023".to_string());
 
-    assert_eq!(generate_citekey(template, &fields), "AdamsBrown2023");
+    assert_eq!(generate_citekey(template, &fields), "Ad2023");
 }
 
 #[test]
@@ -175,8 +175,9 @@ fn test_modifier_truncate() {
     fields.insert("year".to_string(), "2020".to_string());
     fields.insert("title".to_string(), "Toward Efficient Monte Carlo".to_string());
 
-    // title first significant word is "Toward", truncated to 5 → "Towar"
-    assert_eq!(generate_citekey(template, &fields), "Smith2020_Towar");
+    // [title] = all significant words capitalized+joined; "toward" is a function word
+    // → "EfficientMonteCarlo", truncated to 5 → "Effic"
+    assert_eq!(generate_citekey(template, &fields), "Smith2020_Effic");
 }
 
 #[test]
@@ -202,9 +203,9 @@ fn test_modifier_regex_replace_spaces() {
     fields.insert("year".to_string(), "2020".to_string());
     fields.insert("title".to_string(), "Toward Efficient Monte Carlo".to_string());
 
-    // shorttitle = first 3 significant words = "TowardEfficientMonte" (no spaces, joined)
-    // spaces already absent in joined form, so result unchanged
-    assert_eq!(generate_citekey(template, &fields), "Smith2020_TowardEfficientMonte");
+    // "toward" is a function word, so shorttitle = first 3 significant words =
+    // "EfficientMonteCarlo" (no spaces, joined) — regex is a no-op
+    assert_eq!(generate_citekey(template, &fields), "Smith2020_EfficientMonteCarlo");
 }
 
 #[test]
@@ -339,13 +340,13 @@ fn test_missing_field_produces_empty_string() {
 
 #[test]
 fn test_modifier_camel_case() {
-    // [title] resolves to the first significant word; :camel then runs
-    // to_camel_case on that single word.  "self-consistent" (split on '-')
-    // → "SelfConsistent".
+    // [title] = all significant words capitalized+joined =
+    // "Self-consistentFieldTheory"; :camel splits on hyphens and capitalizes
+    // → "SelfConsistentFieldTheory"
     let template = "[title:camel]";
     let mut fields = IndexMap::new();
     fields.insert("title".to_string(), "self-consistent field theory".to_string());
-    assert_eq!(generate_citekey(template, &fields), "SelfConsistent");
+    assert_eq!(generate_citekey(template, &fields), "SelfConsistentFieldTheory");
 }
 
 #[test]
@@ -394,4 +395,118 @@ fn test_unconfigured_type_fallback_format() {
         fields.insert("year".to_string(), years[i].to_string());
         assert_eq!(generate_citekey(template, &fields), *expected, "template: {}", template);
     }
+}
+
+// ── JabRef-compatible author tokens ──────────────────────────────────────────
+
+#[test]
+fn test_auth_n_chars_of_first_author() {
+    // [auth3] = first 3 chars of first author's last name (JabRef semantics)
+    let mut fields = IndexMap::new();
+    fields.insert("author".to_string(), "Smith, Jane".to_string());
+    assert_eq!(generate_citekey("[auth3]", &fields), "Smi");
+}
+
+#[test]
+fn test_authors_n_with_etal() {
+    // [authors2] = first 2 authors + EtAl when more exist
+    let mut fields = IndexMap::new();
+    fields.insert("author".to_string(), "Adams, Alice and Brown, Bob and Clark, Carol".to_string());
+    assert_eq!(generate_citekey("[authors2]", &fields), "AdamsBrownEtAl");
+}
+
+#[test]
+fn test_authors_n_exact_count() {
+    // [authors3] = all 3 authors, no EtAl
+    let mut fields = IndexMap::new();
+    fields.insert("author".to_string(), "Adams, Alice and Brown, Bob and Clark, Carol".to_string());
+    assert_eq!(generate_citekey("[authors3]", &fields), "AdamsBrownClark");
+}
+
+#[test]
+fn test_auth_etal_token() {
+    let mut fields = IndexMap::new();
+    fields.insert("author".to_string(), "Smith, Jane and Jones, Bob and Clark, Carol".to_string());
+    assert_eq!(generate_citekey("[auth.etal]", &fields), "Smith.etal");
+}
+
+#[test]
+fn test_auth_et_al_token() {
+    let mut fields = IndexMap::new();
+    fields.insert("author".to_string(), "Smith, Jane and Jones, Bob and Clark, Carol".to_string());
+    assert_eq!(generate_citekey("[authEtAl]", &fields), "SmithEtAl");
+}
+
+#[test]
+fn test_entrytype_token() {
+    let mut fields = IndexMap::new();
+    fields.insert("entrytype".to_string(), "Article".to_string());
+    fields.insert("author".to_string(), "Smith, Jane".to_string());
+    fields.insert("year".to_string(), "2020".to_string());
+    assert_eq!(generate_citekey("[entrytype]_[auth][year]", &fields), "Article_Smith2020");
+}
+
+#[test]
+fn test_editor_fallback_for_auth() {
+    // [auth] falls back to editor when author is absent
+    let mut fields = IndexMap::new();
+    fields.insert("editor".to_string(), "Jones, Bob".to_string());
+    fields.insert("year".to_string(), "2020".to_string());
+    assert_eq!(generate_citekey("[auth][year]", &fields), "Jones2020");
+}
+
+#[test]
+fn test_pureauth_no_editor_fallback() {
+    // [pureauth] does NOT fall back to editor
+    let mut fields = IndexMap::new();
+    fields.insert("editor".to_string(), "Jones, Bob".to_string());
+    fields.insert("year".to_string(), "2020".to_string());
+    assert_eq!(generate_citekey("[pureauth][year]", &fields), "2020");
+}
+
+#[test]
+fn test_title_jabref_semantics() {
+    // [title] = capitalize all significant words, skip function words, concatenate
+    let mut fields = IndexMap::new();
+    fields.insert("title".to_string(), "the art of computer programming".to_string());
+    // "the" and "of" are function words → skipped
+    assert_eq!(generate_citekey("[title]", &fields), "ArtComputerProgramming");
+}
+
+#[test]
+fn test_lastpage_token() {
+    let mut fields = IndexMap::new();
+    fields.insert("pages".to_string(), "100--115".to_string());
+    assert_eq!(generate_citekey("[lastpage]", &fields), "115");
+}
+
+#[test]
+fn test_pageprefix_token() {
+    let mut fields = IndexMap::new();
+    fields.insert("pages".to_string(), "S100--S115".to_string());
+    assert_eq!(generate_citekey("[pageprefix]", &fields), "S");
+}
+
+#[test]
+fn test_keyword_token() {
+    let mut fields = IndexMap::new();
+    fields.insert("keywords".to_string(), "nuclear, monte carlo, radiation".to_string());
+    // Space stripped by sanitizer
+    assert_eq!(generate_citekey("[keyword2]", &fields), "montecarlo");
+}
+
+#[test]
+fn test_allcaps_raw_field() {
+    let mut fields = IndexMap::new();
+    fields.insert("author".to_string(), "Smith, Jane and Jones, Bob".to_string());
+    // [AUTHOR] = raw author value, but sanitizer strips commas/spaces
+    assert_eq!(generate_citekey("[AUTHOR]", &fields), "SmithJaneandJonesBob");
+}
+
+#[test]
+fn test_fulltitle_token() {
+    let mut fields = IndexMap::new();
+    fields.insert("title".to_string(), "{Monte Carlo} methods for transport".to_string());
+    // [fulltitle] = raw title, brace-cleaned; sanitizer strips spaces
+    assert_eq!(generate_citekey("[fulltitle]", &fields), "MonteCarlomethodsfortransport");
 }

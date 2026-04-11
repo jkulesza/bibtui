@@ -239,6 +239,10 @@ pub struct JabRefMeta {
     pub save_order_config: Option<String>,
     pub groups_version: Option<String>,
     pub protected_flag: Option<String>,
+    /// Default citation key pattern from `jabref-meta: keypatterndefault:...`
+    pub key_pattern_default: Option<String>,
+    /// Per-entry-type citation key patterns from `jabref-meta: keypattern_<type>:...`
+    pub key_patterns: IndexMap<String, String>,
     /// Preserve unknown metadata keys for round-trip
     pub unknown_meta: IndexMap<String, String>,
 }

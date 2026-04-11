@@ -88,6 +88,13 @@ pub fn parse_jabref_comment(raw_text: &str, meta: &mut JabRefMeta) {
             "saveOrderConfig" => {
                 meta.save_order_config = Some(value.to_string());
             }
+            "keypatterndefault" => {
+                meta.key_pattern_default = Some(value.to_string());
+            }
+            _ if key.starts_with("keypattern_") => {
+                let type_name = key["keypattern_".len()..].to_lowercase();
+                meta.key_patterns.insert(type_name, value.to_string());
+            }
             _ => {
                 meta.unknown_meta
                     .insert(key.to_string(), value.to_string());
@@ -446,6 +453,33 @@ mod tests {
                 _ => {}
             }
         }
+    }
+
+    #[test]
+    fn test_parse_jabref_comment_keypatterndefault() {
+        let raw = "@Comment{jabref-meta: keypatterndefault:[auth][year];}";
+        let mut meta = JabRefMeta::default();
+        parse_jabref_comment(raw, &mut meta);
+        assert_eq!(meta.key_pattern_default.as_deref(), Some("[auth][year]"));
+    }
+
+    #[test]
+    fn test_parse_jabref_comment_keypattern_per_type() {
+        let raw = "@Comment{jabref-meta: keypattern_article:[auth:lower][shortyear];}";
+        let mut meta = JabRefMeta::default();
+        parse_jabref_comment(raw, &mut meta);
+        assert_eq!(
+            meta.key_patterns.get("article").map(|s| s.as_str()),
+            Some("[auth:lower][shortyear]")
+        );
+    }
+
+    #[test]
+    fn test_parse_jabref_comment_keypattern_case_insensitive() {
+        let raw = "@Comment{jabref-meta: keypattern_InProceedings:[auth][year];}";
+        let mut meta = JabRefMeta::default();
+        parse_jabref_comment(raw, &mut meta);
+        assert!(meta.key_patterns.contains_key("inproceedings"));
     }
 
     #[test]

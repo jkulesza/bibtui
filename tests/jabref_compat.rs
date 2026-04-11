@@ -99,3 +99,43 @@ fn test_keyword_group_matching() {
         Some("Nuclear")
     );
 }
+
+#[test]
+fn test_jabref_keypattern_default_parsed() {
+    let input = std::fs::read_to_string("tests/fixtures/jabref_keypatterns.bib").unwrap();
+    let raw = parse_bib_file(&input).unwrap();
+    let db = build_database(raw);
+
+    assert_eq!(
+        db.jabref_meta.key_pattern_default.as_deref(),
+        Some("[auth][year]")
+    );
+}
+
+#[test]
+fn test_jabref_keypattern_per_type_parsed() {
+    let input = std::fs::read_to_string("tests/fixtures/jabref_keypatterns.bib").unwrap();
+    let raw = parse_bib_file(&input).unwrap();
+    let db = build_database(raw);
+
+    assert_eq!(
+        db.jabref_meta.key_patterns.get("article").map(String::as_str),
+        Some("[authors][year][shorttitle]")
+    );
+    assert_eq!(
+        db.jabref_meta.key_patterns.get("book").map(String::as_str),
+        Some("[auth][year]_[title]")
+    );
+}
+
+#[test]
+fn test_jabref_keypattern_type_names_lowercased() {
+    let input = std::fs::read_to_string("tests/fixtures/jabref_keypatterns.bib").unwrap();
+    let raw = parse_bib_file(&input).unwrap();
+    let db = build_database(raw);
+
+    // Per-type keys are stored lowercase
+    assert!(db.jabref_meta.key_patterns.contains_key("article"));
+    assert!(db.jabref_meta.key_patterns.contains_key("book"));
+    assert!(!db.jabref_meta.key_patterns.contains_key("Article"));
+}

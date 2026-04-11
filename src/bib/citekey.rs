@@ -11,7 +11,7 @@ use regex::Regex;
 /// [auth:upper][year]                  → SMITH2020
 /// [journal:abbr]                      → NSE
 /// [title:lower:(20)][year]            → toward_efficient2020  (with regex mod)
-/// [auth3][year]                       → SmithJonesWilliams2020
+/// [auth3][year]                       → Smi2020 (first 3 chars of first author)
 /// [auth][year:regex("\d\d$", "")]    → strip last two digits of year
 /// ```
 ///
@@ -124,52 +124,56 @@ fn split_on_colon(s: &str) -> Vec<&str> {
 
 // ── Token resolution ──────────────────────────────────────────────────────────
 
+/// JabRef function words — excluded from significant-word title tokens.
+const FUNCTION_WORDS: &[&str] = &[
+    "a", "about", "above", "across", "against", "along", "among", "an",
+    "and", "around", "at", "before", "behind", "below", "beneath",
+    "beside", "between", "beyond", "but", "by", "down", "during",
+    "except", "for", "from", "in", "inside", "into", "like", "near",
+    "nor", "of", "off", "on", "onto", "or", "since", "so", "the",
+    "through", "to", "toward", "under", "until", "up", "upon", "with",
+    "within", "without", "yet",
+];
+
+fn is_function_word(w: &str) -> bool {
+    FUNCTION_WORDS.contains(&w.to_lowercase().as_str())
+}
+
+/// Return the author or editor field (author preferred, editor as fallback).
+fn get_author_or_editor<'a>(fields: &'a IndexMap<String, String>) -> Option<&'a String> {
+    fields.get("author")
+        .filter(|v| !v.is_empty())
+        .or_else(|| fields.get("editor").filter(|v| !v.is_empty()))
+}
+
 /// Resolve a token name to a raw string (before modifiers are applied).
 ///
-/// Supported tokens:
-///
-/// | Token           | Resolves to                                         |
-/// |-----------------|-----------------------------------------------------|
-/// | `auth`          | Last name of first author                           |
-/// | `authN`         | Last names of first N authors concatenated          |
-/// | `authors`       | All authors (≤2 joined, 3+ → "Last1Last2EtAl")     |
-/// | `year`          | `year` field                                        |
-/// | `shortyear`     | Last two digits of `year`                           |
-/// | `title`         | First significant word of `title`                   |
-/// | `shorttitle`    | First three significant words of `title`            |
-/// | `veryshorttitle`| First significant word of `title` (alias for title) |
-/// | `journal`       | `journal` field                                     |
-/// | `booktitle`     | `booktitle` field                                   |
-/// | `volume`        | `volume` field                                      |
-/// | `number`        | `number` or `report-number` field                   |
-/// | `pages`         | `pages` field                                       |
-/// | `firstpage`     | First page number extracted from `pages`            |
-/// | `institution`   | `institution` field                                 |
-/// | `school`        | `school` field                                      |
-/// | `publisher`     | `publisher` field                                   |
-/// | `keywords`      | First keyword from `keywords` field                 |
-/// | `howpublished`  | `howpublished` field                                |
-/// | *anything else* | Direct field lookup by that name                   |
+/// JabRef-compatible tokens — see <https://docs.jabref.org/setup/citationkeypatterns>.
 fn resolve_token(name: &str, fields: &IndexMap<String, String>) -> String {
-    // authN — first N authors (N is one or more digits after "auth")
-    if let Some(n_str) = name.strip_prefix("auth") {
-        if n_str.is_empty() {
-            return fields
-                .get("author")
-                .map(|a| parse_authors(a).into_iter().next().unwrap_or_default())
-                .unwrap_or_default();
-        }
-        if let Ok(n) = n_str.parse::<usize>() {
-            return fields
-                .get("author")
-                .map(|a| parse_authors(a).into_iter().take(n).collect::<Vec<_>>().join(""))
-                .unwrap_or_default();
-        }
+    // ── pureauth* — author only, no editor fallback ──────────────────────
+    if let Some(rest) = name.strip_prefix("pureauth") {
+        let inner = if rest.is_empty() { "auth".to_string() } else { format!("auth{}", rest) };
+        return resolve_auth_token(&inner, fields.get("author").filter(|v| !v.is_empty()));
     }
 
+    // ── edtr* / editor* — editor field only ──────────────────────────────
+    if name.starts_with("edtr") || name.starts_with("editor") {
+        let mapped = remap_editor_token(name);
+        return resolve_auth_token(&mapped, fields.get("editor").filter(|v| !v.is_empty()));
+    }
+
+    // ── auth* / author* — author with editor fallback ────────────────────
+    if name.starts_with("auth") || name.starts_with("author") {
+        return resolve_auth_token(name, get_author_or_editor(fields));
+    }
+
+    // ── Non-author tokens ────────────────────────────────────────────────
     match name {
-        "authors" => fields
-            .get("author")
+        "authors" => get_author_or_editor(fields)
+            .map(|a| format_authors_for_key(&parse_authors(a)))
+            .unwrap_or_default(),
+
+        "editors" => fields.get("editor")
             .map(|a| format_authors_for_key(&parse_authors(a)))
             .unwrap_or_default(),
 
@@ -177,10 +181,23 @@ fn resolve_token(name: &str, fields: &IndexMap<String, String>) -> String {
 
         "shortyear" => fields
             .get("year")
-            .map(|y| y.chars().rev().take(2).collect::<String>().chars().rev().collect())
+            .map(|y| {
+                let digits: String = y.chars().filter(|c| c.is_ascii_digit()).collect();
+                if digits.len() >= 2 { digits[digits.len()-2..].to_string() } else { digits }
+            })
             .unwrap_or_default(),
 
-        "title" | "veryshorttitle" => fields
+        "title" => fields
+            .get("title")
+            .map(|t| capitalize_significant_words(&clean_braces(t)))
+            .unwrap_or_default(),
+
+        "fulltitle" => fields
+            .get("title")
+            .map(|t| clean_braces(t))
+            .unwrap_or_default(),
+
+        "veryshorttitle" => fields
             .get("title")
             .map(|t| first_significant_words(&clean_braces(t), 1))
             .unwrap_or_default(),
@@ -190,18 +207,17 @@ fn resolve_token(name: &str, fields: &IndexMap<String, String>) -> String {
             .map(|t| first_significant_words(&clean_braces(t), 3))
             .unwrap_or_default(),
 
+        "entrytype" => fields.get("entrytype").cloned().unwrap_or_default(),
+
         "journal"     => fields.get("journal").map(|s| clean_braces(s)).unwrap_or_default(),
 
         "journal_abbrev" => {
-            // Use journal_full as the source of truth when present (so the acronym
-            // is consistent whether journal holds the full name or the ISO 4 form).
-            // Fall back to journal if journal_full is absent.
-            let name = fields.get("journal_full")
+            let jname = fields.get("journal_full")
                 .filter(|v| !v.is_empty())
                 .or_else(|| fields.get("journal"))
                 .map(|s| clean_braces(s))
                 .unwrap_or_default();
-            abbreviate(&name)
+            abbreviate(&jname)
         }
 
         "booktitle"   => fields.get("booktitle").map(|s| clean_braces(s)).unwrap_or_default(),
@@ -217,13 +233,17 @@ fn resolve_token(name: &str, fields: &IndexMap<String, String>) -> String {
 
         "firstpage" => fields
             .get("pages")
-            .map(|p| {
-                p.split(|c: char| c == '-' || c == ',')
-                    .next()
-                    .unwrap_or("")
-                    .trim()
-                    .to_string()
-            })
+            .map(|p| extract_first_page(p))
+            .unwrap_or_default(),
+
+        "lastpage" => fields
+            .get("pages")
+            .map(|p| extract_last_page(p))
+            .unwrap_or_default(),
+
+        "pageprefix" => fields
+            .get("pages")
+            .map(|p| p.chars().take_while(|c| !c.is_ascii_digit()).collect())
             .unwrap_or_default(),
 
         "institution" => fields.get("institution").map(|s| clean_braces(s)).unwrap_or_default(),
@@ -232,14 +252,200 @@ fn resolve_token(name: &str, fields: &IndexMap<String, String>) -> String {
 
         "keywords" => fields
             .get("keywords")
-            .map(|k| k.split(',').next().unwrap_or("").trim().to_string())
+            .map(|k| split_keywords(k).into_iter().next().unwrap_or_default())
             .unwrap_or_default(),
 
         "howpublished" => fields.get("howpublished").map(|s| clean_braces(s)).unwrap_or_default(),
 
-        // Fallback: direct field lookup
-        other => fields.get(other).map(|s| clean_braces(s)).unwrap_or_default(),
+        other => {
+            // camelN — first N words of title camelized
+            if let Some(n_str) = other.strip_prefix("camel") {
+                if let Ok(n) = n_str.parse::<usize>() {
+                    return fields.get("title")
+                        .map(|t| to_camel_case_n(&clean_braces(t), n))
+                        .unwrap_or_default();
+                }
+            }
+            // keywordN — Nth keyword (1-indexed)
+            if let Some(n_str) = other.strip_prefix("keyword") {
+                if !n_str.starts_with('s') {
+                    if let Ok(n) = n_str.parse::<usize>() {
+                        return fields.get("keywords")
+                            .and_then(|k| split_keywords(k).into_iter().nth(n.saturating_sub(1)))
+                            .unwrap_or_default();
+                    }
+                }
+            }
+            // keywordsN — first N keywords joined
+            if let Some(n_str) = other.strip_prefix("keywords") {
+                if let Ok(n) = n_str.parse::<usize>() {
+                    return fields.get("keywords")
+                        .map(|k| split_keywords(k).into_iter().take(n).collect::<Vec<_>>().join(""))
+                        .unwrap_or_default();
+                }
+            }
+            // [ALLCAPS] → raw field value
+            if !other.is_empty() && other.chars().all(|c| c.is_uppercase() || !c.is_alphabetic()) {
+                let lower = other.to_lowercase();
+                return fields.get(&lower).map(|s| clean_braces(s)).unwrap_or_default();
+            }
+            fields.get(other).map(|s| clean_braces(s)).unwrap_or_default()
+        }
     }
+}
+
+// ── Author/editor token resolution ───────────────────────────────────────────
+
+/// Map an `edtr*`/`editor*` token to its `auth*`/`author*` equivalent so the
+/// same resolution logic handles both.
+fn remap_editor_token(name: &str) -> String {
+    if let Some(rest) = name.strip_prefix("editorLast") {
+        return format!("authorLast{}", rest);
+    }
+    if let Some(rest) = name.strip_prefix("editorIni") {
+        return format!("authorIni{}", rest);
+    }
+    if let Some(rest) = name.strip_prefix("editor") {
+        return format!("author{}", rest);
+    }
+    if let Some(rest) = name.strip_prefix("edtr") {
+        return format!("auth{}", rest);
+    }
+    name.to_string()
+}
+
+/// Resolve an auth-family token against a given name-list field value.
+fn resolve_auth_token(name: &str, author_field: Option<&String>) -> String {
+    let author_str = match author_field {
+        Some(s) if !s.is_empty() => s,
+        _ => return String::new(),
+    };
+
+    // Exact-match compound tokens (before strip_prefix catches them)
+    match name {
+        "auth" => return parse_authors(author_str).into_iter().next().unwrap_or_default(),
+
+        "auth.etal" => {
+            let authors = parse_authors(author_str);
+            return match authors.len() {
+                0 => String::new(),
+                1 | 2 => authors[0].clone(),
+                _ => format!("{}.etal", authors[0]),
+            };
+        }
+        "authEtAl" => {
+            let authors = parse_authors(author_str);
+            return match authors.len() {
+                0 => String::new(),
+                1 | 2 => authors[0].clone(),
+                _ => format!("{}EtAl", authors[0]),
+            };
+        }
+        "auth.auth.ea" => {
+            let authors = parse_authors(author_str);
+            return match authors.len() {
+                0 => String::new(),
+                1 => authors[0].clone(),
+                2 => format!("{}.{}", authors[0], authors[1]),
+                _ => format!("{}.{}.ea", authors[0], authors[1]),
+            };
+        }
+        "authshort" => {
+            let authors = parse_authors(author_str);
+            return match authors.len() {
+                0 => String::new(),
+                1 => authors[0].clone(),
+                n => {
+                    let mut s: String = authors.iter()
+                        .take(3)
+                        .filter_map(|a| a.chars().next())
+                        .collect();
+                    if n > 3 { s.push('+'); }
+                    s
+                }
+            };
+        }
+        "authorLast" => {
+            return parse_authors(author_str).into_iter().last().unwrap_or_default();
+        }
+        "authForeIni" => {
+            return parse_forename_initial(author_str, 0);
+        }
+        "authorLastForeIni" => {
+            let parts: Vec<&str> = author_str.split(" and ").collect();
+            if let Some(last) = parts.last() {
+                return forename_initial_of(last.trim());
+            }
+            return String::new();
+        }
+        "authorIni" => {
+            let authors = parse_authors(author_str);
+            if authors.is_empty() { return String::new(); }
+            let first: String = authors[0].chars().take(5).collect();
+            let rest: String = authors[1..].iter()
+                .filter_map(|a| a.chars().next())
+                .collect();
+            return format!("{}{}", first, rest);
+        }
+        "authors" => {
+            return format_authors_for_key(&parse_authors(author_str));
+        }
+        _ => {}
+    }
+
+    // authIniN — beginning of each author's surname, max N total chars
+    if let Some(n_str) = name.strip_prefix("authIni") {
+        if let Ok(n) = n_str.parse::<usize>() {
+            let authors = parse_authors(author_str);
+            if authors.is_empty() { return String::new(); }
+            let base = (n / authors.len()).max(1);
+            let extra = n - base * authors.len();
+            let mut result = String::new();
+            for (i, a) in authors.iter().enumerate() {
+                let take = base + if i < extra { 1 } else { 0 };
+                let chunk: String = a.chars().take(take).collect();
+                result.push_str(&chunk);
+                if result.len() >= n { break; }
+            }
+            return result.chars().take(n).collect();
+        }
+    }
+
+    // authN_M — first N chars of Mth author's last name
+    if let Some(rest) = name.strip_prefix("auth") {
+        if let Some((n_str, m_str)) = rest.split_once('_') {
+            if let (Ok(n), Ok(m)) = (n_str.parse::<usize>(), m_str.parse::<usize>()) {
+                let authors = parse_authors(author_str);
+                return authors.get(m.saturating_sub(1))
+                    .map(|a| a.chars().take(n).collect())
+                    .unwrap_or_default();
+            }
+        }
+    }
+
+    // authorsN — first N authors' last names + EtAl if more
+    if let Some(n_str) = name.strip_prefix("authors") {
+        if let Ok(n) = n_str.parse::<usize>() {
+            let authors = parse_authors(author_str);
+            let has_more = authors.len() > n;
+            let mut result: String = authors.iter().take(n).cloned().collect::<Vec<_>>().join("");
+            if has_more { result.push_str("EtAl"); }
+            return result;
+        }
+    }
+
+    // authN — first N chars of first author's last name (JabRef semantics)
+    if let Some(n_str) = name.strip_prefix("auth") {
+        if let Ok(n) = n_str.parse::<usize>() {
+            return parse_authors(author_str)
+                .into_iter()
+                .next()
+                .map(|a| a.chars().take(n).collect())
+                .unwrap_or_default();
+        }
+    }
+
+    String::new()
 }
 
 // ── Modifier application ──────────────────────────────────────────────────────
@@ -248,33 +454,52 @@ fn resolve_token(name: &str, fields: &IndexMap<String, String>) -> String {
 ///
 /// Supported modifiers:
 ///
-/// | Modifier              | Effect                                       |
-/// |-----------------------|----------------------------------------------|
-/// | `upper`                     | Convert to uppercase                  |
-/// | `lower`                     | Convert to lowercase                  |
-/// | `abbr`                      | First letter of each significant word |
-/// | `camel`                     | Capitalise first letter of each word  |
-/// | `(n)`                       | Truncate to first *n* characters      |
-/// | `regex("pattern","repl")`   | Regex find-and-replace (repeatable)   |
+/// | Modifier              | Effect                                        |
+/// |-----------------------|-----------------------------------------------|
+/// | `upper`               | Convert to uppercase                          |
+/// | `lower`               | Convert to lowercase                          |
+/// | `abbr`                | First letter of each significant word         |
+/// | `camel`               | Capitalise first letter of each word          |
+/// | `capitalize`          | Uppercase first char of each word, rest lower |
+/// | `titlecase`           | Like capitalize but lowercase function words  |
+/// | `sentencecase`        | All lowercase, then uppercase first char      |
+/// | `(n)`                 | Truncate to first *n* characters              |
+/// | `(text)`              | Fallback: use text if value is empty          |
+/// | `truncateN`           | Truncate to first N characters                |
+/// | `regex("pat","repl")` | Regex find-and-replace (repeatable)           |
 fn apply_modifier(value: String, modifier: &str) -> String {
     match modifier {
         "upper" => return value.to_uppercase(),
         "lower" => return value.to_lowercase(),
         "abbr"  => return abbreviate(&value),
         "camel" => return to_camel_case(&value),
+        "capitalize" => return capitalize_all_words(&value),
+        "titlecase" => return titlecase(&value),
+        "sentencecase" => return sentencecase(&value),
         _ => {}
     }
 
-    // Truncate: (n)
-    if modifier.starts_with('(') && modifier.ends_with(')') {
-        if let Ok(n) = modifier[1..modifier.len() - 1].parse::<usize>() {
-            return value.chars().take(n).collect();
+    // truncateN
+    if let Some(n_str) = modifier.strip_prefix("truncate") {
+        if let Ok(n) = n_str.parse::<usize>() {
+            return value.chars().take(n).collect::<String>().trim_end().to_string();
         }
     }
 
+    // (n) truncate or (text) fallback
+    if modifier.starts_with('(') && modifier.ends_with(')') {
+        let inner = &modifier[1..modifier.len() - 1];
+        if let Ok(n) = inner.parse::<usize>() {
+            return value.chars().take(n).collect();
+        }
+        // Fallback: if value is empty, use the inner text
+        if value.is_empty() {
+            return inner.to_string();
+        }
+        return value;
+    }
+
     // Regex substitution: regex("pattern","replacement")
-    // Both arguments must be double-quoted strings.  Backslash-escaped quotes
-    // (e.g. `\"`) are supported within the quoted strings.
     if let Some(args) = modifier.strip_prefix("regex(").and_then(|s| s.strip_suffix(')')) {
         if let Some((pattern, replacement)) = parse_regex_args(args) {
             if let Ok(re) = Regex::new(&pattern) {
@@ -377,17 +602,84 @@ fn resolve_legacy_token(token: &str, fields: &IndexMap<String, String>) -> Strin
 
 // ── String helpers ────────────────────────────────────────────────────────────
 
+/// Extract the forename initial of the Nth author (0-indexed).
+fn parse_forename_initial(author_str: &str, idx: usize) -> String {
+    let parts: Vec<&str> = author_str.split(" and ").collect();
+    parts.get(idx)
+        .map(|a| forename_initial_of(a.trim()))
+        .unwrap_or_default()
+}
+
+/// Extract the forename initial from a single author name.
+fn forename_initial_of(name: &str) -> String {
+    if name.contains(',') {
+        // "Last, First Middle" → first char of "First"
+        name.split(',')
+            .nth(1)
+            .and_then(|f| f.trim().chars().next())
+            .map(|c| c.to_uppercase().to_string())
+            .unwrap_or_default()
+    } else {
+        // "First Last" → first char of "First"
+        name.chars().next()
+            .map(|c| c.to_uppercase().to_string())
+            .unwrap_or_default()
+    }
+}
+
+fn extract_first_page(pages: &str) -> String {
+    pages.split(|c: char| c == '-' || c == ',')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_string()
+}
+
+fn extract_last_page(pages: &str) -> String {
+    pages.split(|c: char| c == '-' || c == ',')
+        .last()
+        .unwrap_or("")
+        .trim()
+        .to_string()
+}
+
+fn split_keywords(k: &str) -> Vec<String> {
+    k.split(|c: char| c == ',' || c == ';')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
 /// First `n` significant words from `s` joined without separator.
-/// "Significant" means not a common article/preposition.
+/// "Significant" means not a JabRef function word.
 fn first_significant_words(s: &str, n: usize) -> String {
-    const SKIP: &[&str] = &[
-        "a", "an", "the", "of", "in", "on", "at", "to", "for", "and", "or", "but",
-    ];
     s.split_whitespace()
-        .filter(|w| !SKIP.contains(&w.to_lowercase().as_str()))
+        .filter(|w| !is_function_word(w))
         .take(n)
         .collect::<Vec<_>>()
         .join("")
+}
+
+/// Capitalize all significant words in the title and concatenate.
+/// Function words are lowercased. JabRef `[title]` behavior.
+fn capitalize_significant_words(s: &str) -> String {
+    s.split_whitespace()
+        .filter(|w| !is_function_word(w))
+        .map(|w| capitalize_word(w))
+        .collect()
+}
+
+/// Capitalize first char, preserve rest.
+fn capitalize_word(w: &str) -> String {
+    let mut chars = w.chars();
+    match chars.next() {
+        Some(c) => {
+            let mut out = c.to_uppercase().to_string();
+            out.extend(chars);
+            out
+        }
+        None => String::new(),
+    }
 }
 
 /// Parse an author string into a vec of last names.
@@ -423,9 +715,8 @@ fn format_authors_for_key(authors: &[String]) -> String {
 
 /// First letter of each significant word, uppercased, joined without separator.
 fn abbreviate(name: &str) -> String {
-    const SKIP: &[&str] = &["of", "the", "and", "for", "in", "on", "a", "an", "&"];
     name.split_whitespace()
-        .filter(|w| !SKIP.contains(&w.to_lowercase().as_str()))
+        .filter(|w| !is_function_word(w))
         .map(|w| w.chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_default())
         .collect::<Vec<_>>()
         .join("")
@@ -441,18 +732,67 @@ fn to_camel_case(s: &str) -> String {
     clean
         .split(|c: char| !c.is_alphanumeric())
         .filter(|w| !w.is_empty())
+        .map(|w| capitalize_word(w))
+        .collect()
+}
+
+/// Camel-case the first N words of a string.
+fn to_camel_case_n(s: &str, n: usize) -> String {
+    let clean = clean_braces(s);
+    clean
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .take(n)
+        .map(|w| capitalize_word(w))
+        .collect()
+}
+
+/// Capitalize first char of each word, rest lowercase.
+fn capitalize_all_words(s: &str) -> String {
+    s.split_whitespace()
         .map(|w| {
             let mut chars = w.chars();
             match chars.next() {
                 Some(c) => {
                     let mut out = c.to_uppercase().to_string();
-                    out.extend(chars);
+                    for ch in chars { out.extend(ch.to_lowercase()); }
                     out
                 }
                 None => String::new(),
             }
         })
-        .collect()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Titlecase: capitalize normal words, lowercase function words (except first/last).
+fn titlecase(s: &str) -> String {
+    let words: Vec<&str> = s.split_whitespace().collect();
+    let last_idx = words.len().saturating_sub(1);
+    words.iter().enumerate()
+        .map(|(i, w)| {
+            if i == 0 || i == last_idx || !is_function_word(w) {
+                capitalize_word(w)
+            } else {
+                w.to_lowercase()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Sentence case: all lowercase, then uppercase first char.
+fn sentencecase(s: &str) -> String {
+    let lower = s.to_lowercase();
+    let mut chars = lower.chars();
+    match chars.next() {
+        Some(c) => {
+            let mut out = c.to_uppercase().to_string();
+            out.extend(chars);
+            out
+        }
+        None => String::new(),
+    }
 }
 
 /// Strip one layer of surrounding braces, if present.
@@ -478,11 +818,19 @@ mod tests {
         m
     }
 
+    // ── title tokens (JabRef semantics) ──────────────────────────────────
+
+    #[test]
+    fn test_title_capitalizes_significant_words() {
+        let f = fields(&[("title", "The Quick Brown Fox on a Hill")]);
+        // [title] skips function words, capitalizes and concatenates
+        assert_eq!(generate_citekey("[title]", &f), "QuickBrownFoxHill");
+    }
+
     #[test]
     fn test_token_shorttitle() {
         let f = fields(&[("title", "The Quick Brown Fox Jumps")]);
         let result = generate_citekey("[shorttitle]", &f);
-        // skips "The"; takes first 3 significant words: Quick, Brown, Fox
         assert_eq!(result, "QuickBrownFox");
     }
 
@@ -490,9 +838,236 @@ mod tests {
     fn test_token_veryshorttitle() {
         let f = fields(&[("title", "The Quick Brown Fox")]);
         let result = generate_citekey("[veryshorttitle]", &f);
-        // veryshorttitle = first significant word (skips "The")
         assert_eq!(result, "Quick");
     }
+
+    #[test]
+    fn test_token_fulltitle() {
+        let f = fields(&[("title", "{The Quick Brown Fox}")]);
+        assert_eq!(generate_citekey("[fulltitle]", &f), "TheQuickBrownFox");
+    }
+
+    #[test]
+    fn test_token_camel_n() {
+        let f = fields(&[("title", "the quick brown fox jumps")]);
+        assert_eq!(generate_citekey("[camel3]", &f), "TheQuickBrown");
+    }
+
+    // ── auth tokens (JabRef semantics) ───────────────────────────────────
+
+    #[test]
+    fn test_auth_returns_first_author_lastname() {
+        let f = fields(&[("author", "Smith, Jane and Jones, Bob")]);
+        assert_eq!(generate_citekey("[auth]", &f), "Smith");
+    }
+
+    #[test]
+    fn test_auth_n_first_n_chars() {
+        // JabRef: [auth3] = first 3 chars of first author's last name
+        let f = fields(&[("author", "Smith, Jane and Jones, Bob")]);
+        assert_eq!(generate_citekey("[auth3]", &f), "Smi");
+    }
+
+    #[test]
+    fn test_authors_n_first_n_authors() {
+        // JabRef: [authors2] = first 2 authors' last names + EtAl if more
+        let f = fields(&[("author", "Smith, Jane and Jones, Bob and Williams, Carol")]);
+        assert_eq!(generate_citekey("[authors2]", &f), "SmithJonesEtAl");
+    }
+
+    #[test]
+    fn test_authors_n_no_etal_when_exact() {
+        let f = fields(&[("author", "Smith, Jane and Jones, Bob")]);
+        assert_eq!(generate_citekey("[authors2]", &f), "SmithJones");
+    }
+
+    #[test]
+    fn test_auth_dot_etal() {
+        let f = fields(&[("author", "Smith, Jane and Jones, Bob and Williams, Carol")]);
+        assert_eq!(generate_citekey("[auth.etal]", &f), "Smith.etal");
+        let f2 = fields(&[("author", "Smith, Jane")]);
+        assert_eq!(generate_citekey("[auth.etal]", &f2), "Smith");
+    }
+
+    #[test]
+    fn test_auth_et_al_no_dots() {
+        let f = fields(&[("author", "Smith, Jane and Jones, Bob and Williams, Carol")]);
+        assert_eq!(generate_citekey("[authEtAl]", &f), "SmithEtAl");
+        let f2 = fields(&[("author", "Smith, Jane and Jones, Bob")]);
+        assert_eq!(generate_citekey("[authEtAl]", &f2), "Smith");
+    }
+
+    #[test]
+    fn test_auth_auth_ea() {
+        let f = fields(&[("author", "Smith, Jane and Jones, Bob and Williams, Carol")]);
+        assert_eq!(generate_citekey("[auth.auth.ea]", &f), "Smith.Jones.ea");
+        let f2 = fields(&[("author", "Smith, Jane and Jones, Bob")]);
+        assert_eq!(generate_citekey("[auth.auth.ea]", &f2), "Smith.Jones");
+        let f1 = fields(&[("author", "Smith, Jane")]);
+        assert_eq!(generate_citekey("[auth.auth.ea]", &f1), "Smith");
+    }
+
+    #[test]
+    fn test_authshort() {
+        let f1 = fields(&[("author", "Smith, Jane")]);
+        assert_eq!(generate_citekey("[authshort]", &f1), "Smith");
+        let f3 = fields(&[("author", "Smith, Jane and Jones, Bob and Williams, Carol")]);
+        assert_eq!(generate_citekey("[authshort]", &f3), "SJW");
+        let f4 = fields(&[("author", "Smith, Jane and Jones, Bob and Williams, Carol and Adams, Dave")]);
+        assert_eq!(generate_citekey("[authshort]", &f4), "SJW");
+    }
+
+    #[test]
+    fn test_author_last() {
+        let f = fields(&[("author", "Smith, Jane and Jones, Bob and Williams, Carol")]);
+        assert_eq!(generate_citekey("[authorLast]", &f), "Williams");
+    }
+
+    #[test]
+    fn test_auth_fore_ini() {
+        let f = fields(&[("author", "Smith, Jane Marie")]);
+        assert_eq!(generate_citekey("[authForeIni]", &f), "J");
+        let f2 = fields(&[("author", "Jane Smith")]);
+        assert_eq!(generate_citekey("[authForeIni]", &f2), "J");
+    }
+
+    #[test]
+    fn test_author_ini() {
+        let f = fields(&[("author", "Smith, Jane and Jones, Bob and Williams, Carol")]);
+        // First 5 chars of "Smith" + initials of Jones, Williams
+        assert_eq!(generate_citekey("[authorIni]", &f), "SmithJW");
+    }
+
+    #[test]
+    fn test_auth_ini_n() {
+        let f = fields(&[("author", "Smith, Jane and Jones, Bob and Williams, Carol")]);
+        // authIni4 — 4 total chars distributed among 3 authors (1 each, then truncate)
+        let result = generate_citekey("[authIni4]", &f);
+        assert_eq!(result.len(), 4);
+    }
+
+    #[test]
+    fn test_auth_n_m() {
+        let f = fields(&[("author", "Smith, Jane and Jones, Bob and Williams, Carol")]);
+        // auth3_2 = first 3 chars of 2nd author "Jones" = "Jon"
+        assert_eq!(generate_citekey("[auth3_2]", &f), "Jon");
+    }
+
+    // ── editor fallback ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_auth_falls_back_to_editor() {
+        let f = fields(&[("editor", "Jones, Bob")]);
+        assert_eq!(generate_citekey("[auth]", &f), "Jones");
+    }
+
+    #[test]
+    fn test_pureauth_no_editor_fallback() {
+        let f = fields(&[("editor", "Jones, Bob")]);
+        assert_eq!(generate_citekey("[pureauth]", &f), "");
+    }
+
+    // ── editor tokens ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_edtr_token() {
+        let f = fields(&[("editor", "Jones, Bob and Williams, Carol")]);
+        assert_eq!(generate_citekey("[edtr]", &f), "Jones");
+    }
+
+    #[test]
+    fn test_editors_token() {
+        let f = fields(&[("editor", "Jones, Bob and Williams, Carol")]);
+        assert_eq!(generate_citekey("[editors]", &f), "JonesWilliams");
+    }
+
+    #[test]
+    fn test_editor_last_token() {
+        let f = fields(&[("editor", "Jones, Bob and Williams, Carol")]);
+        assert_eq!(generate_citekey("[editorLast]", &f), "Williams");
+    }
+
+    // ── entrytype token ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_entrytype_token() {
+        let f = fields(&[("entrytype", "Article")]);
+        assert_eq!(generate_citekey("[entrytype]", &f), "Article");
+    }
+
+    // ── page tokens ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_lastpage() {
+        let f = fields(&[("pages", "100--200")]);
+        assert_eq!(generate_citekey("[lastpage]", &f), "200");
+    }
+
+    #[test]
+    fn test_pageprefix() {
+        let f = fields(&[("pages", "S100--S200")]);
+        assert_eq!(generate_citekey("[pageprefix]", &f), "S");
+        let f2 = fields(&[("pages", "100--200")]);
+        assert_eq!(generate_citekey("[pageprefix]", &f2), "");
+    }
+
+    // ── keyword tokens ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_keyword_n() {
+        let f = fields(&[("keywords", "nuclear, physics, reactor")]);
+        assert_eq!(generate_citekey("[keyword1]", &f), "nuclear");
+        assert_eq!(generate_citekey("[keyword3]", &f), "reactor");
+    }
+
+    #[test]
+    fn test_keywords_n() {
+        let f = fields(&[("keywords", "nuclear, physics, reactor")]);
+        assert_eq!(generate_citekey("[keywords2]", &f), "nuclearphysics");
+    }
+
+    // ── ALLCAPS raw field access ─────────────────────────────────────────
+
+    #[test]
+    fn test_allcaps_raw_field() {
+        let f = fields(&[("author", "Smith, Jane and Jones, Bob")]);
+        // [AUTHOR] returns the raw author string (braces cleaned)
+        let result = generate_citekey("[AUTHOR]", &f);
+        assert!(result.contains("Smith"));
+        assert!(result.contains("Jones"));
+    }
+
+    // ── modifier tests ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_modifier_capitalize() {
+        let f = fields(&[("title", "hello WORLD test")]);
+        assert_eq!(generate_citekey("[fulltitle:capitalize]", &f), "HelloWorldTest");
+    }
+
+    #[test]
+    fn test_modifier_sentencecase() {
+        let f = fields(&[("title", "HELLO WORLD")]);
+        assert_eq!(generate_citekey("[fulltitle:sentencecase]", &f), "Helloworld");
+    }
+
+    #[test]
+    fn test_modifier_fallback() {
+        // Empty value → fallback text
+        let f = fields(&[]);
+        assert_eq!(generate_citekey("[year:(unknown)]", &f), "unknown");
+        // Non-empty value → original
+        let f2 = fields(&[("year", "2020")]);
+        assert_eq!(generate_citekey("[year:(unknown)]", &f2), "2020");
+    }
+
+    #[test]
+    fn test_modifier_truncate_n() {
+        let f = fields(&[("author", "Smith, Jane")]);
+        assert_eq!(generate_citekey("[auth:truncate3]", &f), "Smi");
+    }
+
+    // ── existing tests (updated for JabRef semantics) ────────────────────
 
     #[test]
     fn test_token_school() {
@@ -535,7 +1110,6 @@ mod tests {
 
     #[test]
     fn test_token_direct_field_lookup() {
-        // [reportnumber] is not a known token; falls back to direct field lookup
         let f = fields(&[("reportnumber", "ANL-42")]);
         let result = generate_citekey("[reportnumber]", &f);
         assert_eq!(result, "ANL-42");
@@ -543,8 +1117,6 @@ mod tests {
 
     #[test]
     fn test_legacy_unknown_token() {
-        // {unknown_token} → resolve_legacy_token returns "{unknown_token}"
-        // generate_citekey strips { and } → "unknown_token"
         let f = fields(&[]);
         let result = generate_citekey("{unknown_token}", &f);
         assert_eq!(result, "unknown_token");
@@ -552,7 +1124,6 @@ mod tests {
 
     #[test]
     fn test_char_stripping() {
-        // Space between tokens is a literal character, stripped by generate_citekey
         let f = fields(&[
             ("author", "Jane Smith"),
             ("year", "2020"),
@@ -563,7 +1134,6 @@ mod tests {
 
     #[test]
     fn test_auth_zero_authors() {
-        // No author field → empty string
         let f = fields(&[]);
         let result = generate_citekey("[auth]", &f);
         assert_eq!(result, "");
@@ -576,31 +1146,7 @@ mod tests {
         assert_eq!(result, "100");
     }
 
-    // ── authN token ───────────────────────────────────────────────────────────
-
-    #[test]
-    fn test_auth_n_two() {
-        let f = fields(&[("author", "Smith, Jane and Jones, Bob and Williams, Carol")]);
-        let result = generate_citekey("[auth2]", &f);
-        assert_eq!(result, "SmithJones");
-    }
-
-    #[test]
-    fn test_auth_n_three() {
-        let f = fields(&[("author", "Smith, Jane and Jones, Bob and Williams, Carol")]);
-        let result = generate_citekey("[auth3]", &f);
-        assert_eq!(result, "SmithJonesWilliams");
-    }
-
-    #[test]
-    fn test_auth_n_more_than_available() {
-        // Requesting 5 authors when only 2 exist — returns all available
-        let f = fields(&[("author", "Smith, Jane and Jones, Bob")]);
-        let result = generate_citekey("[auth5]", &f);
-        assert_eq!(result, "SmithJones");
-    }
-
-    // ── shortyear ─────────────────────────────────────────────────────────────
+    // ── shortyear ─────────────────────────────────────────────────────────
 
     #[test]
     fn test_shortyear() {
@@ -614,7 +1160,7 @@ mod tests {
         assert_eq!(generate_citekey("[shortyear]", &f), "");
     }
 
-    // ── firstpage with hyphen ─────────────────────────────────────────────────
+    // ── firstpage with hyphen ─────────────────────────────────────────────
 
     #[test]
     fn test_firstpage_hyphen_range() {
@@ -628,7 +1174,7 @@ mod tests {
         assert_eq!(generate_citekey("[firstpage]", &f), "42");
     }
 
-    // ── format_authors_for_key ────────────────────────────────────────────────
+    // ── format_authors_for_key ────────────────────────────────────────────
 
     #[test]
     fn test_format_authors_two() {
@@ -642,7 +1188,7 @@ mod tests {
         assert_eq!(generate_citekey("[authors]", &f), "SmithJonesEtAl");
     }
 
-    // ── modifiers ─────────────────────────────────────────────────────────────
+    // ── modifiers ─────────────────────────────────────────────────────────
 
     #[test]
     fn test_modifier_upper() {
@@ -668,20 +1214,17 @@ mod tests {
     #[test]
     fn test_modifier_truncate() {
         let f = fields(&[("author", "Smith, Jane")]);
-        // (3) = take first 3 chars of "Smith"
         assert_eq!(generate_citekey("[auth:(3)]", &f), "Smi");
     }
 
     #[test]
     fn test_modifier_regex() {
         let f = fields(&[("year", "2023")]);
-        // Strip last two digits of year
         assert_eq!(generate_citekey(r#"[year:regex("\d\d$", "")]"#, &f), "20");
     }
 
     #[test]
     fn test_modifier_regex_quoted_args() {
-        // Quoted args with leading space in pattern — as written in YAML templates
         let f = fields(&[("loc_call_number", "QA76.9.U83R43 1994")]);
         assert_eq!(
             generate_citekey(r#"[loc_call_number:regex(" \d+$", "")]"#, &f),
@@ -692,20 +1235,16 @@ mod tests {
     #[test]
     fn test_modifier_unknown_passthrough() {
         let f = fields(&[("year", "2020")]);
-        // Unknown modifier — value unchanged
         assert_eq!(generate_citekey("[year:unknown_modifier]", &f), "2020");
     }
 
-    // ── nested bracket in template ────────────────────────────────────────────
-
     #[test]
     fn test_empty_bracket_token() {
-        // [] resolves to empty string
         let f = fields(&[]);
         assert_eq!(generate_citekey("[]", &f), "");
     }
 
-    // ── legacy tokens ─────────────────────────────────────────────────────────
+    // ── legacy tokens ─────────────────────────────────────────────────────
 
     #[test]
     fn test_legacy_year() {
@@ -740,8 +1279,7 @@ mod tests {
     #[test]
     fn test_legacy_booktitle_abbrev() {
         let f = fields(&[("booktitle", "International Conference Nuclear")]);
-        let result = generate_citekey("{booktitle_abbrev}", &f);
-        assert_eq!(result, "ICN");
+        assert_eq!(generate_citekey("{booktitle_abbrev}", &f), "ICN");
     }
 
     #[test]
@@ -780,17 +1318,13 @@ mod tests {
         assert_eq!(generate_citekey("{category}", &f), "NuclearPhysics");
     }
 
-    // ── journal_abbrev token (new syntax) ─────────────────────────────────────
-
     #[test]
     fn test_journal_abbrev_token_uses_journal_full() {
-        // When journal_full is present, journal_abbrev token uses it
         let f = fields(&[
-            ("journal", "NSE"),                  // abbreviated form in journal field
+            ("journal", "NSE"),
             ("journal_full", "Nuclear Science and Engineering"),
         ]);
         let result = generate_citekey("[journal_abbrev]", &f);
-        // Should abbreviate from journal_full, not the already-abbreviated journal
         assert!(!result.is_empty());
     }
 
@@ -800,22 +1334,15 @@ mod tests {
         assert_eq!(generate_citekey("[journal_abbrev]", &f), "NSE");
     }
 
-    // ── split_on_colon with nested parens ─────────────────────────────────────
-
     #[test]
     fn test_modifier_regex_with_colon_in_pattern() {
-        // regex pattern containing colon inside parens — must not be split at that colon
         let f = fields(&[("year", "2020")]);
-        // regex("\d+", "X") → replace digits with X
         let result = generate_citekey(r#"[year:regex("\d+", "X")]"#, &f);
         assert_eq!(result, "X");
     }
 
-    // ── camel case with punctuation ───────────────────────────────────────────
-
     #[test]
     fn test_camel_hyphenated_word() {
-        // journal:camel on a hyphenated value splits on the hyphen
         let f = fields(&[("journal", "self-consistent methods")]);
         assert_eq!(generate_citekey("[journal:camel]", &f), "SelfConsistentMethods");
     }
@@ -826,11 +1353,8 @@ mod tests {
         assert_eq!(generate_citekey("[journal:camel]", &f), "NuclearReactorPhysics");
     }
 
-    // ── underscore collapsing for empty optional tokens ────────────────────────
-
     #[test]
     fn test_empty_optional_trailing_underscore_stripped() {
-        // When pages is absent, the trailing _ from the template is stripped.
         let f = fields(&[("year", "2020"), ("author", "Smith, J"), ("journal", "Nuclear Science Engineering")]);
         let result = generate_citekey("{year}_{journal_abbrev}_{author_last}_{pages}", &f);
         assert!(!result.ends_with('_'), "trailing underscore should be stripped: {}", result);
@@ -839,17 +1363,13 @@ mod tests {
 
     #[test]
     fn test_double_underscore_collapsed() {
-        // Two adjacent empty tokens produce __ which should collapse to _.
         let f = fields(&[("year", "2020")]);
         let result = generate_citekey("{year}__{pages}", &f);
         assert_eq!(result, "2020");
     }
 
-    // ── sanitization of special characters ───────────────────────────────────
-
     #[test]
     fn test_citekey_tilde_removed() {
-        // Tildes (e.g. from author names like "O~Brien") are dropped, not replaced.
         let f = fields(&[("author", "O~Brien, Patrick")]);
         let result = generate_citekey("[auth]", &f);
         assert_eq!(result, "OBrien");
@@ -861,8 +1381,6 @@ mod tests {
         let result = generate_citekey("[auth]", &f);
         assert_eq!(result, "OBrien");
     }
-
-    // ── parse_authors edge cases ──────────────────────────────────────────────
 
     #[test]
     fn test_parse_authors_first_last_format() {
@@ -878,8 +1396,206 @@ mod tests {
 
     #[test]
     fn test_parse_authors_empty() {
-        // Single empty-ish entry
         let authors = parse_authors("Smith");
         assert_eq!(authors, vec!["Smith"]);
+    }
+
+    // ── Additional coverage tests ────────────────────────────────────────
+
+    #[test]
+    fn test_editors_token_direct() {
+        // The `editors` match arm in resolve_token (non-auth-family path)
+        let f = fields(&[("editor", "Smith, Jane and Jones, Bob and Clark, Carol")]);
+        assert_eq!(generate_citekey("[editors]", &f), "SmithJonesEtAl");
+    }
+
+    #[test]
+    fn test_number_falls_back_to_report_number() {
+        let f = fields(&[("report-number", "TR-42")]);
+        assert_eq!(generate_citekey("[number]", &f), "TR-42");
+    }
+
+    #[test]
+    fn test_booktitle_token() {
+        let f = fields(&[("booktitle", "{ICML 2024}")]);
+        // Space is stripped by sanitizer → "ICML2024"
+        assert_eq!(generate_citekey("[booktitle]", &f), "ICML2024");
+    }
+
+    #[test]
+    fn test_volume_token() {
+        let f = fields(&[("volume", "12")]);
+        assert_eq!(generate_citekey("[volume]", &f), "12");
+    }
+
+    #[test]
+    fn test_remap_editor_token_editor_last() {
+        // editorLast → authorLast remapping
+        let f = fields(&[("editor", "Smith, Jane and Jones, Bob")]);
+        assert_eq!(generate_citekey("[editorLast]", &f), "Jones");
+    }
+
+    #[test]
+    fn test_remap_editor_token_editor_ini() {
+        // editorIni → authorIni remapping
+        let f = fields(&[("editor", "Smith, Jane and Jones, Bob")]);
+        assert_eq!(generate_citekey("[editorIni]", &f), "SmithJ");
+    }
+
+    #[test]
+    fn test_remap_editor_token_editor_prefix() {
+        // editor → author remapping (e.g. editorForeIni → authForeIni doesn't match,
+        // but generic editor prefix should still work)
+        let f = fields(&[("editor", "Smith, Jane and Jones, Bob and Clark, Carol")]);
+        // [editorLast] already tested; test [editors] via editor path
+        let result = generate_citekey("[editors]", &f);
+        assert_eq!(result, "SmithJonesEtAl");
+    }
+
+    #[test]
+    fn test_auth_dot_etal_two_authors() {
+        let f = fields(&[("author", "Smith, Jane and Jones, Bob")]);
+        // 2 authors: no ".etal" suffix
+        assert_eq!(generate_citekey("[auth.etal]", &f), "Smith");
+    }
+
+    #[test]
+    fn test_auth_et_al_two_authors() {
+        let f = fields(&[("author", "Smith, Jane and Jones, Bob")]);
+        assert_eq!(generate_citekey("[authEtAl]", &f), "Smith");
+    }
+
+    #[test]
+    fn test_auth_auth_ea_single_author() {
+        let f = fields(&[("author", "Smith, Jane")]);
+        assert_eq!(generate_citekey("[auth.auth.ea]", &f), "Smith");
+    }
+
+    #[test]
+    fn test_auth_auth_ea_two_authors() {
+        let f = fields(&[("author", "Smith, Jane and Jones, Bob")]);
+        assert_eq!(generate_citekey("[auth.auth.ea]", &f), "Smith.Jones");
+    }
+
+    #[test]
+    fn test_authshort_two_authors() {
+        let f = fields(&[("author", "Smith, Jane and Jones, Bob")]);
+        // 2 authors: first letter of each
+        assert_eq!(generate_citekey("[authshort]", &f), "SJ");
+    }
+
+    #[test]
+    fn test_authshort_four_authors() {
+        let f = fields(&[("author", "Smith, Jane and Jones, Bob and Clark, Carol and Davis, Dan")]);
+        // 4+ authors: first 3 letters + "+" but "+" stripped by sanitizer
+        assert_eq!(generate_citekey("[authshort]", &f), "SJC");
+    }
+
+    #[test]
+    fn test_author_last_fore_ini() {
+        let f = fields(&[("author", "Smith, Jane and Jones, Bob")]);
+        assert_eq!(generate_citekey("[authorLastForeIni]", &f), "B");
+    }
+
+    #[test]
+    fn test_truncate_n_modifier() {
+        let f = fields(&[("title", "Fundamental Algorithms")]);
+        assert_eq!(generate_citekey("[title:truncate5]", &f), "Funda");
+    }
+
+    #[test]
+    fn test_titlecase_modifier() {
+        let f = fields(&[("title", "the art of computer programming")]);
+        // titlecase produces spaces → sanitizer strips them
+        assert_eq!(generate_citekey("[fulltitle:titlecase]", &f), "TheArtofComputerProgramming");
+    }
+
+    #[test]
+    fn test_sentencecase_modifier() {
+        let f = fields(&[("title", "MONTE CARLO METHODS")]);
+        // sentencecase produces spaces → sanitizer strips them
+        assert_eq!(generate_citekey("[fulltitle:sentencecase]", &f), "Montecarlomethods");
+    }
+
+    #[test]
+    fn test_capitalize_modifier() {
+        let f = fields(&[("title", "monte carlo methods")]);
+        // capitalize produces spaces → sanitizer strips them
+        assert_eq!(generate_citekey("[fulltitle:capitalize]", &f), "MonteCarloMethods");
+    }
+
+    #[test]
+    fn test_fallback_modifier_empty_value() {
+        // (text) fallback when field is missing → use the text
+        let f = fields(&[]);
+        assert_eq!(generate_citekey("[year:(unknown)]", &f), "unknown");
+    }
+
+    #[test]
+    fn test_fallback_modifier_nonempty_value() {
+        // (text) fallback when field is present → keep original value
+        let f = fields(&[("year", "2024")]);
+        assert_eq!(generate_citekey("[year:(unknown)]", &f), "2024");
+    }
+
+    #[test]
+    fn test_keyword_n_out_of_range() {
+        let f = fields(&[("keywords", "foo, bar")]);
+        // keyword5 — only 2 keywords, should be empty
+        assert_eq!(generate_citekey("[keyword5]", &f), "");
+    }
+
+    #[test]
+    fn test_camel_n_token() {
+        let f = fields(&[("title", "self-consistent field theory")]);
+        assert_eq!(generate_citekey("[camel2]", &f), "SelfConsistent");
+    }
+
+    #[test]
+    fn test_auth_n_m_out_of_range() {
+        let f = fields(&[("author", "Smith, Jane")]);
+        // auth3_5 = 3 chars of 5th author (doesn't exist)
+        assert_eq!(generate_citekey("[auth3_5]", &f), "");
+    }
+
+    #[test]
+    fn test_format_authors_for_key_zero() {
+        let authors: Vec<String> = vec![];
+        assert_eq!(format_authors_for_key(&authors), "");
+    }
+
+    #[test]
+    fn test_pureauth_n_no_editor_fallback() {
+        let f = fields(&[("editor", "Jones, Bob")]);
+        // pureauth3 should NOT fall back to editor
+        assert_eq!(generate_citekey("[pureauth3]", &f), "");
+    }
+
+    #[test]
+    fn test_regex_modifier_invalid_args() {
+        // Malformed regex args (no quotes) → value passes through
+        let f = fields(&[("year", "2024")]);
+        assert_eq!(generate_citekey("[year:regex(bad)]", &f), "2024");
+    }
+
+    #[test]
+    fn test_empty_bracket_token_returns_empty() {
+        // An empty bracket token `[]` resolves to empty; double underscore collapsed
+        assert_eq!(generate_citekey("prefix_[]_suffix", &fields(&[])), "prefix_suffix");
+    }
+
+    #[test]
+    fn test_authors_token_editor_fallback() {
+        // [authors] in resolve_token uses get_author_or_editor → falls back to editor
+        let f = fields(&[("editor", "Smith, Jane and Jones, Bob and Clark, Carol")]);
+        assert_eq!(generate_citekey("[authors]", &f), "SmithJonesEtAl");
+    }
+
+    #[test]
+    fn test_parse_quoted_arg_escaped_quote() {
+        // regex with escaped quote inside pattern
+        let f = fields(&[("title", r#"He said "hello" world"#)]);
+        let result = generate_citekey(r#"[fulltitle:regex("\"", "")]"#, &f);
+        assert!(!result.contains('"'));
     }
 }

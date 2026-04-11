@@ -14,7 +14,7 @@ A terminal UI BibTeX manager written in Rust. Designed as a lightweight, keyboar
 - Byte-perfect BibTeX round-tripping — formatting is preserved for unmodified entries; on save, fields are alphabetized within required / optional / nonstandard subgroups for consistent ordering
 - Vim-style navigation throughout
 - Entry CRUD: add, edit, duplicate, delete with undo (`u`)
-- Template-based citation key generation
+- JabRef-compatible citation key patterns with three-level precedence (`.bib` metadata, YAML config, defaults)
 - Clipboard yank (`yy`) in configurable format: citation key, raw BibTeX, or formatted citation
 - Per-entry status indicators: `●` unsaved change, `⎘` file attachment, `⎋` DOI/URL
 - Open attached files (`o`) or DOI/URL links (`w`) with OS default applications
@@ -405,7 +405,7 @@ PDF candidates are tried in order (Unpaywall OA → publisher PDF → ANS direct
 cargo test
 ```
 
-All 1014 tests pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, journal abbreviation, TUI component state machines, config loading, import pipeline, and export serialisation). Line coverage: ~75%.
+All 1193 tests pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, journal abbreviation, TUI component state machines, config loading, import pipeline, and export serialisation). Line coverage: ~76%.
 
 Coverage analysis runs automatically in CI via `cargo-llvm-cov`. To run locally:
 
@@ -414,6 +414,22 @@ cargo llvm-cov --workspace --summary-only
 ```
 
 ## Changelog
+
+### 0.46.0
+
+- **JabRef-compatible citation key patterns**: the `[token:modifier]` system now matches JabRef's documented behavior at https://docs.jabref.org/setup/citationkeypatterns; this is a **breaking change** — `[authN]` now means the first N characters of the first author's last name (was first N authors), and `[title]` now capitalizes all significant words and concatenates them (was first significant word only)
+- **Three-level template precedence**: citation key patterns are resolved in order: (1) per-type patterns from JabRef metadata in the `.bib` file (`@Comment{jabref-meta: keypattern_article:...;}`), (2) default pattern from `.bib` metadata (`keypatterndefault`), (3) per-type patterns from YAML config, (4) hardcoded default `EntryType_[year]_[auth]`
+- **New author tokens**: `[auth.etal]`, `[authEtAl]`, `[auth.auth.ea]`, `[authshort]`, `[authorLast]`, `[authForeIni]`, `[authorLastForeIni]`, `[authorIni]`, `[authIniN]`, `[authN_M]`, `[authorsN]` — all with editor fallback (use `[pureauth*]` variants to skip editor fallback)
+- **Editor tokens**: `[edtr]`, `[editors]`, `[edtrN]`, `[edtrN_M]`, `[edtrshort]`, `[edtrForeIni]`, `[editorLast]`, `[editorIni]` — mirror auth tokens but read the `editor` field only
+- **New field tokens**: `[entrytype]`, `[lastpage]`, `[pageprefix]`, `[keywordN]`, `[keywordsN]`, `[fulltitle]`, `[camelN]`, `[booktitle]`, `[volume]`, `[number]` (with `report-number` fallback), `[ALLCAPS]` raw field access
+- **New modifiers**: `capitalize`, `titlecase`, `sentencecase`, `truncateN`, `(fallback text)` when value is empty
+- **Expanded function words**: the skip list for title tokens now uses JabRef's full 50-word list (was 12 words)
+- Expanded test coverage: 1193 tests, ~76% line coverage; `citekey.rs` at 97% line coverage
+
+### 0.45.0
+
+- **`\textsuperscript` and `\textsubscript` rendering**: when LaTeX rendering is enabled (`L`), `\textsuperscript{...}` and `\textsubscript{...}` are converted to Unicode superscript/subscript characters in all displayed fields (e.g. `8\textsuperscript{th}` → `8ᵗʰ`)
+- **Fix `?` help in detail view**: the help overlay now renders correctly from the detail view; `CloseHelp` restores the previous input mode instead of always returning to Normal
 
 ### 0.44.0
 

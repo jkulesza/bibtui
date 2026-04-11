@@ -1541,20 +1541,34 @@ impl App {
         }
     }
 
+    /// Resolve the citation key template for a given entry type using precedence:
+    /// 1. Per-type pattern from .bib JabRef metadata
+    /// 2. Default pattern from .bib JabRef metadata
+    /// 3. Per-type pattern from YAML config
+    /// 4. Hardcoded default: `{DisplayName}_[year]_[auth]`
+    fn resolve_citekey_template(&self, type_name: &str, display_name: &str) -> String {
+        if let Some(pat) = self.database.jabref_meta.key_patterns.get(type_name) {
+            return pat.clone();
+        }
+        if let Some(ref pat) = self.database.jabref_meta.key_pattern_default {
+            return pat.clone();
+        }
+        if let Some(pat) = self.config.citekey.templates.get(type_name) {
+            return pat.clone();
+        }
+        format!("{}_[year]_[auth]", display_name)
+    }
+
     fn regen_citekey(&mut self) {
         if let Some(ref key) = self.detail_entry_key.clone() {
             if let Some(entry) = self.database.entries.get(key) {
                 let display_name = entry.entry_type.display_name();
                 let type_name = display_name.to_lowercase();
-                let template = self
-                    .config
-                    .citekey
-                    .templates
-                    .get(&type_name)
-                    .cloned()
-                    .unwrap_or_else(|| format!("{}_[year]_[auth]", display_name));
+                let template = self.resolve_citekey_template(&type_name, display_name);
 
-                let new_key = generate_citekey(&template, &entry.fields);
+                let mut gen_fields = entry.fields.clone();
+                gen_fields.entry("entrytype".to_string()).or_insert_with(|| display_name.to_string());
+                let new_key = generate_citekey(&template, &gen_fields);
 
                 if new_key != *key {
                     // Re-key the entry
@@ -1594,10 +1608,10 @@ impl App {
                 let Some(entry) = self.database.entries.get(&key) else { continue };
                 let display_name = entry.entry_type.display_name();
                 let type_name = display_name.to_lowercase();
-                let template = self.config.citekey.templates.get(&type_name)
-                    .cloned()
-                    .unwrap_or_else(|| format!("{}_[year]_[auth]", display_name));
-                let base = generate_citekey(&template, &entry.fields);
+                let template = self.resolve_citekey_template(&type_name, display_name);
+                let mut gen_fields = entry.fields.clone();
+                gen_fields.entry("entrytype".to_string()).or_insert_with(|| display_name.to_string());
+                let base = generate_citekey(&template, &gen_fields);
                 let skip = base == key;
                 (base, skip)
             };
@@ -3881,15 +3895,11 @@ impl App {
                 // Generate a citation key from the configured template.
                 let display_name = entry_type.display_name();
                 let type_name = display_name.to_lowercase();
-                let template = self
-                    .config
-                    .citekey
-                    .templates
-                    .get(&type_name)
-                    .cloned()
-                    .unwrap_or_else(|| format!("{}_[year]_[auth]", display_name));
+                let template = self.resolve_citekey_template(&type_name, display_name);
                 let temp_key = {
-                    let key = generate_citekey(&template, &imported.fields);
+                    let mut gen_fields = imported.fields.clone();
+                    gen_fields.entry("entrytype".to_string()).or_insert_with(|| display_name.to_string());
+                    let key = generate_citekey(&template, &gen_fields);
                     if key.is_empty() { "imported_entry".to_string() } else { key }
                 };
 
