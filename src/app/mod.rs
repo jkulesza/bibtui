@@ -674,7 +674,8 @@ impl App {
                 }
                 self.update_sort_completions();
             }
-            Action::CommandTabComplete => self.do_sort_tab_complete(),
+            Action::CommandTabComplete => self.do_sort_tab_complete_dir(true),
+            Action::CommandTabCompleteReverse => self.do_sort_tab_complete_dir(false),
             Action::DialogConfirm => self.handle_dialog_confirm(),
             Action::DialogCancel => {
                 self.dialog_state = None;
@@ -802,7 +803,8 @@ impl App {
             | Action::SettingsRenameFieldGroup
             | Action::SettingsExport
             | Action::SettingsImport => self.handle_settings_action(action),
-            Action::EditTabComplete => self.do_field_tab_complete(),
+            Action::EditTabComplete => self.do_field_tab_complete_dir(true),
+            Action::EditTabCompleteReverse => self.do_field_tab_complete_dir(false),
         }
     }
 
@@ -2543,9 +2545,10 @@ impl App {
 
     /// Tab-complete for the field editor (name phase or value phase).
     /// Delegates to path completion when `editor.is_path` is set.
-    fn do_field_tab_complete(&mut self) {
+    /// `forward`: true = Tab (next), false = Shift-Tab (previous).
+    fn do_field_tab_complete_dir(&mut self, forward: bool) {
         if self.field_editor_state.as_ref().map(|e| e.is_path).unwrap_or(false) {
-            self.do_path_tab_complete();
+            self.do_path_tab_complete_dir(forward);
             return;
         }
 
@@ -2565,9 +2568,13 @@ impl App {
             editor.value.clone()
         };
 
-        // If the active text already equals completions[idx], cycle to next.
+        // If the active text already equals completions[idx], cycle.
         if current.to_lowercase() == completions[idx].to_lowercase() {
-            let next_idx = (idx + 1) % completions.len();
+            let next_idx = if forward {
+                (idx + 1) % completions.len()
+            } else {
+                (idx + completions.len() - 1) % completions.len()
+            };
             let e = self.field_editor_state.as_mut().unwrap();
             e.completion_idx = next_idx;
             if editing_name {
@@ -2581,6 +2588,7 @@ impl App {
         }
 
         // First Tab on a partial: fill common prefix, then first match.
+        let start_idx = if forward { 0 } else { completions.len() - 1 };
         match completions.len() {
             1 => {
                 let e = self.field_editor_state.as_mut().unwrap();
@@ -2612,15 +2620,15 @@ impl App {
                     }
                     e.completion_idx = 0;
                 } else {
-                    // Already at common prefix — fill in first completion.
+                    // Already at common prefix — fill in first/last completion.
                     if editing_name {
-                        e.field_name = completions[0].clone();
+                        e.field_name = completions[start_idx].clone();
                         e.name_cursor = e.field_name.len();
                     } else {
-                        e.value = completions[0].clone();
+                        e.value = completions[start_idx].clone();
                         e.cursor = e.value.len();
                     }
-                    e.completion_idx = 0;
+                    e.completion_idx = start_idx;
                 }
             }
         }
@@ -2645,7 +2653,7 @@ impl App {
         self.command_palette_state.completion_idx = 0;
     }
 
-    fn do_sort_tab_complete(&mut self) {
+    fn do_sort_tab_complete_dir(&mut self, forward: bool) {
         let completions = self.command_palette_state.completions.clone();
         if completions.is_empty() {
             return;
@@ -2657,9 +2665,13 @@ impl App {
         };
         let idx = self.command_palette_state.completion_idx;
 
-        // Already filled this completion — cycle to the next one.
+        // Already filled this completion — cycle.
         if partial == completions[idx].as_str() {
-            let next_idx = (idx + 1) % completions.len();
+            let next_idx = if forward {
+                (idx + 1) % completions.len()
+            } else {
+                (idx + completions.len() - 1) % completions.len()
+            };
             self.command_palette_state.completion_idx = next_idx;
             let new_input = format!("sort {}", completions[next_idx]);
             self.command_palette_state.cursor = new_input.len();
@@ -2668,6 +2680,7 @@ impl App {
         }
 
         // First Tab on a partial: complete to common prefix, then first match.
+        let start_idx = if forward { 0 } else { completions.len() - 1 };
         match completions.len() {
             1 => {
                 let new_input = format!("sort {}", completions[0]);
@@ -2684,18 +2697,18 @@ impl App {
                     self.command_palette_state.input = new_input;
                     self.command_palette_state.completion_idx = 0;
                 } else {
-                    // Already at common prefix — start cycling from the first entry.
-                    let new_input = format!("sort {}", completions[0]);
+                    // Already at common prefix — start cycling.
+                    let new_input = format!("sort {}", completions[start_idx]);
                     self.command_palette_state.cursor = new_input.len();
                     self.command_palette_state.input = new_input;
-                    self.command_palette_state.completion_idx = 0;
+                    self.command_palette_state.completion_idx = start_idx;
                 }
             }
         }
         // DON'T update completions here — preserve the full set for cycling.
     }
 
-    fn do_path_tab_complete(&mut self) {
+    fn do_path_tab_complete_dir(&mut self, forward: bool) {
         // Only active for path-editing pending actions.
         let is_path_edit = matches!(
             self.pending_action,
@@ -2717,13 +2730,17 @@ impl App {
         };
 
         // If we already have completions and the current value matches the
-        // last-inserted candidate, cycle to the next one.
+        // last-inserted candidate, cycle forward or backward.
         if !self.path_completions.is_empty()
             && self.path_completion_idx < self.path_completions.len()
             && editor.value == self.path_completions[self.path_completion_idx]
         {
-            self.path_completion_idx =
-                (self.path_completion_idx + 1) % self.path_completions.len();
+            let len = self.path_completions.len();
+            self.path_completion_idx = if forward {
+                (self.path_completion_idx + 1) % len
+            } else {
+                (self.path_completion_idx + len - 1) % len
+            };
             let next = self.path_completions[self.path_completion_idx].clone();
             editor.value = next;
             editor.cursor = editor.value.len();
@@ -2731,9 +2748,19 @@ impl App {
         }
 
         // Compute fresh completions from the current value.
-        self.path_completions = path_completions(&editor.value);
+        let is_add_file = matches!(
+            self.pending_action,
+            Some(PendingAction::AddFileAttachment { .. })
+        );
+        let mut completions = path_completions(&editor.value);
+        if is_add_file {
+            let keys: Vec<String> = self.database.entries.keys().cloned().collect();
+            sort_file_completions_for_add(&mut completions, &keys);
+        }
+        self.path_completions = completions;
         self.path_completion_idx = 0;
 
+        let start_idx = if forward { 0 } else { self.path_completions.len().saturating_sub(1) };
         match self.path_completions.len() {
             0 => {
                 self.status_message = Some("No completions".to_string());
@@ -2753,9 +2780,10 @@ impl App {
                     self.path_completion_idx = 0;
                 } else {
                     // Already at the common prefix — start cycling.
-                    let first = self.path_completions[0].clone();
-                    editor.value = first;
+                    let pick = self.path_completions[start_idx].clone();
+                    editor.value = pick;
                     editor.cursor = editor.value.len();
+                    self.path_completion_idx = start_idx;
                 }
             }
         }
@@ -4834,6 +4862,67 @@ fn path_completions(prefix: &str) -> Vec<String> {
     matches
 }
 
+/// Sort file completions for the add-file-attachment context.
+///
+/// Directories always come first (so the user can navigate into them), then
+/// files are sorted by: (1) names that do NOT look like an existing citation
+/// key come before names that do, and (2) most recently modified first.
+fn sort_file_completions_for_add(completions: &mut Vec<String>, citation_keys: &[String]) {
+    use std::path::Path;
+
+    // Pre-compute modification times.
+    let mod_times: std::collections::HashMap<String, std::time::SystemTime> = completions
+        .iter()
+        .filter_map(|p| {
+            let expanded = expand_tilde(p);
+            std::fs::metadata(&expanded)
+                .and_then(|m| m.modified())
+                .ok()
+                .map(|t| (p.clone(), t))
+        })
+        .collect();
+
+    let epoch = std::time::SystemTime::UNIX_EPOCH;
+
+    completions.sort_by(|a, b| {
+        let a_is_dir = a.ends_with('/');
+        let b_is_dir = b.ends_with('/');
+
+        // Directories first.
+        if a_is_dir != b_is_dir {
+            return if a_is_dir {
+                std::cmp::Ordering::Less
+            } else {
+                std::cmp::Ordering::Greater
+            };
+        }
+
+        // Among files: names that DON'T match a citation key come first.
+        let a_stem = Path::new(a.trim_end_matches('/'))
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("");
+        let b_stem = Path::new(b.trim_end_matches('/'))
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("");
+        let a_matches_key = citation_keys.iter().any(|k| k == a_stem);
+        let b_matches_key = citation_keys.iter().any(|k| k == b_stem);
+        if a_matches_key != b_matches_key {
+            return if a_matches_key {
+                std::cmp::Ordering::Greater
+            } else {
+                std::cmp::Ordering::Less
+            };
+        }
+
+        // Within same group: most recently modified first.
+        let a_time = mod_times.get(a).copied().unwrap_or(epoch);
+        let b_time = mod_times.get(b).copied().unwrap_or(epoch);
+        b_time.cmp(&a_time)
+    });
+}
+
 /// Return the longest common byte prefix shared by all strings in `items`.
 fn longest_common_prefix(items: &[String]) -> String {
     if items.is_empty() {
@@ -5357,6 +5446,71 @@ mod tests {
         assert!(!app.command_palette_state.completions.is_empty());
         app.handle_action(Action::EnterCommand); // clears state
         assert!(app.command_palette_state.completions.is_empty());
+    }
+
+    // ── Shift-Tab reverse cycling ────────────────────────────────────────────
+
+    #[test]
+    fn test_field_tab_complete_reverse_cycles_backward() {
+        let (mut app, _tmp) = make_app();
+        app.field_editor_state = Some(FieldEditorState::new("author", "S"));
+        let e = app.field_editor_state.as_mut().unwrap();
+        e.completions = vec!["Smith, John".to_string(), "Stone, Alice".to_string()];
+        // Forward to first match.
+        app.handle_action(Action::EditTabComplete);
+        assert_eq!(app.field_editor_state.as_ref().unwrap().value, "Smith, John");
+        // Shift-Tab: wrap to last.
+        app.handle_action(Action::EditTabCompleteReverse);
+        assert_eq!(app.field_editor_state.as_ref().unwrap().value, "Stone, Alice");
+        // Shift-Tab again: back to first.
+        app.handle_action(Action::EditTabCompleteReverse);
+        assert_eq!(app.field_editor_state.as_ref().unwrap().value, "Smith, John");
+    }
+
+    #[test]
+    fn test_sort_tab_complete_reverse() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::EnterCommand);
+        // Set up completions manually for predictability.
+        app.command_palette_state.input = "sort ".to_string();
+        app.command_palette_state.cursor = 5;
+        app.command_palette_state.completions = vec![
+            "author".to_string(), "title".to_string(), "year".to_string(),
+        ];
+        app.command_palette_state.completion_idx = 0;
+        // Fill first match forward.
+        app.handle_action(Action::CommandTabComplete);
+        assert_eq!(app.command_palette_state.input, "sort author");
+        // Shift-Tab wraps to last.
+        app.handle_action(Action::CommandTabCompleteReverse);
+        assert_eq!(app.command_palette_state.input, "sort year");
+        // Shift-Tab again → middle.
+        app.handle_action(Action::CommandTabCompleteReverse);
+        assert_eq!(app.command_palette_state.input, "sort title");
+    }
+
+    #[test]
+    fn test_sort_file_completions_for_add_dirs_first() {
+        let mut completions = vec![
+            "file_b.pdf".to_string(),
+            "subdir/".to_string(),
+            "file_a.pdf".to_string(),
+        ];
+        sort_file_completions_for_add(&mut completions, &[]);
+        assert!(completions[0].ends_with('/'), "directories should be first");
+    }
+
+    #[test]
+    fn test_sort_file_completions_for_add_non_matching_keys_first() {
+        let keys = vec!["Smith2020".to_string(), "Jones2021".to_string()];
+        let mut completions = vec![
+            "Smith2020.pdf".to_string(),
+            "new_paper.pdf".to_string(),
+            "Jones2021.pdf".to_string(),
+        ];
+        sort_file_completions_for_add(&mut completions, &keys);
+        // "new_paper.pdf" doesn't match any key → should come first.
+        assert_eq!(completions[0], "new_paper.pdf");
     }
 
     // ── Entry operations ──────────────────────────────────────────────────────
