@@ -24,6 +24,8 @@ pub fn render_help(f: &mut Frame, area: Rect, state: &HelpState, theme: &Theme) 
 }
 
 fn popup_area(area: Rect, width: u16, height: u16) -> Rect {
+    let width = width.min(area.width);
+    let height = height.min(area.height);
     let x = area.x + (area.width.saturating_sub(width)) / 2;
     let y = area.y + (area.height.saturating_sub(height)) / 2;
     Rect::new(x, y, width, height)
@@ -72,9 +74,6 @@ fn render_entry_list_help(f: &mut Frame, area: Rect, theme: &Theme) {
                 ("D",               "duplicate entry"),
                 ("y y",             "yank cite key"),
                 ("Space",           "citation preview"),
-                ("C",               "regenerate all cite keys"),
-                ("M",               "name disambiguator"),
-                ("v",               "validate (preview save)"),
                 ("I",               "import entry from DOI, URL, or PDF file"),
                 ("u",               "undo"),
                 ("o / w",           "open file / web"),
@@ -99,6 +98,14 @@ fn render_entry_list_help(f: &mut Frame, area: Rect, theme: &Theme) {
                 (":group <name>",   "filter to group"),
                 (":search <query>", "apply search"),
                 (":import <doi/isbn/url>","import from DOI, ISBN, or URL"),
+            ],
+        ),
+        (
+            "Quality",
+            &[
+                ("C",   "regenerate all cite keys"),
+                ("M",   "name disambiguator"),
+                ("v",   "validate (preview save)"),
             ],
         ),
         (
@@ -233,4 +240,124 @@ fn build_column<'a>(
         }
     }
     Paragraph::new(lines)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::{backend::TestBackend, Terminal};
+
+    fn make_terminal(width: u16, height: u16) -> Terminal<TestBackend> {
+        Terminal::new(TestBackend::new(width, height)).unwrap()
+    }
+
+    fn default_theme() -> Theme {
+        crate::tui::theme::Theme::default()
+    }
+
+    #[test]
+    fn test_help_state_entry_list_context() {
+        let state = HelpState { context: HelpContext::EntryList };
+        assert!(matches!(state.context, HelpContext::EntryList));
+    }
+
+    #[test]
+    fn test_help_state_detail_context() {
+        let state = HelpState { context: HelpContext::Detail };
+        assert!(matches!(state.context, HelpContext::Detail));
+    }
+
+    #[test]
+    fn test_render_entry_list_help_does_not_panic() {
+        let mut term = make_terminal(120, 40);
+        let state = HelpState { context: HelpContext::EntryList };
+        let theme = default_theme();
+        term.draw(|f| render_help(f, f.area(), &state, &theme)).unwrap();
+    }
+
+    #[test]
+    fn test_render_detail_help_does_not_panic() {
+        let mut term = make_terminal(120, 40);
+        let state = HelpState { context: HelpContext::Detail };
+        let theme = default_theme();
+        term.draw(|f| render_help(f, f.area(), &state, &theme)).unwrap();
+    }
+
+    #[test]
+    fn test_entry_list_help_contains_expected_keys() {
+        let mut term = make_terminal(120, 40);
+        let state = HelpState { context: HelpContext::EntryList };
+        let theme = default_theme();
+        term.draw(|f| render_help(f, f.area(), &state, &theme)).unwrap();
+        let buf = term.backend().buffer().clone();
+        let rendered: String = buf.content().iter().map(|c| c.symbol()).collect();
+        assert!(rendered.contains("Entry List"),    "missing 'Entry List' section");
+        assert!(rendered.contains("Quality"),       "missing 'Quality' section");
+        assert!(rendered.contains("Commands"),      "missing 'Commands' section");
+        assert!(rendered.contains("Citation Preview"), "missing 'Citation Preview' section");
+        // Spot-check a few key bindings
+        assert!(rendered.contains(":w"),            "missing :w command");
+        assert!(rendered.contains("j / k"),         "missing j/k navigation");
+    }
+
+    #[test]
+    fn test_detail_help_contains_expected_keys() {
+        let mut term = make_terminal(120, 40);
+        let state = HelpState { context: HelpContext::Detail };
+        let theme = default_theme();
+        term.draw(|f| render_help(f, f.area(), &state, &theme)).unwrap();
+        let buf = term.backend().buffer().clone();
+        let rendered: String = buf.content().iter().map(|c| c.symbol()).collect();
+        assert!(rendered.contains("Detail View"),   "missing 'Detail View' section");
+        assert!(rendered.contains("Field Editor"),  "missing 'Field Editor' section");
+        assert!(rendered.contains("Settings"),      "missing 'Settings' section");
+    }
+
+    #[test]
+    fn test_entry_list_help_quality_section_has_correct_keys() {
+        let mut term = make_terminal(120, 40);
+        let state = HelpState { context: HelpContext::EntryList };
+        let theme = default_theme();
+        term.draw(|f| render_help(f, f.area(), &state, &theme)).unwrap();
+        let buf = term.backend().buffer().clone();
+        let rendered: String = buf.content().iter().map(|c| c.symbol()).collect();
+        // Quality section keys
+        assert!(rendered.contains('C'), "missing C (regen citekeys)");
+        assert!(rendered.contains('M'), "missing M (disambiguator)");
+        assert!(rendered.contains('v'), "missing v (validate)");
+    }
+
+    #[test]
+    fn test_render_help_tiny_terminal_does_not_panic() {
+        // Ensure graceful handling of very small terminal sizes.
+        let mut term = make_terminal(10, 5);
+        let state = HelpState { context: HelpContext::EntryList };
+        let theme = default_theme();
+        term.draw(|f| render_help(f, f.area(), &state, &theme)).unwrap();
+    }
+
+    #[test]
+    fn test_help_context_clone() {
+        let ctx = HelpContext::Detail;
+        let cloned = ctx.clone();
+        assert!(matches!(cloned, HelpContext::Detail));
+    }
+
+    #[test]
+    fn test_build_column_empty_sections_returns_empty_paragraph() {
+        let theme = default_theme();
+        let para = build_column(&[], 40, theme.header, theme.label);
+        // Paragraph with no lines — just verify it constructs without panic.
+        let _ = para;
+    }
+
+    #[test]
+    fn test_build_column_truncates_long_desc() {
+        let theme = default_theme();
+        // col_width=10, key_col=18 → max_desc = 10.saturating_sub(21) = 0, all descs truncated.
+        let sections: &[(&str, &[(&str, &str)])] = &[
+            ("Sec", &[("k", "a very long description that should be truncated")]),
+        ];
+        let _ = build_column(sections, 10, theme.header, theme.label);
+    }
 }

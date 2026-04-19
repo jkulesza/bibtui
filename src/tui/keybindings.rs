@@ -903,6 +903,7 @@ mod tests {
         assert_eq!(map_key(key(KeyCode::Char('w')), &InputMode::Detail, None, None, false, false), Some(Action::OpenWeb));
         assert_eq!(map_key(key(KeyCode::Char('L')), &InputMode::Detail, None, None, false, false), Some(Action::ToggleLatex));
         assert_eq!(map_key(key(KeyCode::Char('B')), &InputMode::Detail, None, None, false, false), Some(Action::ToggleBraces));
+        assert_eq!(map_key(key(KeyCode::Char('F')), &InputMode::Detail, None, None, false, false), Some(Action::SyncEntryFilename));
     }
 
     // ── DetailSearch mode ──
@@ -1111,6 +1112,7 @@ mod tests {
         assert!(action_from_name("MoveDown").is_some());
         assert!(action_from_name("AddEntry").is_some());
         assert!(action_from_name("Undo").is_some());
+        assert!(action_from_name("SyncEntryFilename").is_some());
         assert!(action_from_name("DoesNotExist").is_none());
         assert!(action_from_name("None").is_none()); // intentional unbind
     }

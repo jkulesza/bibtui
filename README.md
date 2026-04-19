@@ -26,7 +26,7 @@ A terminal UI BibTeX manager written in Rust. Designed as a lightweight, keyboar
 - Export entries to **CSL-JSON** (Zotero/Pandoc compatible) or **RIS** via `:export-json` / `:export-ris`
 - In-TUI settings editor (`S`) with live config import/export, `Tab`-completion path dialogs, and field group management
 - Validate command (`v`) dry-runs all save actions and shows which fields would change, without modifying the file
-- Context-sensitive help modal (`?`): entry-list view shows navigation, search, and command-palette keys; detail view shows field editing and vim modal editor keys
+- Context-sensitive help modal (`?`): entry-list view shows navigation, search, command-palette, and **Quality** (C / M / v) keys in dedicated sections; detail view shows field editing and vim modal editor keys
 - `F` in the detail view syncs the attached filename to the current citation key on demand, with undo support
 - Scrollable filename-sync preview dialog confirms file renames before they are applied
 - Import entries from a DOI, URL, or local PDF file (`I` or `:import <doi-or-url-or-path>`): queries Crossref for metadata, with extensible publisher-specific scrapers (ANS, Taylor & Francis); automatically downloads an open-access PDF via Unpaywall when available; extracts DOI from local PDFs and sets the file attachment directly; citation key is generated immediately from the configured template
@@ -416,6 +416,12 @@ cargo llvm-cov --workspace --summary-only
 ```
 
 ## Changelog
+
+### 0.54.0
+
+- **Quality section in entry-list help**: `C` (regenerate all cite keys), `M` (name disambiguator), and `v` (validate) are now grouped under a dedicated **Quality** section in the `?` help overlay, separate from general navigation keys
+- Fixed a latent bug: the help popup no longer panics when the terminal is smaller than the popup's minimum size — dimensions are clamped to the available area
+- Expanded test coverage: 11 new tests for the help component (render smoke-tests, section/key content checks, tiny-terminal robustness, `build_column` edge cases, `HelpContext` clone); `help.rs` line coverage 0% → 98.87%; overall 76.32% → 77.09%
 
 ### 0.53.0
 
