@@ -6,42 +6,57 @@ use ratatui::Frame;
 
 use crate::tui::theme::Theme;
 
-pub struct HelpState;
+#[derive(Clone, Debug)]
+pub enum HelpContext {
+    EntryList,
+    Detail,
+}
 
-pub fn render_help(f: &mut Frame, area: Rect, _state: &HelpState, theme: &Theme) {
-    let width = (area.width * 9 / 10).min(100).max(60);
-    let height = (area.height.saturating_sub(2)).max(10);
+pub struct HelpState {
+    pub context: HelpContext,
+}
 
+pub fn render_help(f: &mut Frame, area: Rect, state: &HelpState, theme: &Theme) {
+    match state.context {
+        HelpContext::EntryList => render_entry_list_help(f, area, theme),
+        HelpContext::Detail => render_detail_help(f, area, theme),
+    }
+}
+
+fn popup_area(area: Rect, width: u16, height: u16) -> Rect {
     let x = area.x + (area.width.saturating_sub(width)) / 2;
     let y = area.y + (area.height.saturating_sub(height)) / 2;
-    let popup_area = Rect::new(x, y, width, height);
+    Rect::new(x, y, width, height)
+}
 
-    f.render_widget(Clear, popup_area);
+fn render_entry_list_help(f: &mut Frame, area: Rect, theme: &Theme) {
+    let width = (area.width * 9 / 10).min(100).max(60);
+    let height = (area.height.saturating_sub(2)).max(10);
+    let popup = popup_area(area, width, height);
+
+    f.render_widget(Clear, popup);
 
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(theme.border)
-        .title(" Help ")
+        .title(" Help — Entry List ")
         .title_bottom(Line::from(Span::styled(
             " Any key: close ",
             theme.label,
         )));
 
-    let inner = block.inner(popup_area);
-    f.render_widget(block, popup_area);
+    let inner = block.inner(popup);
+    f.render_widget(block, popup);
 
     if inner.width < 4 || inner.height < 2 {
         return;
     }
 
-    // Split into two columns
     let half = inner.width / 2;
     let cols = Layout::horizontal([Constraint::Length(half), Constraint::Min(1)]).split(inner);
 
     let kw = theme.header;
     let dim = theme.label;
-
-    // ── Left column: Entry list (Normal mode) ────────────────────────────────
 
     let left_sections: &[(&str, &[(&str, &str)])] = &[
         (
@@ -71,6 +86,9 @@ pub fn render_help(f: &mut Frame, area: Rect, _state: &HelpState, theme: &Theme)
                 ("Esc",             "clear search filter / reset sort"),
             ],
         ),
+    ];
+
+    let right_sections: &[(&str, &[(&str, &str)])] = &[
         (
             "Commands  ( : )",
             &[
@@ -83,32 +101,6 @@ pub fn render_help(f: &mut Frame, area: Rect, _state: &HelpState, theme: &Theme)
                 (":import <doi/isbn/url>","import from DOI, ISBN, or URL"),
             ],
         ),
-    ];
-
-    // ── Right column: Detail view ────────────────────────────────────────────
-
-    let right_sections: &[(&str, &[(&str, &str)])] = &[
-        (
-            "Detail View",
-            &[
-                ("j / k",        "navigate fields"),
-                ("g g / G",      "top / bottom"),
-                ("Ctrl-F / Ctrl-B", "page down / up"),
-                ("e / i / Enter","edit field / file path"),
-                ("a",            "add field"),
-                ("A",            "add file attachment"),
-                ("d",            "delete field / file"),
-                ("T",            "title-case field"),
-                ("a",            "normalize names"),
-                ("c",            "regenerate cite key"),
-                ("Tab",          "assign groups"),
-                ("o / w",        "open file / web (w fetches DOI if absent)"),
-                ("Tab / S-Tab",  "autocomplete fwd / bwd"),
-                ("B / L",        "toggle braces / LaTeX"),
-                ("u",            "undo"),
-                ("Esc",          "back to list"),
-            ],
-        ),
         (
             "Citation Preview  ( Space )",
             &[
@@ -117,19 +109,95 @@ pub fn render_help(f: &mut Frame, area: Rect, _state: &HelpState, theme: &Theme)
                 ("Esc",    "close"),
             ],
         ),
+    ];
+
+    f.render_widget(build_column(left_sections, cols[0].width, kw, dim), cols[0]);
+    f.render_widget(build_column(right_sections, cols[1].width, kw, dim), cols[1]);
+}
+
+fn render_detail_help(f: &mut Frame, area: Rect, theme: &Theme) {
+    let width = (area.width * 9 / 10).min(100).max(60);
+    let height = (area.height.saturating_sub(2)).max(10);
+    let popup = popup_area(area, width, height);
+
+    f.render_widget(Clear, popup);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(theme.border)
+        .title(" Help — Detail View ")
+        .title_bottom(Line::from(Span::styled(
+            " Any key: close ",
+            theme.label,
+        )));
+
+    let inner = block.inner(popup);
+    f.render_widget(block, popup);
+
+    if inner.width < 4 || inner.height < 2 {
+        return;
+    }
+
+    let half = inner.width / 2;
+    let cols = Layout::horizontal([Constraint::Length(half), Constraint::Min(1)]).split(inner);
+
+    let kw = theme.header;
+    let dim = theme.label;
+
+    let left_sections: &[(&str, &[(&str, &str)])] = &[
+        (
+            "Detail View",
+            &[
+                ("j / k",           "navigate fields"),
+                ("g g / G",         "top / bottom"),
+                ("Ctrl-F / Ctrl-B", "page down / up"),
+                ("e / i / Enter",   "edit field / file path"),
+                ("a",               "add field"),
+                ("A",               "add file attachment"),
+                ("d",               "delete field / file"),
+                ("T",               "title-case field"),
+                ("N",               "normalize names"),
+                ("c",               "regenerate cite key"),
+                ("Tab",             "assign groups"),
+                ("o / w",           "open file / web (w fetches DOI if absent)"),
+                ("B / L",           "toggle braces / LaTeX"),
+                ("u",               "undo"),
+                ("?",               "help"),
+                ("Esc",             "back to list"),
+            ],
+        ),
+    ];
+
+    let right_sections: &[(&str, &[(&str, &str)])] = &[
+        (
+            "Field Editor",
+            &[
+                ("i / a / A / I",   "enter Insert mode"),
+                ("R",               "enter Replace mode"),
+                ("r{c}",            "replace char at cursor"),
+                ("f{c} / F{c}",     "find char fwd / bwd (inclusive)"),
+                ("t{c} / T{c}",     "to char fwd / bwd (exclusive)"),
+                ("dw",              "delete word forward"),
+                ("dt{c} / df{c}",   "delete to / through char fwd"),
+                ("dT{c} / dF{c}",   "delete to / through char bwd"),
+                ("yy",              "yank whole field value"),
+                ("Tab / S-Tab",     "autocomplete fwd / bwd"),
+                ("Esc",             "exit editor"),
+            ],
+        ),
         (
             "Settings  ( S )",
             &[
-                ("j / k",    "navigate"),
-                ("g / G",    "top / bottom"),
-                ("Ctrl-F/B", "page down / up"),
-                ("Enter / Space", "toggle"),
-                ("e",        "edit value"),
-                ("a",        "add field group"),
-                ("x",        "delete field group"),
-                ("r",        "rename field group"),
-                ("E / I",    "export / import config"),
-                ("Esc",      "close"),
+                ("j / k",           "navigate"),
+                ("g / G",           "top / bottom"),
+                ("Ctrl-F/B",        "page down / up"),
+                ("Enter / Space",   "toggle"),
+                ("e",               "edit value"),
+                ("a",               "add field group"),
+                ("x",               "delete field group"),
+                ("r",               "rename field group"),
+                ("E / I",           "export / import config"),
+                ("Esc",             "close"),
             ],
         ),
     ];

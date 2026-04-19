@@ -16,7 +16,7 @@ use crate::bib::jabref::serialize_group_tree;
 use crate::bib::model::*;
 use crate::util::open::{effective_file_dir, parse_file_field, serialize_file_field};
 use crate::tui::components::citation_preview::CitationPreviewState;
-use crate::tui::components::help::HelpState;
+use crate::tui::components::help::{HelpContext, HelpState};
 use crate::tui::components::name_disambig::{NameCluster, NameDisambigState, NamePreview, NameVariant};
 use crate::tui::components::validate_results::{Violation, ValidateResultsState};
 use crate::util::citation::format_citation;
@@ -827,8 +827,14 @@ impl App {
                 }
             }
             Action::ShowHelp => {
+                let context = match self.mode {
+                    InputMode::Detail | InputMode::DetailSearch | InputMode::Editing => {
+                        HelpContext::Detail
+                    }
+                    _ => HelpContext::EntryList,
+                };
                 self.help_pre_mode = Some(self.mode.clone());
-                self.help_state = Some(HelpState);
+                self.help_state = Some(HelpState { context });
                 self.mode = InputMode::Help;
             }
             Action::CloseHelp => {

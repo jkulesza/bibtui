@@ -26,7 +26,7 @@ A terminal UI BibTeX manager written in Rust. Designed as a lightweight, keyboar
 - Export entries to **CSL-JSON** (Zotero/Pandoc compatible) or **RIS** via `:export-json` / `:export-ris`
 - In-TUI settings editor (`S`) with live config import/export, `Tab`-completion path dialogs, and field group management
 - Validate command (`v`) dry-runs all save actions and shows which fields would change, without modifying the file
-- Full-screen help modal (`?`) with complete keyboard reference
+- Context-sensitive help modal (`?`): entry-list view shows navigation, search, and command-palette keys; detail view shows field editing and vim modal editor keys
 - Scrollable filename-sync preview dialog confirms file renames before they are applied
 - Import entries from a DOI, URL, or local PDF file (`I` or `:import <doi-or-url-or-path>`): queries Crossref for metadata, with extensible publisher-specific scrapers (ANS, Taylor & Francis); automatically downloads an open-access PDF via Unpaywall when available; extracts DOI from local PDFs and sets the file attachment directly; citation key is generated immediately from the configured template
 - Import books by ISBN-10 or ISBN-13 (`I` or `:import <isbn>`): fetches metadata from OpenLibrary; accepts any common notation (bare digits, hyphens, spaces, mixed); stores ISBN-13 when available, falls back to ISBN-10
@@ -414,6 +414,11 @@ cargo llvm-cov --workspace --summary-only
 ```
 
 ## Changelog
+
+### 0.52.0
+
+- **Context-sensitive help modal**: pressing `?` in the entry list shows entry-list navigation, command-palette, and citation-preview keys; pressing `?` from the detail view shows detail-view navigation and the full vim field-editor key reference (insert/replace modes, find/motion/delete operators); the dialog title reflects the active context
+- Fixed an incorrect binding in the previous combined help (`a` was listed twice in the detail section; corrected to `N` for normalize names)
 
 ### 0.51.1
 
