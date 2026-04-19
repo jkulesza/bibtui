@@ -407,7 +407,7 @@ PDF candidates are tried in order (Unpaywall OA → publisher PDF → ANS direct
 cargo test
 ```
 
-All 1234 tests pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, journal abbreviation, TUI component state machines, config loading, import pipeline, and export serialisation). Line coverage: ~76%.
+All 1292 tests pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, journal abbreviation, TUI component state machines, config loading, import pipeline, and export serialisation). Line coverage: ~79.6%.
 
 Coverage analysis runs automatically in CI via `cargo-llvm-cov`. To run locally:
 
@@ -416,6 +416,17 @@ cargo llvm-cov --workspace --summary-only
 ```
 
 ## Changelog
+
+### 0.55.0
+
+- **Dependency security updates**: `rustls-webpki` 0.103.10 → 0.103.12 (fixes two name-constraints advisories: wildcard names and URI names accepted incorrectly); `rand` 0.8.5 → 0.8.6 and assorted other dependency updates via `cargo update`
+- **Bug fixes found by testing**: popup dialogs (`CitationPreviewState`, `NameDisambigState`, `ValidateResultsState`) no longer panic on terminals narrower than the popup's minimum width — popup width is now clamped to the available terminal area (same fix applied to `help.rs` in 0.54.0)
+- **Expanded test coverage**: 41 new tests; `citation_preview.rs` 0% → 100%, `validate_results.rs` 61% → 100%, `name_disambig.rs` 57% → 99%, `keybindings.rs` 92% → 99%, `export.rs` 90% → 97%; overall line coverage 77.1% → 79.6%
+  - `citation_preview`: 9 tests for `estimate_wrapped_lines` edge cases + 4 render smoke-tests
+  - `validate_results`: 4 render smoke-tests including scroll-clamping in render path
+  - `name_disambig`: 5 render smoke-tests including preview overlay and scroll-to-focus
+  - `keybindings`: all 23 named special keys, `ctrl-`/`shift-`/`alt-` prefixes, exhaustive `action_from_name` coverage, all 9 mode names via `build_user_bindings`, `None`-sentinel skip, unknown-mode skip
+  - `export`: `csl_type`/`ris_type` for all remaining entry types, `parse_authors` single-word and empty, RIS editor lines, RIS single-page (no EP tag), CSL-JSON `booktitle` container, CSL-JSON editor, non-numeric year omits `issued`
 
 ### 0.54.0
 

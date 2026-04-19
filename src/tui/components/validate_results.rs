@@ -42,7 +42,7 @@ pub fn render_validate_results(
     state: &mut ValidateResultsState,
     theme: &Theme,
 ) {
-    let width = (area.width * 4 / 5).min(110).max(50);
+    let width = (area.width * 4 / 5).min(110).max(50_u16.min(area.width));
     let height = (area.height.saturating_sub(4)).max(8).min(area.height);
 
     let x = area.x + (area.width.saturating_sub(width)) / 2;
@@ -306,5 +306,53 @@ mod tests {
         assert_eq!(s.scroll, 0);
         s.scroll_up(); // already 0, should stay 0
         assert_eq!(s.scroll, 0);
+    }
+
+    // ── render_validate_results ───────────────────────────────────────────────
+
+    fn make_terminal(w: u16, h: u16) -> ratatui::Terminal<ratatui::backend::TestBackend> {
+        ratatui::Terminal::new(ratatui::backend::TestBackend::new(w, h)).unwrap()
+    }
+
+    fn default_theme() -> crate::tui::theme::Theme {
+        crate::tui::theme::Theme::default()
+    }
+
+    #[test]
+    fn test_render_empty_violations_does_not_panic() {
+        let mut term = make_terminal(120, 40);
+        let mut state = ValidateResultsState::new(vec![]);
+        let theme = default_theme();
+        term.draw(|f| render_validate_results(f, f.area(), &mut state, &theme)).unwrap();
+    }
+
+    #[test]
+    fn test_render_with_violations_does_not_panic() {
+        let mut term = make_terminal(120, 40);
+        let mut state = ValidateResultsState::new(vec![
+            make_violation("Smith2020", "title"),
+            make_violation("Jones2021", "author"),
+        ]);
+        let theme = default_theme();
+        term.draw(|f| render_validate_results(f, f.area(), &mut state, &theme)).unwrap();
+    }
+
+    #[test]
+    fn test_render_clamps_oversized_scroll() {
+        // Oversized scroll should be clamped to valid range by render.
+        let mut term = make_terminal(80, 20);
+        let mut state = ValidateResultsState::new(vec![make_violation("k", "f")]);
+        state.scroll = 9999;
+        let theme = default_theme();
+        term.draw(|f| render_validate_results(f, f.area(), &mut state, &theme)).unwrap();
+        assert!(state.scroll < 9999);
+    }
+
+    #[test]
+    fn test_render_tiny_terminal_does_not_panic() {
+        let mut term = make_terminal(20, 6);
+        let mut state = ValidateResultsState::new(vec![make_violation("k", "f")]);
+        let theme = default_theme();
+        term.draw(|f| render_validate_results(f, f.area(), &mut state, &theme)).unwrap();
     }
 }

@@ -132,7 +132,7 @@ pub fn render_name_disambig(
     state: &mut NameDisambigState,
     theme: &Theme,
 ) {
-    let width = (area.width * 9 / 10).min(110).max(50);
+    let width = (area.width * 9 / 10).min(110).max(50_u16.min(area.width));
     let height = (area.height.saturating_sub(4)).max(8).min(area.height);
 
     let x = area.x + (area.width.saturating_sub(width)) / 2;
@@ -462,5 +462,73 @@ mod tests {
         assert_eq!(s.cursor, 19); // clamped
         s.page_up();
         assert_eq!(s.cursor, 9);
+    }
+
+    // ── render_name_disambig ─────────────────────────────────────────────────
+
+    fn make_terminal(w: u16, h: u16) -> ratatui::Terminal<ratatui::backend::TestBackend> {
+        ratatui::Terminal::new(ratatui::backend::TestBackend::new(w, h)).unwrap()
+    }
+
+    fn default_theme() -> crate::tui::theme::Theme {
+        crate::tui::theme::Theme::default()
+    }
+
+    #[test]
+    fn test_render_empty_state_does_not_panic() {
+        let mut term = make_terminal(120, 40);
+        let mut state = NameDisambigState::new(vec![]);
+        let theme = default_theme();
+        term.draw(|f| render_name_disambig(f, f.area(), &mut state, &theme)).unwrap();
+    }
+
+    #[test]
+    fn test_render_with_clusters_does_not_panic() {
+        let mut term = make_terminal(120, 40);
+        let mut state = NameDisambigState::new(vec![
+            make_cluster(&[("Smith, John", 3), ("J. Smith", 1)]),
+            make_cluster(&[("Jones, Alice", 2), ("A. Jones", 1)]),
+        ]);
+        let theme = default_theme();
+        term.draw(|f| render_name_disambig(f, f.area(), &mut state, &theme)).unwrap();
+    }
+
+    #[test]
+    fn test_render_with_preview_does_not_panic() {
+        let mut term = make_terminal(120, 40);
+        let mut state = NameDisambigState::new(vec![
+            make_cluster(&[("Smith, John", 3), ("J. Smith", 1)]),
+        ]);
+        state.preview = Some(NamePreview {
+            variant_name: "J. Smith".to_string(),
+            entries: vec!["Smith2020 — A Title".to_string(), "Smith2021 — B Title".to_string()],
+            scroll: 0,
+        });
+        let theme = default_theme();
+        term.draw(|f| render_name_disambig(f, f.area(), &mut state, &theme)).unwrap();
+    }
+
+    #[test]
+    fn test_render_tiny_terminal_does_not_panic() {
+        let mut term = make_terminal(20, 8);
+        let mut state = NameDisambigState::new(vec![
+            make_cluster(&[("Smith, John", 2), ("J. Smith", 1)]),
+        ]);
+        let theme = default_theme();
+        term.draw(|f| render_name_disambig(f, f.area(), &mut state, &theme)).unwrap();
+    }
+
+    #[test]
+    fn test_render_many_clusters_scrolls_to_focus() {
+        // Many clusters with cursor at the end should set a nonzero scroll offset.
+        let clusters: Vec<NameCluster> = (0..15)
+            .map(|i| make_cluster(&[(&format!("AuthorA{}", i), 2), (&format!("AuthorB{}", i), 1)]))
+            .collect();
+        let mut term = make_terminal(120, 20);
+        let mut state = NameDisambigState::new(clusters);
+        state.cursor = 14;
+        let theme = default_theme();
+        term.draw(|f| render_name_disambig(f, f.area(), &mut state, &theme)).unwrap();
+        assert!(state.scroll > 0, "expected nonzero scroll for last cluster");
     }
 }

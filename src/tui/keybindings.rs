@@ -1108,6 +1108,42 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_key_spec_all_named_keys() {
+        let named = [
+            "backspace", "delete", "tab", "backtab", "space",
+            "home", "end", "pagedown", "up", "down", "left", "right",
+            "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10", "f11", "f12",
+        ];
+        for name in named {
+            assert!(parse_key_spec(name).is_some(), "parse_key_spec({name:?}) returned None");
+        }
+    }
+
+    #[test]
+    fn test_parse_key_spec_modifier_prefixes() {
+        let (code, mods) = parse_key_spec("ctrl-j").unwrap();
+        assert_eq!(code, KeyCode::Char('j'));
+        assert!(mods.contains(KeyModifiers::CONTROL));
+
+        let (_, mods) = parse_key_spec("shift-f1").unwrap();
+        assert!(mods.contains(KeyModifiers::SHIFT));
+
+        let (_, mods) = parse_key_spec("alt-x").unwrap();
+        assert!(mods.contains(KeyModifiers::ALT));
+    }
+
+    #[test]
+    fn test_parse_key_spec_multi_char_returns_none() {
+        assert!(parse_key_spec("ab").is_none());
+    }
+
+    #[test]
+    fn test_parse_key_spec_empty_after_prefix_returns_none() {
+        assert!(parse_key_spec("ctrl-").is_none());
+        assert!(parse_key_spec("shift-").is_none());
+    }
+
+    #[test]
     fn test_action_from_name_roundtrip() {
         assert!(action_from_name("MoveDown").is_some());
         assert!(action_from_name("AddEntry").is_some());
@@ -1115,6 +1151,91 @@ mod tests {
         assert!(action_from_name("SyncEntryFilename").is_some());
         assert!(action_from_name("DoesNotExist").is_none());
         assert!(action_from_name("None").is_none()); // intentional unbind
+    }
+
+    #[test]
+    fn test_action_from_name_extended_coverage() {
+        let expected_some = [
+            "MoveToTop", "MoveToBottom", "PageDown", "PageUp",
+            "EnterSearch", "ExitSearch", "ConfirmSearch", "SearchBackspace",
+            "OpenDetail", "CloseDetail", "EnterDetailSearch", "ExitDetailSearch",
+            "DetailSearchBackspace", "DetailNextMatch", "DetailPrevMatch",
+            "EditField", "AddField", "AddFileAttachment", "DeleteField",
+            "EditGroups", "RegenCitekey", "RegenAllCitekeys",
+            "ConfirmEdit", "CancelEdit", "EditBackspace", "EditDelete",
+            "EditCursorLeft", "EditCursorRight", "EditCursorUp", "EditCursorDown",
+            "EditCursorHome", "EditCursorEnd", "EditTabComplete", "EditTabCompleteReverse",
+            "DeleteEntry", "DuplicateEntry", "YankCitekey",
+            "ToggleGroups", "FocusGroups", "FocusList", "ShowCitationPreview",
+            "EnterCommand", "ExitCommand", "ExecuteCommand",
+            "CommandBackspace", "CommandTabComplete", "CommandTabCompleteReverse",
+            "DialogConfirm", "DialogCancel", "DialogToggle", "DialogYank",
+            "ShowHelp", "TitlecaseField", "ChangeEntryType",
+            "ToggleBraces", "ToggleLatex", "NormalizeNames",
+            "OpenFile", "OpenWeb", "CloseCitationPreview", "YankCitationPreview",
+            "EnterSettings", "ExitSettings",
+            "SettingsMoveDown", "SettingsMoveUp",
+            "SettingsToggle", "SettingsEdit", "SettingsExport", "SettingsImport",
+            "SettingsAddFieldGroup", "SettingsDeleteFieldGroup", "SettingsRenameFieldGroup",
+            "SettingsMoveToTop", "SettingsMoveToBottom",
+            "SettingsPageDown", "SettingsPageUp",
+            "Validate", "CloseValidateResults",
+            "DisambiguateNames", "CloseNameDisambig", "ApplyNameDisambig",
+            "DisambigCycleVariant", "DisambigCycleVariantReverse",
+            "DisambigRemoveVariant", "DisambigPreview",
+            "ImportEntry", "ExportJson", "ExportRis", "CloseHelp",
+            "EditUndo", "EditPut", "EditYank",
+            "EditEnterNormal", "EditEnterInsert", "EditEnterInsertAfter",
+            "EditEnterInsertAtEnd", "EditEnterInsertAtHome",
+            "EditMoveWordFwd", "EditMoveWordBwd", "EditMoveWordEnd",
+            "EditMoveBigWordFwd", "EditMoveBigWordBwd", "EditMoveBigWordEnd",
+            "EditDeleteWordFwd", "EditDeleteToEnd", "EditChangeToEnd",
+            "EditSubstituteChar", "EditSubstituteLine", "EditToggleCase",
+            "EditDeleteCharBack", "EditDeleteWordBack", "EditDeleteToHome",
+            "EditConfirmAndMoveDown", "EditConfirmAndMoveUp",
+        ];
+        for name in expected_some {
+            assert!(action_from_name(name).is_some(), "action_from_name({name:?}) returned None");
+        }
+    }
+
+    #[test]
+    fn test_build_user_bindings_all_modes() {
+        use indexmap::IndexMap;
+        let modes = [
+            "normal", "detail", "search", "editing",
+            "settings", "citation_preview", "dialog", "command", "name_disambig",
+        ];
+        for mode_name in modes {
+            let mut mode_map: IndexMap<String, IndexMap<String, String>> = IndexMap::new();
+            let mut bindings: IndexMap<String, String> = IndexMap::new();
+            bindings.insert("j".to_string(), "MoveDown".to_string());
+            mode_map.insert(mode_name.to_string(), bindings);
+            let result = build_user_bindings(&mode_map);
+            assert!(!result.is_empty(), "build_user_bindings produced no bindings for mode {mode_name:?}");
+        }
+    }
+
+    #[test]
+    fn test_build_user_bindings_skips_none_sentinel() {
+        use indexmap::IndexMap;
+        let mut mode_map: IndexMap<String, IndexMap<String, String>> = IndexMap::new();
+        let mut bindings: IndexMap<String, String> = IndexMap::new();
+        bindings.insert("j".to_string(), "None".to_string()); // intentional unbind
+        mode_map.insert("normal".to_string(), bindings);
+        let result = build_user_bindings(&mode_map);
+        assert!(result.is_empty(), "None sentinel should be skipped");
+    }
+
+    #[test]
+    fn test_build_user_bindings_skips_unknown_mode() {
+        use indexmap::IndexMap;
+        let mut mode_map: IndexMap<String, IndexMap<String, String>> = IndexMap::new();
+        let mut bindings: IndexMap<String, String> = IndexMap::new();
+        bindings.insert("j".to_string(), "MoveDown".to_string());
+        mode_map.insert("not_a_real_mode".to_string(), bindings);
+        let result = build_user_bindings(&mode_map);
+        assert!(result.is_empty(), "unknown mode should be skipped");
     }
 
     #[test]

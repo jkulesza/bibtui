@@ -483,4 +483,211 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
         assert_eq!(parsed[0]["type"], "thesis");
     }
+
+    // ── csl_type / ris_type coverage for remaining entry types ───────────────
+
+    fn make_entry(entry_type: EntryType, key: &str) -> Entry {
+        let mut fields = IndexMap::new();
+        fields.insert("title".to_string(), "A Title".to_string());
+        fields.insert("year".to_string(), "2000".to_string());
+        Entry {
+            entry_type,
+            citation_key: key.to_string(),
+            fields,
+            group_memberships: vec![],
+            raw_index: 0,
+            dirty: false,
+        }
+    }
+
+    #[test]
+    fn test_csl_type_mappings() {
+        let cases = [
+            (EntryType::Booklet,       "book"),
+            (EntryType::InBook,        "chapter"),
+            (EntryType::InCollection,  "chapter"),
+            (EntryType::InProceedings, "paper-conference"),
+            (EntryType::Proceedings,   "paper-conference"),
+            (EntryType::MastersThesis, "thesis"),
+            (EntryType::TechReport,    "report"),
+            (EntryType::Manual,        "document"),
+            (EntryType::Unpublished,   "manuscript"),
+            (EntryType::Misc,          "article"),
+            (EntryType::Other("custom".to_string()), "article"),
+        ];
+        for (et, expected) in cases {
+            assert_eq!(csl_type(&et), expected, "failed for {:?}", et);
+        }
+    }
+
+    #[test]
+    fn test_ris_type_mappings() {
+        let cases = [
+            (EntryType::Booklet,       "BOOK"),
+            (EntryType::InCollection,  "CHAP"),
+            (EntryType::InProceedings, "CONF"),
+            (EntryType::Proceedings,   "CONF"),
+            (EntryType::MastersThesis, "THES"),
+            (EntryType::TechReport,    "RPRT"),
+            (EntryType::Manual,        "GEN"),
+            (EntryType::Unpublished,   "UNPB"),
+            (EntryType::Misc,          "GEN"),
+            (EntryType::Other("x".to_string()), "GEN"),
+        ];
+        for (et, expected) in cases {
+            assert_eq!(ris_type(&et), expected, "failed for {:?}", et);
+        }
+    }
+
+    // ── parse_authors edge cases ──────────────────────────────────────────────
+
+    #[test]
+    fn test_parse_authors_single_word() {
+        let authors = parse_authors("Einstein");
+        assert_eq!(authors.len(), 1);
+        assert_eq!(authors[0].0, "Einstein");
+        assert_eq!(authors[0].1, "");
+    }
+
+    #[test]
+    fn test_parse_authors_empty_string() {
+        let authors = parse_authors("");
+        assert!(authors.is_empty());
+    }
+
+    #[test]
+    fn test_parse_authors_natural_form_single_token() {
+        // single name with no comma and no spaces
+        let authors = parse_authors("Plato and Socrates");
+        assert_eq!(authors.len(), 2);
+        assert_eq!(authors[0], ("Plato".to_string(), "".to_string()));
+        assert_eq!(authors[1], ("Socrates".to_string(), "".to_string()));
+    }
+
+    // ── RIS edge cases ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_ris_with_editor() {
+        let mut fields = IndexMap::new();
+        fields.insert("editor".to_string(), "Brown, Charlie".to_string());
+        fields.insert("title".to_string(), "Handbook".to_string());
+        fields.insert("year".to_string(), "2005".to_string());
+        let entry = Entry {
+            entry_type: EntryType::Book,
+            citation_key: "Brown2005".to_string(),
+            fields,
+            group_memberships: vec![],
+            raw_index: 0,
+            dirty: false,
+        };
+        let db = make_db_with(entry);
+        let ris = export_ris(&db);
+        assert!(ris.contains("ED  - Brown, Charlie"), "missing ED tag");
+    }
+
+    #[test]
+    fn test_ris_single_page_omits_ep() {
+        let mut fields = IndexMap::new();
+        fields.insert("pages".to_string(), "42".to_string());
+        fields.insert("title".to_string(), "A Note".to_string());
+        fields.insert("year".to_string(), "2010".to_string());
+        let entry = Entry {
+            entry_type: EntryType::Article,
+            citation_key: "Note2010".to_string(),
+            fields,
+            group_memberships: vec![],
+            raw_index: 0,
+            dirty: false,
+        };
+        let db = make_db_with(entry);
+        let ris = export_ris(&db);
+        assert!(ris.contains("SP  - 42"), "missing SP tag");
+        assert!(!ris.contains("EP  - "), "should not have EP tag for single page");
+    }
+
+    #[test]
+    fn test_ris_author_without_given_name() {
+        // An author with only a family name should produce "AU  - FamilyName"
+        let mut fields = IndexMap::new();
+        fields.insert("author".to_string(), "Plato".to_string());
+        fields.insert("title".to_string(), "Republic".to_string());
+        fields.insert("year".to_string(), "-380".to_string());
+        let entry = Entry {
+            entry_type: EntryType::Book,
+            citation_key: "Plato380".to_string(),
+            fields,
+            group_memberships: vec![],
+            raw_index: 0,
+            dirty: false,
+        };
+        let db = make_db_with(entry);
+        let ris = export_ris(&db);
+        assert!(ris.contains("AU  - Plato"), "missing AU tag for single-name author");
+        assert!(!ris.contains("AU  - Plato,"), "should not have trailing comma");
+    }
+
+    // ── CSL-JSON edge cases ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_csl_json_booktitle_as_container() {
+        let mut fields = IndexMap::new();
+        fields.insert("author".to_string(), "Lee, Bob".to_string());
+        fields.insert("title".to_string(), "A Chapter".to_string());
+        fields.insert("booktitle".to_string(), "The Big Book".to_string());
+        fields.insert("year".to_string(), "2015".to_string());
+        let entry = Entry {
+            entry_type: EntryType::InCollection,
+            citation_key: "Lee2015".to_string(),
+            fields,
+            group_memberships: vec![],
+            raw_index: 0,
+            dirty: false,
+        };
+        let db = make_db_with(entry);
+        let json_str = export_csl_json(&db).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(parsed[0]["container-title"], "The Big Book");
+    }
+
+    #[test]
+    fn test_csl_json_with_editor() {
+        let mut fields = IndexMap::new();
+        fields.insert("editor".to_string(), "Green, Alice".to_string());
+        fields.insert("title".to_string(), "Collected Works".to_string());
+        fields.insert("year".to_string(), "2000".to_string());
+        let entry = Entry {
+            entry_type: EntryType::Book,
+            citation_key: "Green2000".to_string(),
+            fields,
+            group_memberships: vec![],
+            raw_index: 0,
+            dirty: false,
+        };
+        let db = make_db_with(entry);
+        let json_str = export_csl_json(&db).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        let editors = parsed[0]["editor"].as_array().unwrap();
+        assert_eq!(editors[0]["family"], "Green");
+        assert_eq!(editors[0]["given"], "Alice");
+    }
+
+    #[test]
+    fn test_csl_json_non_numeric_year_omits_issued() {
+        let mut fields = IndexMap::new();
+        fields.insert("title".to_string(), "Undated Work".to_string());
+        fields.insert("year".to_string(), "forthcoming".to_string());
+        let entry = Entry {
+            entry_type: EntryType::Misc,
+            citation_key: "Undated".to_string(),
+            fields,
+            group_memberships: vec![],
+            raw_index: 0,
+            dirty: false,
+        };
+        let db = make_db_with(entry);
+        let json_str = export_csl_json(&db).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        // "forthcoming" cannot be parsed as i64, so "issued" must be absent.
+        assert!(parsed[0]["issued"].is_null(), "issued should be absent for non-numeric year");
+    }
 }
