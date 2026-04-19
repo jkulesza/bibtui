@@ -158,6 +158,7 @@ fn render_detail_help(f: &mut Frame, area: Rect, theme: &Theme) {
                 ("T",               "title-case field"),
                 ("N",               "normalize names"),
                 ("c",               "regenerate cite key"),
+                ("F",               "sync filename to cite key"),
                 ("Tab",             "assign groups"),
                 ("o / w",           "open file / web (w fetches DOI if absent)"),
                 ("B / L",           "toggle braces / LaTeX"),

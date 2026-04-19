@@ -150,6 +150,7 @@ fn map_detail_key(key: KeyEvent, last_key: Option<char>) -> Option<Action> {
         KeyCode::Char('n') => Some(Action::DetailNextMatch),
         KeyCode::Char('N') => Some(Action::DetailPrevMatch),
         KeyCode::Char('?') => Some(Action::ShowHelp),
+        KeyCode::Char('F') => Some(Action::SyncEntryFilename),
         _ => None,
     }
 }
@@ -555,6 +556,7 @@ pub fn action_from_name(name: &str) -> Option<Action> {
         "ImportEntry"               => Some(Action::ImportEntry),
         "ExportJson"                => Some(Action::ExportJson),
         "ExportRis"                 => Some(Action::ExportRis),
+        "SyncEntryFilename"         => Some(Action::SyncEntryFilename),
         "CloseHelp"                 => Some(Action::CloseHelp),
         "EditUndo"                  => Some(Action::EditUndo),
         "EditPut"                   => Some(Action::EditPut),

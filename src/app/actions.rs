@@ -68,6 +68,7 @@ pub enum Action {
     ToggleBraces,
     ToggleLatex,
     NormalizeNames,
+    SyncEntryFilename,
     EditEnterReplace,
     OpenFile,
     OpenWeb,
@@ -184,6 +185,14 @@ pub(super) enum UndoItem {
         entry_key: String,
         old_memberships: Vec<String>,
         old_groups_field: Option<String>,
+    },
+    /// Attached file(s) were renamed by SyncEntryFilename.  Undo reverses the
+    /// filesystem renames and restores the old `file` field value.
+    FilenamesSynced {
+        entry_key: String,
+        old_file_value: String,
+        /// (new_abs_path, old_abs_path) — reversed on undo.
+        renames: Vec<(std::path::PathBuf, std::path::PathBuf)>,
     },
 }
 

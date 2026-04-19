@@ -27,6 +27,7 @@ A terminal UI BibTeX manager written in Rust. Designed as a lightweight, keyboar
 - In-TUI settings editor (`S`) with live config import/export, `Tab`-completion path dialogs, and field group management
 - Validate command (`v`) dry-runs all save actions and shows which fields would change, without modifying the file
 - Context-sensitive help modal (`?`): entry-list view shows navigation, search, and command-palette keys; detail view shows field editing and vim modal editor keys
+- `F` in the detail view syncs the attached filename to the current citation key on demand, with undo support
 - Scrollable filename-sync preview dialog confirms file renames before they are applied
 - Import entries from a DOI, URL, or local PDF file (`I` or `:import <doi-or-url-or-path>`): queries Crossref for metadata, with extensible publisher-specific scrapers (ANS, Taylor & Francis); automatically downloads an open-access PDF via Unpaywall when available; extracts DOI from local PDFs and sets the file attachment directly; citation key is generated immediately from the configured template
 - Import books by ISBN-10 or ISBN-13 (`I` or `:import <isbn>`): fetches metadata from OpenLibrary; accepts any common notation (bare digits, hyphens, spaces, mixed); stores ISBN-13 when available, falls back to ISBN-10
@@ -142,6 +143,7 @@ The detail header shows the entry type and its currently assigned groups.
 | `e` / `i` / `Enter` | Edit selected field (vim-style: `i` enters insert mode) |
 | `A` | Add new field |
 | `f` | Add file attachment |
+| `F` | Sync attached filename(s) to current citation key (undoable) |
 | `d` | Delete selected field |
 | `T` | Convert selected field to title case |
 | `a` | Normalize person-name fields (`author`, `editor`, etc.) to "Last, First" form |
@@ -414,6 +416,11 @@ cargo llvm-cov --workspace --summary-only
 ```
 
 ## Changelog
+
+### 0.53.0
+
+- **`F` key in detail view — sync filename to citation key**: renames the attached file(s) on disk so their stem matches the current citation key, updates the `file` field, and marks the entry dirty; works regardless of the `sync_filenames` config setting; supports undo (`u` reverts both the field value and the on-disk rename)
+- Expanded test coverage: 6 new tests covering the no-detail, no-file, already-matches, disk-rename, absent-file, and undo paths; overall line coverage 75.73% → 76.32%
 
 ### 0.52.0
 

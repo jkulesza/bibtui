@@ -1,6 +1,6 @@
 [package]
 name = "bibtui"
-version = "0.52.0"
+version = "0.53.0"
 edition = "2021"
 description = "A terminal UI BibTeX manager"
 license = "BSD-3-Clause"

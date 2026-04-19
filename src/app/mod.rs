@@ -881,6 +881,7 @@ impl App {
 
             Action::TitlecaseField => self.titlecase_selected_field(),
             Action::NormalizeNames => self.normalize_names_field(),
+            Action::SyncEntryFilename => self.sync_entry_filename(),
             Action::ChangeEntryType => self.start_change_entry_type(),
             Action::OpenFile => self.open_file(),
             Action::OpenWeb => self.open_web(),
@@ -3116,6 +3117,120 @@ impl App {
         }
     }
 
+    /// Rename attached files for the currently open detail entry to match its
+    /// citation key, regardless of the `sync_filenames` config setting.
+    fn sync_entry_filename(&mut self) {
+        let key = match self.detail_entry_key.clone() {
+            Some(k) => k,
+            None => return,
+        };
+        let entry = match self.database.entries.get(&key) {
+            Some(e) => e,
+            None => return,
+        };
+        let old_file_value = match entry.fields.get("file") {
+            Some(v) => v.clone(),
+            None => {
+                self.status_message = Some("No file attachment to sync".to_string());
+                return;
+            }
+        };
+        let citekey = entry.citation_key.clone();
+
+        let file_dir = effective_file_dir(
+            &self.bib_path,
+            self.database.jabref_meta.file_directory.as_deref(),
+        );
+
+        let mut parsed = parse_file_field(&old_file_value);
+        if parsed.is_empty() {
+            self.status_message = Some("No file attachment to sync".to_string());
+            return;
+        }
+
+        let multi = parsed.len() > 1;
+        let mut changed = false;
+        let mut rename_msgs: Vec<String> = Vec::new();
+        // Collect (new_abs, old_abs) pairs for undo.
+        let mut undo_renames: Vec<(PathBuf, PathBuf)> = Vec::new();
+
+        for (i, pf) in parsed.iter_mut().enumerate() {
+            let old_rel = PathBuf::from(&pf.path);
+            let ext = old_rel
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("pdf")
+                .to_string();
+
+            let safe_stem = crate::util::import::sanitize_filename_stem(&citekey);
+            let new_filename = if multi {
+                format!("{}_{}.{}", safe_stem, i + 1, ext)
+            } else {
+                format!("{}.{}", safe_stem, ext)
+            };
+
+            if old_rel.file_name().and_then(|n| n.to_str()) == Some(&new_filename) {
+                continue;
+            }
+
+            let old_abs = if old_rel.is_absolute() {
+                old_rel.clone()
+            } else {
+                file_dir.join(&old_rel)
+            };
+            let new_abs = old_abs
+                .parent()
+                .map(|p| p.join(&new_filename))
+                .unwrap_or_else(|| file_dir.join(&new_filename));
+
+            if old_abs.exists() {
+                if let Err(e) = std::fs::rename(&old_abs, &new_abs) {
+                    rename_msgs.push(format!("rename {}: {}", old_abs.display(), e));
+                    continue;
+                }
+                undo_renames.push((new_abs.clone(), old_abs));
+            }
+
+            pf.path = if old_rel.is_absolute() {
+                new_abs.to_string_lossy().into_owned()
+            } else {
+                old_rel
+                    .parent()
+                    .map(|p| p.join(&new_filename))
+                    .unwrap_or_else(|| PathBuf::from(&new_filename))
+                    .to_string_lossy()
+                    .into_owned()
+            };
+            changed = true;
+        }
+
+        if !rename_msgs.is_empty() {
+            self.status_message = Some(format!("File rename errors: {}", rename_msgs.join("; ")));
+            return;
+        }
+
+        if changed {
+            self.push_undo(UndoItem::FilenamesSynced {
+                entry_key: key.clone(),
+                old_file_value,
+                renames: undo_renames,
+            });
+            let new_file_val = serialize_file_field(&parsed);
+            if let Some(entry) = self.database.entries.get_mut(&key) {
+                entry.fields.insert("file".to_string(), new_file_val);
+                entry.dirty = true;
+            }
+            if let Some(ref mut detail) = self.detail_state {
+                if let Some(entry) = self.database.entries.get(&key) {
+                    detail.refresh(entry);
+                }
+            }
+            self.status_message = Some("File renamed to match citation key".to_string());
+        } else {
+            self.status_message = Some("File already matches citation key".to_string());
+        }
+    }
+
     /// Compute the (old_filename, new_filename) pairs that `sync_filenames`
     /// would rename, without touching the filesystem.  Returns an empty vec
     /// when sync is disabled or nothing would change.
@@ -3948,6 +4063,31 @@ impl App {
                     }
                 }
                 self.status_message = Some("Undo: group membership".to_string());
+            }
+            UndoItem::FilenamesSynced { entry_key, old_file_value, renames } => {
+                let mut errors: Vec<String> = Vec::new();
+                for (new_abs, old_abs) in &renames {
+                    if new_abs.exists() {
+                        if let Err(e) = std::fs::rename(new_abs, old_abs) {
+                            errors.push(format!("rename {}: {}", new_abs.display(), e));
+                        }
+                    }
+                }
+                if let Some(entry) = self.database.entries.get_mut(&entry_key) {
+                    entry.fields.insert("file".to_string(), old_file_value);
+                    entry.dirty = true;
+                    if self.detail_entry_key.as_deref() == Some(entry_key.as_str()) {
+                        let snapshot = entry.clone();
+                        if let Some(ref mut detail) = self.detail_state {
+                            detail.refresh(&snapshot);
+                        }
+                    }
+                }
+                if errors.is_empty() {
+                    self.status_message = Some("Undo: filename sync".to_string());
+                } else {
+                    self.status_message = Some(format!("Undo errors: {}", errors.join("; ")));
+                }
             }
         }
 
@@ -7449,6 +7589,143 @@ mod tests {
             let isbn_url = urls.iter().find(|u| u.contains("openlibrary.org")).unwrap();
             // Should not contain hyphens in the URL
             assert!(!isbn_url.contains('-'), "hyphens should be stripped from ISBN URL: {}", isbn_url);
+        }
+    }
+
+    // ── SyncEntryFilename ────────────────────────────────────────────────────
+
+    /// Build an App whose first entry already has a `file` field pointing at a
+    /// real file on disk inside `dir`.  Returns (App, TempDir, citekey, abs_path).
+    fn make_app_with_file(
+        citekey: &str,
+        file_stem: &str,
+    ) -> (App, tempfile::TempDir, String, std::path::PathBuf) {
+        let dir = tempfile::TempDir::new().unwrap();
+        let filename = format!("{}.pdf", file_stem);
+        let abs = dir.path().join(&filename);
+        std::fs::write(&abs, b"dummy").unwrap();
+
+        // Relative path stored in the `file` field.
+        let rel = filename.clone();
+        let bib = format!(
+            "@Article{{{citekey},\n  author = {{A, B}},\n  title = {{T}},\n  year = {{2024}},\n  file = {{:{rel}:PDF}},\n}}\n"
+        );
+        let mut tmp = NamedTempFile::new_in(dir.path()).unwrap();
+        write!(tmp, "{}", bib).unwrap();
+        tmp.flush().unwrap();
+        let bib_path = tmp.path().to_path_buf();
+        let mut app = App::new(bib_path, default_config()).unwrap();
+        // Keep the temp bib file alive by leaking it into the app path (dir keeps it).
+        drop(tmp);
+        app.handle_action(Action::OpenDetail);
+        (app, dir, citekey.to_string(), abs)
+    }
+
+    #[test]
+    fn test_sync_entry_filename_no_detail_open_is_noop() {
+        let (mut app, _tmp) = make_app();
+        // No detail open — action should be silently ignored.
+        app.handle_action(Action::SyncEntryFilename);
+        assert!(app.undo_stack.is_empty());
+    }
+
+    #[test]
+    fn test_sync_entry_filename_no_file_field_shows_status() {
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::OpenDetail);
+        // Smith2020 has no `file` field.
+        app.handle_action(Action::SyncEntryFilename);
+        assert!(
+            app.status_message.as_deref().unwrap_or("").contains("No file"),
+            "expected 'No file' status, got: {:?}", app.status_message
+        );
+        assert!(app.undo_stack.is_empty());
+    }
+
+    #[test]
+    fn test_sync_entry_filename_already_matches_no_undo_pushed() {
+        // File is already named after the cite key — no rename needed.
+        let citekey = "AuthorYear2024";
+        let (mut app, _dir, _, _) = make_app_with_file(citekey, citekey);
+        app.handle_action(Action::SyncEntryFilename);
+        assert!(
+            app.status_message.as_deref().unwrap_or("").contains("already"),
+            "expected 'already matches' status, got: {:?}", app.status_message
+        );
+        assert!(app.undo_stack.is_empty(), "no undo item should be pushed when nothing changed");
+    }
+
+    #[test]
+    fn test_sync_entry_filename_renames_disk_file_and_updates_field() {
+        let citekey = "AuthorYear2024";
+        let old_stem = "old_filename";
+        let (mut app, dir, key, old_abs) = make_app_with_file(citekey, old_stem);
+
+        app.handle_action(Action::SyncEntryFilename);
+
+        // Old file is gone, new file exists.
+        assert!(!old_abs.exists(), "old file should have been renamed");
+        let new_abs = dir.path().join(format!("{}.pdf", citekey));
+        assert!(new_abs.exists(), "new file should exist at {:?}", new_abs);
+
+        // `file` field in the entry is updated.
+        let file_val = app.database.entries[&key].fields["file"].clone();
+        assert!(file_val.contains(citekey), "file field should contain new stem: {}", file_val);
+
+        // Entry is dirty.
+        assert!(app.database.entries[&key].dirty);
+
+        // An undo item was pushed.
+        assert_eq!(app.undo_stack.len(), 1);
+        assert!(matches!(app.undo_stack[0], UndoItem::FilenamesSynced { .. }));
+    }
+
+    #[test]
+    fn test_sync_entry_filename_undo_reverts_field_and_renames_back() {
+        let citekey = "AuthorYear2024";
+        let old_stem = "old_filename";
+        let (mut app, dir, key, old_abs) = make_app_with_file(citekey, old_stem);
+        let old_file_val = app.database.entries[&key].fields["file"].clone();
+
+        app.handle_action(Action::SyncEntryFilename);
+        assert!(!old_abs.exists());
+
+        // Undo should rename the file back and restore the field.
+        app.handle_action(Action::Undo);
+
+        assert!(old_abs.exists(), "original file should be restored after undo");
+        let new_abs = dir.path().join(format!("{}.pdf", citekey));
+        assert!(!new_abs.exists(), "new file should be gone after undo");
+
+        let file_val = app.database.entries[&key].fields["file"].clone();
+        assert_eq!(file_val, old_file_val, "file field should be reverted");
+        assert!(
+            app.status_message.as_deref().unwrap_or("").contains("Undo"),
+            "status should mention undo, got: {:?}", app.status_message
+        );
+    }
+
+    #[test]
+    fn test_sync_entry_filename_field_only_when_file_absent() {
+        // File does not exist on disk — field should still be updated, no undo rename.
+        let citekey = "AuthorYear2024";
+        let old_stem = "missing_file";
+        let (mut app, _dir, key, abs) = make_app_with_file(citekey, old_stem);
+        // Remove the file so it doesn't exist on disk.
+        std::fs::remove_file(&abs).unwrap();
+
+        app.handle_action(Action::SyncEntryFilename);
+
+        // Field is updated even though the file didn't exist.
+        let file_val = app.database.entries[&key].fields["file"].clone();
+        assert!(file_val.contains(citekey), "file field should be updated: {}", file_val);
+
+        // Undo item pushed — but renames vec should be empty (no disk rename).
+        assert_eq!(app.undo_stack.len(), 1);
+        if let UndoItem::FilenamesSynced { renames, .. } = &app.undo_stack[0] {
+            assert!(renames.is_empty(), "no disk renames when file absent");
+        } else {
+            panic!("expected FilenamesSynced undo item");
         }
     }
 
