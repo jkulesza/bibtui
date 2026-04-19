@@ -55,7 +55,7 @@ Optionally copy it to somewhere on your `$PATH`:
 cp target/release/bibtui ~/.local/bin/
 ```
 
-Pre-built binaries for Linux (static musl and RPM), macOS (Apple Silicon and Intel), and Windows are attached to each [GitHub release](https://github.com/jkulesza/bibtui/releases).
+Pre-built binaries for Linux (static musl and RPM), macOS (Apple Silicon and Intel), and Windows are attached to each [GitHub release](https://github.com/jkulesza/bibtui/releases). macOS binaries are code-signed and notarized with an Apple Developer ID, so Gatekeeper will not block them.
 
 **Linux RPM** (Fedora / RHEL / openSUSE):
 
@@ -414,6 +414,10 @@ cargo llvm-cov --workspace --summary-only
 ```
 
 ## Changelog
+
+### 0.51.0
+
+- **Signed macOS binaries**: release builds for macOS (Apple Silicon and Intel) are now code-signed with a Developer ID Application certificate and notarized with Apple's notary service; Gatekeeper will no longer block the binary on first launch
 
 ### 0.50.0
 

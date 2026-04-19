@@ -90,6 +90,71 @@ jobs:
         if: matrix.os != 'windows-latest'
         run: strip target/${{ matrix.target }}/release/${{ matrix.binary }}
 
+      # ── macOS code signing & notarization ────────────────────────────────────
+      # Requires four repository secrets (see docs/signing.md for setup):
+      #   APPLE_CERTIFICATE             — base64-encoded Developer ID .p12
+      #   APPLE_CERTIFICATE_PASSWORD    — export password for the .p12
+      #   APPLE_TEAM_ID                 — 10-character Apple Team ID
+      #   APPLE_ID                      — Apple ID email address
+      #   APPLE_APP_SPECIFIC_PASSWORD   — app-specific password (appleid.apple.com)
+
+      - name: Import signing certificate (macOS)
+        if: startsWith(matrix.platform, 'macos')
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+          echo "KEYCHAIN_PASSWORD=$KEYCHAIN_PASSWORD" >> "$GITHUB_ENV"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" \
+            -k "$KEYCHAIN_PATH" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+          security set-key-partition-list \
+            -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+      - name: Sign binary (macOS)
+        if: startsWith(matrix.platform, 'macos')
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          BINARY="target/${{ matrix.target }}/release/${{ matrix.binary }}"
+          codesign \
+            --sign "Developer ID Application: JOEL AARON KULESZA ($APPLE_TEAM_ID)" \
+            --options runtime \
+            --timestamp \
+            --verbose \
+            "$BINARY"
+          codesign --verify --verbose "$BINARY"
+
+      - name: Notarize binary (macOS)
+        if: startsWith(matrix.platform, 'macos')
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          BINARY="target/${{ matrix.target }}/release/${{ matrix.binary }}"
+          zip -j "$RUNNER_TEMP/notarize.zip" "$BINARY"
+          xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+
+      - name: Delete signing keychain (macOS)
+        if: startsWith(matrix.platform, 'macos') && always()
+        run: security delete-keychain "$KEYCHAIN_PATH"
+
       - name: Package (tar.gz)
         if: matrix.archive == 'tar'
         run: >
