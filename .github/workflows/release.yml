@@ -91,9 +91,11 @@ jobs:
         run: strip target/${{ matrix.target }}/release/${{ matrix.binary }}
 
       # ── macOS code signing & notarization ────────────────────────────────────
-      # Requires four repository secrets (see docs/signing.md for setup):
+      # Requires the following repository secrets:
       #   APPLE_CERTIFICATE             — base64-encoded Developer ID .p12
       #   APPLE_CERTIFICATE_PASSWORD    — export password for the .p12
+      #   APPLE_DEVELOPER_NAME          — name exactly as shown in the certificate
+      #                                   e.g. "JOEL AARON KULESZA"
       #   APPLE_TEAM_ID                 — 10-character Apple Team ID
       #   APPLE_ID                      — Apple ID email address
       #   APPLE_APP_SPECIFIC_PASSWORD   — app-specific password (appleid.apple.com)
@@ -126,10 +128,11 @@ jobs:
         if: startsWith(matrix.platform, 'macos')
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_DEVELOPER_NAME: ${{ secrets.APPLE_DEVELOPER_NAME }}
         run: |
           BINARY="target/${{ matrix.target }}/release/${{ matrix.binary }}"
           codesign \
-            --sign "Developer ID Application: JOEL AARON KULESZA ($APPLE_TEAM_ID)" \
+            --sign "Developer ID Application: $APPLE_DEVELOPER_NAME ($APPLE_TEAM_ID)" \
             --options runtime \
             --timestamp \
             --verbose \

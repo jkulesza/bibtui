@@ -415,6 +415,10 @@ cargo llvm-cov --workspace --summary-only
 
 ## Changelog
 
+### 0.51.1
+
+- **macOS signing identity configurable**: `APPLE_DEVELOPER_NAME` is now a separate repository secret used to construct the codesign identity string, replacing the previously hardcoded name
+
 ### 0.51.0
 
 - **Signed macOS binaries**: release builds for macOS (Apple Silicon and Intel) are now code-signed with a Developer ID Application certificate and notarized with Apple's notary service; Gatekeeper will no longer block the binary on first launch
