@@ -417,6 +417,10 @@ cargo llvm-cov --workspace --summary-only
 
 ## Changelog
 
+### 0.55.2
+
+- **Fix Windows compiler warning**: `copy_to_clipboard` parameter `text` was unused on non-macOS/Linux targets; suppress with `let _ = text` in the unsupported-platform branch
+
 ### 0.55.1
 
 - **Dependency security update**: `rustls-webpki` 0.103.12 → 0.103.13 (RUSTSEC-2026-0104 — reachable panic in certificate revocation list parsing via malformed CRL BIT STRING)

@@ -69,6 +69,7 @@ pub fn copy_to_clipboard(text: &str) -> anyhow::Result<()> {
 
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
+        let _ = text;
         anyhow::bail!("Clipboard not supported on this platform");
     }
 }
