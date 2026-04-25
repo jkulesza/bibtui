@@ -417,6 +417,10 @@ cargo llvm-cov --workspace --summary-only
 
 ## Changelog
 
+### 0.55.1
+
+- **Dependency security update**: `rustls-webpki` 0.103.12 → 0.103.13 (RUSTSEC-2026-0104 — reachable panic in certificate revocation list parsing via malformed CRL BIT STRING)
+
 ### 0.55.0
 
 - **Dependency security updates**: `rustls-webpki` 0.103.10 → 0.103.12 (fixes two name-constraints advisories: wildcard names and URI names accepted incorrectly); `rand` 0.8.5 → 0.8.6 and assorted other dependency updates via `cargo update`
