@@ -1492,6 +1492,49 @@ mod tests {
         let after = state.selected_value_str();
         assert_ne!(before, after);
     }
+
+    // ── wrap_text ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_wrap_text_fits_on_one_line() {
+        let lines = wrap_text("hello world", 20, " ", 4);
+        assert_eq!(lines, vec![" hello world"]);
+    }
+
+    #[test]
+    fn test_wrap_text_wraps_at_width() {
+        // width=12, prefix=" " → effective 11 chars per line
+        // "hello world" = 11 chars → fits; "foo" wraps to second line
+        let lines = wrap_text("hello world foo", 12, " ", 4);
+        assert_eq!(lines, vec![" hello world", " foo"]);
+    }
+
+    #[test]
+    fn test_wrap_text_prefix_on_every_line() {
+        let lines = wrap_text("a b c d", 4, " ", 4);
+        for line in &lines {
+            assert!(line.starts_with(' '), "expected leading space, got: {:?}", line);
+        }
+    }
+
+    #[test]
+    fn test_wrap_text_empty_returns_prefix_only() {
+        let lines = wrap_text("", 40, " ", 4);
+        assert_eq!(lines, vec![" "]);
+    }
+
+    #[test]
+    fn test_wrap_text_respects_max_lines() {
+        // Very narrow width forces many wraps; max_lines=2 should cap output
+        let lines = wrap_text("a b c d e f g", 4, " ", 2);
+        assert_eq!(lines.len(), 2);
+    }
+
+    #[test]
+    fn test_wrap_text_zero_width_returns_prefix_only() {
+        let lines = wrap_text("some text", 0, " ", 4);
+        assert_eq!(lines, vec![" "]);
+    }
 }
 
 // ── Render ────────────────────────────────────────────────────────────────────
@@ -1499,11 +1542,48 @@ mod tests {
 const LABEL_W: usize = 26;
 const VAL_W: usize = 18;
 
+/// Word-wrap `text` into lines, each prefixed with `prefix`.
+/// Returns at most `max_lines` lines.
+fn wrap_text(text: &str, width: usize, prefix: &str, max_lines: usize) -> Vec<String> {
+    let effective_w = width.saturating_sub(prefix.len());
+    if effective_w == 0 || text.is_empty() {
+        return vec![prefix.to_string()];
+    }
+    let mut lines: Vec<String> = Vec::new();
+    let mut current = String::new();
+    for word in text.split_whitespace() {
+        if current.is_empty() {
+            current.push_str(word);
+        } else if current.len() + 1 + word.len() <= effective_w {
+            current.push(' ');
+            current.push_str(word);
+        } else {
+            lines.push(format!("{}{}", prefix, current));
+            if lines.len() == max_lines {
+                return lines;
+            }
+            current = word.to_string();
+        }
+    }
+    lines.push(format!("{}{}", prefix, current));
+    lines
+}
+
 pub fn render_settings(f: &mut Frame, area: Rect, state: &mut SettingsState, theme: &Theme) {
+    // Description height: word-wrap the selected item's text and size to fit,
+    // capped at 4 inner lines so it never dominates the layout.
+    let desc_text = state
+        .selected_item()
+        .map(|i| i.description.clone())
+        .unwrap_or_default();
+    let desc_inner_w = area.width.saturating_sub(3) as usize; // 2 borders + 1 leading space
+    let desc_wrapped = wrap_text(&desc_text, desc_inner_w, " ", 4);
+    let desc_height = (desc_wrapped.len() as u16).max(1) + 2; // +2 for top/bottom borders
+
     // Split into list + description + hint
     let v = Layout::vertical([
         Constraint::Min(3),
-        Constraint::Length(3),
+        Constraint::Length(desc_height),
         Constraint::Length(1),
     ])
     .split(area);
@@ -1710,18 +1790,11 @@ pub fn render_settings(f: &mut Frame, area: Rect, state: &mut SettingsState, the
     let desc_inner = desc_block.inner(desc_area);
     f.render_widget(desc_block, desc_area);
 
-    let desc_text = state
-        .selected_item()
-        .map(|i| i.description.as_str())
-        .unwrap_or("");
-    f.render_widget(
-        Paragraph::new(Line::from(Span::styled(
-            format!(" {}", desc_text),
-            theme.value,
-        )))
-        .wrap(ratatui::widgets::Wrap { trim: false }),
-        desc_inner,
-    );
+    let desc_lines: Vec<Line> = desc_wrapped
+        .into_iter()
+        .map(|s| Line::from(Span::styled(s, theme.value)))
+        .collect();
+    f.render_widget(Paragraph::new(desc_lines), desc_inner);
 
     // ── Hint bar ────────────────────────────────────────────────────────────
     let action_hint = if state.selected_is_column() {

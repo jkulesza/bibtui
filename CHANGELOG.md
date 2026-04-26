@@ -1,5 +1,10 @@
 # Changelog
 
+### 0.56.2
+
+- **Settings description wrapping**: description box now sizes itself to the text (1–4 inner lines) so long descriptions are shown in full rather than clipped; continuation lines are indented by one space to stay visually flush with the first line
+- **6 new tests** for the `wrap_text` helper (single line, wrap at width, prefix on every line, empty input, max-line cap, zero width)
+
 ### 0.56.1
 
 - **Fix false "modified" indicator on `dirty` column**: default header was `" "` (space) while configs use `""` (empty string); the Settings column row now correctly shows unmodified when both are blank
