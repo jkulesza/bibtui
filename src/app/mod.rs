@@ -1677,6 +1677,22 @@ impl App {
     /// Resolve the citation key template for a given entry type using precedence:
     /// 1. Per-type pattern from .bib JabRef metadata
     /// 2. Default pattern from .bib JabRef metadata
+    /// Return a key that does not collide with any existing entry, excluding
+    /// `current_key` (the entry being renamed, whose slot is about to be freed).
+    fn unique_citekey(&self, base: &str, current_key: &str) -> String {
+        if !self.database.entries.contains_key(base) || base == current_key {
+            return base.to_string();
+        }
+        let mut n = 2usize;
+        loop {
+            let candidate = format!("{}_{}", base, n);
+            if !self.database.entries.contains_key(&candidate) || candidate == current_key {
+                return candidate;
+            }
+            n += 1;
+        }
+    }
+
     /// 3. Per-type pattern from YAML config
     /// 4. Hardcoded default: `{DisplayName}_[year]_[auth]`
     fn resolve_citekey_template(&self, type_name: &str, display_name: &str) -> String {
@@ -1701,7 +1717,8 @@ impl App {
 
                 let mut gen_fields = entry.fields.clone();
                 gen_fields.entry("entrytype".to_string()).or_insert_with(|| display_name.to_string());
-                let new_key = generate_citekey(&template, &gen_fields);
+                let base_key = generate_citekey(&template, &gen_fields);
+                let new_key = self.unique_citekey(&base_key, key);
 
                 if new_key != *key {
                     // Re-key the entry
@@ -1753,19 +1770,7 @@ impl App {
                 continue;
             }
 
-            // Resolve collisions with a numeric suffix.
-            let new_key = if !self.database.entries.contains_key(&base_new_key) {
-                base_new_key.clone()
-            } else {
-                let mut n = 2usize;
-                loop {
-                    let candidate = format!("{}_{}", base_new_key, n);
-                    if !self.database.entries.contains_key(&candidate) {
-                        break candidate;
-                    }
-                    n += 1;
-                }
-            };
+            let new_key = self.unique_citekey(&base_new_key, &key);
 
             if new_key == key {
                 continue;
@@ -6778,6 +6783,89 @@ mod tests {
             app.database.entries.keys().collect::<Vec<_>>()
         );
         assert!(!app.database.entries.contains_key("Smith2020"), "old key should be gone");
+    }
+
+    // ── unique_citekey / collision resolution ────────────────────────────────
+
+    #[test]
+    fn test_unique_citekey_free_base_returned_as_is() {
+        let (app, _tmp) = make_app();
+        assert_eq!(app.unique_citekey("NewKey", "anything"), "NewKey");
+    }
+
+    #[test]
+    fn test_unique_citekey_current_key_counts_as_free() {
+        // Smith2020 exists in the DB; if current_key IS Smith2020 the slot is being
+        // freed — the base key should be returned unchanged.
+        let (app, _tmp) = make_app();
+        assert_eq!(app.unique_citekey("Smith2020", "Smith2020"), "Smith2020");
+    }
+
+    #[test]
+    fn test_unique_citekey_collision_gets_suffix() {
+        // Smith2020 exists; a different entry wants the same base → should get _2.
+        let (app, _tmp) = make_app();
+        assert_eq!(app.unique_citekey("Smith2020", "Doe2021"), "Smith2020_2");
+    }
+
+    #[test]
+    fn test_unique_citekey_suffix_slot_is_current_key() {
+        // Smith2020 exists; Smith2020_2 also exists (as current entry's own key).
+        // The loop must recognise _2 as the current entry's slot and return it,
+        // not skip to _3 (the original bug).
+        let mut tmp = NamedTempFile::new().unwrap();
+        write!(tmp, concat!(
+            "@Article{{Smith2020,\n  author={{}},\n  title={{}},\n  year={{2020}},\n  journal={{Nature}},\n}}\n",
+            "@Article{{Smith2020_2,\n  author={{}},\n  title={{}},\n  year={{2020}},\n  journal={{Nature}},\n}}\n",
+        )).unwrap();
+        tmp.flush().unwrap();
+        let app = App::new(tmp.path().to_path_buf(), default_config()).unwrap();
+        // Smith2020_2 is being renamed; its own slot should be chosen, not _3.
+        assert_eq!(app.unique_citekey("Smith2020", "Smith2020_2"), "Smith2020_2");
+        let _tmp = tmp;
+    }
+
+    #[test]
+    fn test_regen_citekey_collision_resolved_with_suffix() {
+        // Two articles produce the same template output. The second should get _2.
+        let mut tmp = NamedTempFile::new().unwrap();
+        write!(tmp, concat!(
+            "@Article{{Article_2020_N_Smith,\n  author={{Smith, John}},\n  title={{P1}},\n  year={{2020}},\n  journal={{Nature}},\n}}\n",
+            "@Article{{OldKey,\n  author={{Smith, John}},\n  title={{P2}},\n  year={{2020}},\n  journal={{Nature}},\n}}\n",
+        )).unwrap();
+        tmp.flush().unwrap();
+        let mut app = App::new(tmp.path().to_path_buf(), default_config()).unwrap();
+        app.handle_action(Action::OpenDetail);
+        app.detail_entry_key = Some("OldKey".to_string());
+        if let Some(e) = app.database.entries.get("OldKey") {
+            app.detail_state = Some(EntryDetailState::new(e, app.config.field_groups.clone()));
+        }
+        app.handle_action(Action::RegenCitekey);
+        assert!(app.database.entries.contains_key("Article_2020_N_Smith_2"),
+            "collision should produce _2 suffix; keys={:?}", app.database.entries.keys().collect::<Vec<_>>());
+        assert!(!app.database.entries.contains_key("OldKey"), "old key should be gone");
+        let _tmp = tmp;
+    }
+
+    #[test]
+    fn test_regen_all_citekeys_preserves_suffix_not_bumps_to_3() {
+        // Article_2020_N_Smith exists and Article_2020_N_Smith_2 also exists.
+        // Regen-all should leave both unchanged — _2 keeps _2, not _3.
+        let mut tmp = NamedTempFile::new().unwrap();
+        write!(tmp, concat!(
+            "@Article{{Article_2020_N_Smith,\n  author={{Smith, John}},\n  title={{P1}},\n  year={{2020}},\n  journal={{Nature}},\n}}\n",
+            "@Article{{Article_2020_N_Smith_2,\n  author={{Smith, John}},\n  title={{P2}},\n  year={{2020}},\n  journal={{Nature}},\n}}\n",
+        )).unwrap();
+        tmp.flush().unwrap();
+        let mut app = App::new(tmp.path().to_path_buf(), default_config()).unwrap();
+        app.handle_action(Action::RegenAllCitekeys);
+        assert!(app.database.entries.contains_key("Article_2020_N_Smith"),
+            "primary key must survive; keys={:?}", app.database.entries.keys().collect::<Vec<_>>());
+        assert!(app.database.entries.contains_key("Article_2020_N_Smith_2"),
+            "_2 must be preserved, not bumped to _3; keys={:?}", app.database.entries.keys().collect::<Vec<_>>());
+        assert!(!app.database.entries.contains_key("Article_2020_N_Smith_3"),
+            "must not create spurious _3");
+        let _tmp = tmp;
     }
 
     // ── Close citation preview ────────────────────────────────────────────────

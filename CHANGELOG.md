@@ -1,5 +1,10 @@
 # Changelog
 
+### 0.56.3
+
+- **Fix citekey uniqueness logic**: `regen_citekey` (single `c` key) now resolves collisions before inserting — previously a generated key that matched an existing entry would silently overwrite it; `regen_all_citekeys` (`C` key and auto-regen on save) no longer bumps an entry like `Key_2` to `Key_3` when `Key` is taken — the current entry's own slot is correctly recognised as free during the suffix search
+- **6 new tests**: `unique_citekey` free-base, current-key-counts-as-free, collision-gets-suffix, suffix-slot-is-current-key (the exact bug scenario), `regen_citekey` collision resolved with suffix, `regen_all_citekeys` preserves suffix without spurious bump
+
 ### 0.56.2
 
 - **Settings description wrapping**: description box now sizes itself to the text (1–4 inner lines) so long descriptions are shown in full rather than clipped; continuation lines are indented by one space to stay visually flush with the first line
