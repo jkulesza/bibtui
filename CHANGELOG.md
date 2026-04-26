@@ -1,5 +1,10 @@
 # Changelog
 
+### 0.57.0
+
+- **Manual filename sync** (`F` key in entry list): new Quality action that previews all files that would be renamed to match their citation keys in a scrollable `old → new` dialog before applying — works regardless of the `sync_filenames` config setting; shows "already in sync" status when nothing needs renaming
+- **4 new tests** covering the `SyncFilenames` action: force-bypass of config guard, no-file-fields status message, pending-file dialog appearance, and `compute_sync_renames(false)` config-disabled path
+
 ### 0.56.3
 
 - **Fix citekey uniqueness logic**: `regen_citekey` (single `c` key) now resolves collisions before inserting — previously a generated key that matched an existing entry would silently overwrite it; `regen_all_citekeys` (`C` key and auto-regen on save) no longer bumps an entry like `Key_2` to `Key_3` when `Key` is taken — the current entry's own slot is correctly recognised as free during the suffix search

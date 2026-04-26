@@ -106,6 +106,7 @@ fn render_entry_list_help(f: &mut Frame, area: Rect, theme: &Theme) {
                 ("C",   "regenerate all cite keys"),
                 ("M",   "name disambiguator"),
                 ("v",   "validate (preview save)"),
+                ("F",   "sync all filenames to cite keys"),
             ],
         ),
         (
@@ -325,6 +326,7 @@ mod tests {
         assert!(rendered.contains('C'), "missing C (regen citekeys)");
         assert!(rendered.contains('M'), "missing M (disambiguator)");
         assert!(rendered.contains('v'), "missing v (validate)");
+        assert!(rendered.contains('F'), "missing F (sync filenames)");
     }
 
     #[test]

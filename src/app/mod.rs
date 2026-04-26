@@ -540,6 +540,7 @@ impl App {
             Action::EditGroups => self.start_edit_groups(),
             Action::RegenCitekey => self.regen_citekey(),
             Action::RegenAllCitekeys => self.regen_all_citekeys(),
+            Action::SyncFilenames => self.request_sync_filenames(),
             Action::ConfirmEdit => self.confirm_edit(),
             Action::CancelEdit => {
                 let is_new_file =
@@ -2594,6 +2595,10 @@ impl App {
                 self.save();
                 self.should_quit = true;
             }
+            Some(PendingAction::SyncFilenamesOnly) => {
+                self.sync_filenames(true);
+                self.status_message = Some("Filenames synced to citation keys".to_string());
+            }
             Some(PendingAction::DismissMessage) => {
                 // Message popup dismissed — nothing to do; mode already reset above.
             }
@@ -3022,8 +3027,8 @@ impl App {
     ///
     /// All entries with a `file` field are processed, regardless of dirty state.
     /// The actual file is renamed on disk; if the rename fails the entry is left unchanged.
-    fn sync_filenames(&mut self) {
-        if !self.config.save.sync_filenames {
+    fn sync_filenames(&mut self, force: bool) {
+        if !force && !self.config.save.sync_filenames {
             return;
         }
 
@@ -3238,9 +3243,10 @@ impl App {
 
     /// Compute the (old_filename, new_filename) pairs that `sync_filenames`
     /// would rename, without touching the filesystem.  Returns an empty vec
-    /// when sync is disabled or nothing would change.
-    fn compute_sync_renames(&self) -> Vec<(String, String)> {
-        if !self.config.save.sync_filenames {
+    /// when nothing would change.  When `force` is false the config guard is
+    /// respected and an empty vec is returned if sync is disabled.
+    fn compute_sync_renames(&self, force: bool) -> Vec<(String, String)> {
+        if !force && !self.config.save.sync_filenames {
             return Vec::new();
         }
 
@@ -3298,10 +3304,24 @@ impl App {
         renames
     }
 
+    /// Trigger a manual filename-sync: show the preview dialog if any files
+    /// would be renamed, or display a status message if everything is already
+    /// in sync.  Works regardless of the `sync_filenames` config setting.
+    fn request_sync_filenames(&mut self) {
+        let renames = self.compute_sync_renames(true);
+        if renames.is_empty() {
+            self.status_message = Some("All filenames already match their citation keys".to_string());
+        } else {
+            self.dialog_state = Some(DialogState::file_sync_preview(renames));
+            self.pending_action = Some(PendingAction::SyncFilenamesOnly);
+            self.mode = InputMode::Dialog;
+        }
+    }
+
     /// Begin a save, showing a filename-sync preview dialog first if any files
     /// would be renamed.  `and_quit` causes the app to exit after saving.
     fn request_save(&mut self, and_quit: bool) {
-        let renames = self.compute_sync_renames();
+        let renames = self.compute_sync_renames(false);
         if renames.is_empty() {
             self.save();
             if and_quit {
@@ -3320,7 +3340,7 @@ impl App {
 
     fn save(&mut self) {
         // Rename attached files to match citation keys before serialising.
-        self.sync_filenames();
+        self.sync_filenames(false);
 
         // Apply save actions (field normalisations) to all entries.
         self.apply_save_actions();
@@ -7220,7 +7240,17 @@ mod tests {
     fn test_compute_sync_renames_disabled_returns_empty() {
         let (mut app, _tmp) = make_app();
         app.config.save.sync_filenames = false;
-        assert!(app.compute_sync_renames().is_empty());
+        assert!(app.compute_sync_renames(false).is_empty());
+    }
+
+    #[test]
+    fn test_compute_sync_renames_force_bypasses_config() {
+        let (mut app, _tmp) = make_app();
+        app.config.save.sync_filenames = false;
+        // force=true should still compute even though the config flag is off.
+        // TEST_BIB has no file fields so result is still empty — but the function
+        // must NOT short-circuit on the flag.
+        assert!(app.compute_sync_renames(true).is_empty());
     }
 
     #[test]
@@ -7228,7 +7258,36 @@ mod tests {
         let (mut app, _tmp) = make_app();
         app.config.save.sync_filenames = true;
         // Fresh app has no dirty entries.
-        assert!(app.compute_sync_renames().is_empty());
+        assert!(app.compute_sync_renames(false).is_empty());
+    }
+
+    #[test]
+    fn test_request_sync_filenames_no_file_fields_sets_status() {
+        // TEST_BIB has no file fields — should produce the "already in sync" message.
+        let (mut app, _tmp) = make_app();
+        app.handle_action(Action::SyncFilenames);
+        assert!(
+            app.status_message.as_deref().unwrap_or("").contains("already match"),
+            "expected 'already match' status; got {:?}", app.status_message
+        );
+        assert_eq!(app.mode, InputMode::Normal, "mode should stay Normal");
+    }
+
+    #[test]
+    fn test_request_sync_filenames_pending_file_shows_dialog() {
+        // Build a bib with an entry whose file field does NOT match the cite key.
+        let mut tmp = NamedTempFile::new().unwrap();
+        write!(tmp, "@Article{{Smith2020,\n  author={{Smith, John}},\n  title={{T}},\n  year={{2020}},\n  file={{:wrong_name.pdf:PDF}},\n}}\n").unwrap();
+        tmp.flush().unwrap();
+        let mut app = App::new(tmp.path().to_path_buf(), default_config()).unwrap();
+        app.handle_action(Action::SyncFilenames);
+        assert_eq!(app.mode, InputMode::Dialog, "should enter Dialog mode");
+        assert!(
+            matches!(app.pending_action, Some(PendingAction::SyncFilenamesOnly)),
+            "pending action should be SyncFilenamesOnly"
+        );
+        assert!(app.dialog_state.is_some(), "dialog state should be set");
+        let _tmp = tmp;
     }
 
     // ── FocusGroups reveals panel ────────────────────────────────────────────

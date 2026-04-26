@@ -30,6 +30,7 @@ pub enum Action {
     EditGroups,
     RegenCitekey,
     RegenAllCitekeys,
+    SyncFilenames,
     ConfirmEdit,
     CancelEdit,
     EditChar(char),
@@ -245,4 +246,6 @@ pub(super) enum PendingAction {
     EditColumnWidth { index: usize },
     /// Waiting for the user to rename a column (field|header string).
     RenameColumn { index: usize },
+    /// Confirmed the manual filename-sync preview — apply renames now.
+    SyncFilenamesOnly,
 }
