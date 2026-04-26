@@ -268,4 +268,39 @@ mod tests {
             Some("10.13182/META-DOI".to_string())
         );
     }
+
+    #[test]
+    fn test_extract_doi_from_html_dc_identifier() {
+        // DC.Identifier is Pattern 2 — used when citation_doi is absent
+        let html = r#"<meta name="DC.Identifier" content="10.13182/DC-DOI">"#;
+        assert_eq!(
+            extract_doi_from_html(html),
+            Some("10.13182/DC-DOI".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_doi_from_html_dc_identifier_non_doi_falls_through() {
+        // DC.Identifier value that is not a DOI (doesn't start with "10.")
+        // must be rejected; href fallback should then succeed.
+        let html = r#"<meta name="DC.Identifier" content="urn:isbn:1234567890">
+            <a href="https://doi.org/10.13182/REAL-DOI">text</a>"#;
+        assert_eq!(
+            extract_doi_from_html(html),
+            Some("10.13182/REAL-DOI".to_string())
+        );
+    }
+
+    #[test]
+    fn test_pdf_candidates_dedup_meta_and_direct_url() {
+        // citation_pdf_url meta value matches the constructed ANS direct URL — only one entry kept
+        let html = r#"<meta name="citation_pdf_url" content="https://www.ans.org/pubs/journals/nse/article-60004/pdf/">"#;
+        let candidates = pdf_url_candidates(
+            html,
+            "10.13182/NSE20-1234",
+            "https://www.ans.org/pubs/journals/nse/article-60004/", // trailing slash variant
+        );
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0], "https://www.ans.org/pubs/journals/nse/article-60004/pdf/");
+    }
 }

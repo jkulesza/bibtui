@@ -317,4 +317,56 @@ mod tests {
             Some("10.1016/j.anucene.2020.107650".to_string())
         );
     }
+
+    #[test]
+    fn test_extract_doi_from_path_header_hit() {
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        use std::io::Write;
+        tmp.write_all(b"%PDF-1.4\n/Subject (doi:10.1016/j.foo.2024.001)\n").unwrap();
+        tmp.flush().unwrap();
+        let doi = PdfFetcher::extract_doi_from_path(tmp.path()).unwrap();
+        assert_eq!(doi, "10.1016/j.foo.2024.001");
+    }
+
+    #[test]
+    fn test_extract_doi_from_path_tail_hit() {
+        // DOI lives only in the tail (last 50 KB); header has no DOI.
+        // Pad the middle with > 200 KB of non-DOI bytes so the head scan misses.
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        use std::io::Write;
+        tmp.write_all(b"%PDF-1.4\n").unwrap();
+        // 250 KB of filler with no DOI — exceeds the 200 KB head window
+        tmp.write_all(&vec![b'x'; 250_000]).unwrap();
+        tmp.write_all(b"\n/trailer doi:10.9999/tail.found\n").unwrap();
+        tmp.flush().unwrap();
+        let doi = PdfFetcher::extract_doi_from_path(tmp.path()).unwrap();
+        assert_eq!(doi, "10.9999/tail.found");
+    }
+
+    #[test]
+    fn test_extract_doi_from_path_not_pdf_magic() {
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        use std::io::Write;
+        tmp.write_all(b"NOT A PDF\ndoi:10.1234/foo.bar\n").unwrap();
+        tmp.flush().unwrap();
+        let err = PdfFetcher::extract_doi_from_path(tmp.path()).unwrap_err();
+        assert!(matches!(err, ImportError::Parse(_)));
+    }
+
+    #[test]
+    fn test_extract_doi_from_path_no_doi_anywhere() {
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        use std::io::Write;
+        tmp.write_all(b"%PDF-1.4\nplain content with no doi at all\n").unwrap();
+        tmp.flush().unwrap();
+        let err = PdfFetcher::extract_doi_from_path(tmp.path()).unwrap_err();
+        assert!(matches!(err, ImportError::Parse(_)));
+    }
+
+    #[test]
+    fn test_can_handle_accepts_existing_pdf_path() {
+        // A real .pdf file on disk should be accepted; case-insensitive extension match.
+        let tmp = tempfile::Builder::new().suffix(".PDF").tempfile().unwrap();
+        assert!(PdfFetcher.can_handle(tmp.path().to_str().unwrap()));
+    }
 }
