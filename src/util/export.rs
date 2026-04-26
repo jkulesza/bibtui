@@ -486,20 +486,6 @@ mod tests {
 
     // ── csl_type / ris_type coverage for remaining entry types ───────────────
 
-    fn make_entry(entry_type: EntryType, key: &str) -> Entry {
-        let mut fields = IndexMap::new();
-        fields.insert("title".to_string(), "A Title".to_string());
-        fields.insert("year".to_string(), "2000".to_string());
-        Entry {
-            entry_type,
-            citation_key: key.to_string(),
-            fields,
-            group_memberships: vec![],
-            raw_index: 0,
-            dirty: false,
-        }
-    }
-
     #[test]
     fn test_csl_type_mappings() {
         let cases = [

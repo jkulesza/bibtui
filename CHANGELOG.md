@@ -1,5 +1,11 @@
 # Changelog
 
+### 0.55.2
+
+- **Remove unused dead code**: removed unused `make_entry` test helper in `src/util/export.rs` to eliminate compiler warning
+- **Dependency update**: `openssl` 0.10.77 → 0.10.78, `openssl-sys` 0.9.113 → 0.9.114
+- **Fix custom skill invocation**: moved `.claude/skills/commit.md` to `.claude/skills/commit/SKILL.md` so the `/commit` slash command is correctly recognized by Claude Code
+
 ### 0.55.1
 
 - **Dependency security update**: `rustls-webpki` 0.103.12 → 0.103.13 (RUSTSEC-2026-0104 — reachable panic in certificate revocation list parsing via malformed CRL BIT STRING)
