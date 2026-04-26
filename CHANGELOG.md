@@ -1,5 +1,10 @@
 # Changelog
 
+### 0.56.0
+
+- **Richer default citekey templates**: all entry types now use field-aware templates matching the `bibtui.yaml` reference config — `article` includes journal abbreviation, author list, and pages; `book` appends a camel-cased short title; `techreport` includes institution abbreviation and report number; `inproceedings`/`proceedings` include booktitle abbreviation; `mastersthesis` → `MS-Thesis_…`, `phdthesis` → `PhD-Thesis_…`; `misc` encodes howpublished and title; multi-author tokens use `[authors2]` (first two names + EtAl when more)
+- **Default column layout**: replaced the `journal` column with `citekey` (15 % width) to match the reference config
+
 ### 0.55.3
 
 - **Expanded import-fetcher test coverage**: 8 new tests; `util/import/ans.rs` 86.98% → 90.05% (DC.Identifier meta-tag path, non-DOI value fall-through to href, candidate dedup); `util/import/pdf.rs` 83.58% → 92.34% (real PDF file with header/tail DOI extraction, non-PDF magic rejection, no-DOI-anywhere failure, `.PDF` extension acceptance); overall line coverage 79.61% → 79.71%

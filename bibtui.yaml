@@ -42,19 +42,19 @@ citation:
   style: IEEEtranN
 citekey:
   templates:
-    article: Article_[year]_[journal_abbrev]_[authors]_[pages]
-    book: Book_[number:regex(" \d+$", "")]_[year]_[auth]_[shorttitle:camel]
-    techreport: TechReport_[year]_[institution:abbr]_[number]_[authors]
-    inproceedings: Proceedings_[year]_[booktitle:abbr]_[authors]_[pages]
-    phdthesis: PhD-Thesis_[year]_[auth]
-    mastersthesis: MS-Thesis_[year]_[auth]
-    misc: Misc_[year]_[howpublished:camel]_[authors]_[title:camel]
-    booklet: Booklet_[year]_[auth]
-    inbook: InBook_[year]_[auth]
-    incollection: InCollection_[year]_[auth]
-    manual: Manual_[year]_[auth]
-    proceedings: Proceedings_[year]_[auth]
-    unpublished: Unpublished_[year]_[auth]
+    article: "Article_[year]_[journal_abbrev]_[authors2]_[pages]"
+    book: 'Book_[loc_call_number:regex(" [0-9]+", "")]_[year]_[auth]_[shorttitle:camel]'
+    techreport: "[type:(TechReport)]_[year]_[institution:abbr]_[number]_[authors2]"
+    inproceedings: "Proceedings_[year]_[booktitle:abbr]_[authors2]_[pages]"
+    phdthesis: "PhD-Thesis_[year]_[auth]"
+    mastersthesis: "MS-Thesis_[year]_[auth]"
+    misc: "Misc_[year]_[howpublished:camel]_[authors2]_[title:camel]"
+    booklet: "Booklet_[year]_[auth]"
+    inbook: "InBook_[year]_[auth]"
+    incollection: "InCollection_[year]_[auth]"
+    manual: "Manual_[year]_[auth]"
+    proceedings: "Proceedings_[year]_[booktitle:abbr]_[authors2]"
+    unpublished: "Unpublished_[year]_[auth]"
 entry_types: {}
 save:
   align_fields: true
@@ -122,4 +122,8 @@ field_groups:
 - name: LANL
   fields:
   - classification_key
+- name: Library of Congress
+  fields:
+  - loc_url
+  - loc_call_number
 keybindings: {}

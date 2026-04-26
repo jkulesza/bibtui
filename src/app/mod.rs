@@ -6728,18 +6728,20 @@ mod tests {
         // so that reverting the field also reverts the auto-generated key.
         // Template: Article_[year]_[auth]
         // For year=2020, author=Smith → Article_2020_Smith
+        // Template: Article_[year]_[journal_abbrev]_[authors]_[pages]
+        // For year=2020, journal=Nature (abbrev "N"), author=Smith → Article_2020_N_Smith
         let mut tmp = NamedTempFile::new().unwrap();
-        write!(tmp, "@Article{{Article_2020_Smith,\n  author  = {{Smith, John}},\n  title   = {{My Paper}},\n  year    = {{2020}},\n  journal = {{Nature}},\n}}\n").unwrap();
+        write!(tmp, "@Article{{Article_2020_N_Smith,\n  author  = {{Smith, John}},\n  title   = {{My Paper}},\n  year    = {{2020}},\n  journal = {{Nature}},\n}}\n").unwrap();
         tmp.flush().unwrap();
         let app_result = App::new(tmp.path().to_path_buf(), default_config());
         let mut app = app_result.unwrap();
 
         app.handle_action(Action::OpenDetail);
-        app.detail_entry_key = Some("Article_2020_Smith".to_string());
+        app.detail_entry_key = Some("Article_2020_N_Smith".to_string());
 
         use crate::tui::components::field_editor::FieldEditorState;
 
-        // Modify the year field — key auto-regens to Article_2099_Smith.
+        // Modify the year field — key auto-regens to Article_2099_N_Smith.
         app.field_editor_state = Some(FieldEditorState::new("year", "2099"));
         app.handle_action(Action::ConfirmEdit);
         assert!(app.database.entries.values().any(|e| e.dirty), "should be dirty after change");
@@ -6768,10 +6770,11 @@ mod tests {
         app.handle_action(Action::ConfirmEdit);
 
         // Key should have been auto-regenerated to reflect the new year.
-        // Template: Article_[year]_[auth]  →  Article_2023_Smith
+        // Template: Article_[year]_[journal_abbrev]_[authors]_[pages]
+        // Smith2020 has journal=Nature (abbrev "N"), author=Smith, no pages → Article_2023_N_Smith
         assert!(
-            app.database.entries.contains_key("Article_2023_Smith"),
-            "expected auto-regenerated key Article_2023_Smith; keys: {:?}",
+            app.database.entries.contains_key("Article_2023_N_Smith"),
+            "expected auto-regenerated key Article_2023_N_Smith; keys: {:?}",
             app.database.entries.keys().collect::<Vec<_>>()
         );
         assert!(!app.database.entries.contains_key("Smith2020"), "old key should be gone");

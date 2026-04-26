@@ -80,28 +80,28 @@ pub fn default_columns() -> Vec<ColumnConfig> {
             max_width: None,
         },
         ColumnConfig {
-            field: "journal".to_string(),
-            header: "Journal".to_string(),
-            width: ColumnWidth::Percent(10),
-            max_width: Some(22),
+            field: "citekey".to_string(),
+            header: "citekey".to_string(),
+            width: ColumnWidth::Percent(15),
+            max_width: None,
         },
     ]
 }
 
 pub fn default_citekey_templates() -> IndexMap<String, String> {
     let mut m = IndexMap::new();
-    m.insert("article".to_string(),       "Article_[year]_[auth]".to_string());
-    m.insert("book".to_string(),          "Book_[year]_[auth]".to_string());
+    m.insert("article".to_string(),       "Article_[year]_[journal_abbrev]_[authors2]_[pages]".to_string());
+    m.insert("book".to_string(),          "Book_[year]_[auth]_[shorttitle:camel]".to_string());
     m.insert("booklet".to_string(),       "Booklet_[year]_[auth]".to_string());
     m.insert("inbook".to_string(),        "InBook_[year]_[auth]".to_string());
     m.insert("incollection".to_string(),  "InCollection_[year]_[auth]".to_string());
-    m.insert("inproceedings".to_string(), "InProceedings_[year]_[auth]".to_string());
+    m.insert("inproceedings".to_string(), "Proceedings_[year]_[booktitle:abbr]_[authors2]_[pages]".to_string());
     m.insert("manual".to_string(),        "Manual_[year]_[auth]".to_string());
-    m.insert("mastersthesis".to_string(), "MastersThesis_[year]_[auth]".to_string());
-    m.insert("misc".to_string(),          "Misc_[year]_[auth]".to_string());
-    m.insert("phdthesis".to_string(),     "PhdThesis_[year]_[auth]".to_string());
-    m.insert("proceedings".to_string(),   "Proceedings_[year]_[auth]".to_string());
-    m.insert("techreport".to_string(),    "TechReport_[year]_[auth]".to_string());
+    m.insert("mastersthesis".to_string(), "MS-Thesis_[year]_[auth]".to_string());
+    m.insert("misc".to_string(),          "Misc_[year]_[howpublished:camel]_[authors2]_[title:camel]".to_string());
+    m.insert("phdthesis".to_string(),     "PhD-Thesis_[year]_[auth]".to_string());
+    m.insert("proceedings".to_string(),   "Proceedings_[year]_[booktitle:abbr]_[authors2]".to_string());
+    m.insert("techreport".to_string(),    "[type:(TechReport)]_[year]_[institution:abbr]_[number]_[authors2]".to_string());
     m.insert("unpublished".to_string(),   "Unpublished_[year]_[auth]".to_string());
     m
 }
@@ -142,6 +142,8 @@ mod tests {
         assert!(fields.contains(&"title"));
         assert!(fields.contains(&"year"));
         assert!(fields.contains(&"entrytype"));
+        assert!(fields.contains(&"citekey"));
+        assert!(!fields.contains(&"journal"), "journal column removed from default layout");
     }
 
     #[test]
