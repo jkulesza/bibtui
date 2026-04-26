@@ -39,7 +39,7 @@ pub fn default_columns() -> Vec<ColumnConfig> {
     vec![
         ColumnConfig {
             field: "dirty".to_string(),
-            header: " ".to_string(),
+            header: "".to_string(),
             width: ColumnWidth::Fixed(2),
             max_width: None,
         },

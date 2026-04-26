@@ -1644,12 +1644,26 @@ pub fn render_settings(f: &mut Frame, area: Rect, state: &mut SettingsState, the
                     base_style
                 };
 
+                let hint_text = if let Some((_, _, dw)) = default_columns.iter()
+                    .find(|(df, _, _)| df == field)
+                {
+                    let dw_trunc: String = dw.chars().take(default_w).collect();
+                    format!("default: {}", dw_trunc)
+                } else {
+                    "fixed:N / percent:N / flex [max:N]".to_string()
+                };
+                let hint_style = if is_modified {
+                    Style::default().fg(Color::DarkGray)
+                } else {
+                    theme.label
+                };
+
                 Line::from(vec![
                     Span::styled(format!(" {} [C] ", cursor_ch), base_style),
                     Span::styled(label, base_style),
                     Span::styled(val_padded, val_style),
                     Span::styled(mod_marker, mod_style),
-                    Span::styled("fixed:N / percent:N / flex [max:N]", theme.label),
+                    Span::styled(hint_text, hint_style),
                 ])
             }
             SettingRow::FieldGroup(fg_idx) => {

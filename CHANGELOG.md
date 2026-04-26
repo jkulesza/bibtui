@@ -1,5 +1,10 @@
 # Changelog
 
+### 0.56.1
+
+- **Fix false "modified" indicator on `dirty` column**: default header was `" "` (space) while configs use `""` (empty string); the Settings column row now correctly shows unmodified when both are blank
+- **Settings column default hint**: column rows now show `default: <width>` (matching the item-row style) instead of the static format hint; falls back to the format hint for user-added columns with no default
+
 ### 0.56.0
 
 - **Richer default citekey templates**: all entry types now use field-aware templates matching the `bibtui.yaml` reference config — `article` includes journal abbreviation, author list, and pages; `book` appends a camel-cased short title; `techreport` includes institution abbreviation and report number; `inproceedings`/`proceedings` include booktitle abbreviation; `mastersthesis` → `MS-Thesis_…`, `phdthesis` → `PhD-Thesis_…`; `misc` encodes howpublished and title; multi-author tokens use `[authors2]` (first two names + EtAl when more)
