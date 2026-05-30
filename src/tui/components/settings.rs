@@ -1535,6 +1535,181 @@ mod tests {
         let lines = wrap_text("some text", 0, " ", 4);
         assert_eq!(lines, vec![" "]);
     }
+
+    // ── format_width_spec / parse_width_spec round-trips ──────────────────────
+
+    #[test]
+    fn test_format_width_spec_flex() {
+        assert_eq!(format_width_spec(&ColumnWidth::Flex, None), "flex");
+    }
+
+    #[test]
+    fn test_format_width_spec_fixed() {
+        assert_eq!(format_width_spec(&ColumnWidth::Fixed(20), None), "fixed:20");
+    }
+
+    #[test]
+    fn test_format_width_spec_percent() {
+        assert_eq!(format_width_spec(&ColumnWidth::Percent(30), None), "percent:30");
+    }
+
+    #[test]
+    fn test_format_width_spec_with_max() {
+        assert_eq!(
+            format_width_spec(&ColumnWidth::Percent(40), Some(50)),
+            "percent:40 max:50"
+        );
+    }
+
+    #[test]
+    fn test_parse_width_spec_flex() {
+        let (w, m) = parse_width_spec("flex");
+        assert!(matches!(w, ColumnWidth::Flex));
+        assert_eq!(m, None);
+    }
+
+    #[test]
+    fn test_parse_width_spec_fixed() {
+        let (w, m) = parse_width_spec("fixed:12");
+        assert!(matches!(w, ColumnWidth::Fixed(12)));
+        assert_eq!(m, None);
+    }
+
+    #[test]
+    fn test_parse_width_spec_percent_with_max() {
+        let (w, m) = parse_width_spec("percent:25 max:40");
+        assert!(matches!(w, ColumnWidth::Percent(25)));
+        assert_eq!(m, Some(40));
+    }
+
+    #[test]
+    fn test_parse_width_spec_invalid_falls_back_to_flex() {
+        let (w, m) = parse_width_spec("nonsense");
+        assert!(matches!(w, ColumnWidth::Flex));
+        assert_eq!(m, None);
+    }
+
+    #[test]
+    fn test_parse_width_spec_fixed_bad_number_defaults_to_10() {
+        let (w, m) = parse_width_spec("fixed:not-a-number");
+        assert!(matches!(w, ColumnWidth::Fixed(10)));
+        assert_eq!(m, None);
+    }
+
+    #[test]
+    fn test_parse_width_spec_percent_bad_number_defaults_to_10() {
+        let (w, m) = parse_width_spec("percent:bad");
+        assert!(matches!(w, ColumnWidth::Percent(10)));
+        assert_eq!(m, None);
+    }
+
+    #[test]
+    fn test_width_spec_roundtrip() {
+        for (w, m) in [
+            (ColumnWidth::Flex, None),
+            (ColumnWidth::Fixed(15), None),
+            (ColumnWidth::Percent(20), Some(35)),
+        ] {
+            let s = format_width_spec(&w, m);
+            let (w2, m2) = parse_width_spec(&s);
+            assert!(matches!((w, w2),
+                (ColumnWidth::Flex, ColumnWidth::Flex) |
+                (ColumnWidth::Fixed(_), ColumnWidth::Fixed(_)) |
+                (ColumnWidth::Percent(_), ColumnWidth::Percent(_))
+            ));
+            assert_eq!(m, m2);
+        }
+    }
+
+    // ── column add / delete / set ─────────────────────────────────────────────
+
+    #[test]
+    fn test_add_column_appends_and_moves_cursor() {
+        let cfg = Config::default();
+        let mut s = SettingsState::new(&cfg);
+        let initial_cols = s.columns.len();
+        s.add_column("doi".into(), "DOI".into(), "flex".into());
+        assert_eq!(s.columns.len(), initial_cols + 1);
+        assert_eq!(s.columns.last().unwrap().0, "doi");
+        // Cursor should land on the newly added column row
+        assert!(s.selected_is_column());
+    }
+
+    #[test]
+    fn test_delete_selected_column_removes_it() {
+        let cfg = Config::default();
+        let mut s = SettingsState::new(&cfg);
+        s.add_column("doi".into(), "DOI".into(), "flex".into());
+        let before = s.columns.len();
+        let deleted = s.delete_selected_column();
+        assert!(deleted);
+        assert_eq!(s.columns.len(), before - 1);
+    }
+
+    #[test]
+    fn test_delete_selected_column_on_non_column_returns_false() {
+        let cfg = Config::default();
+        let mut s = SettingsState::new(&cfg);
+        // Cursor at the start — likely on a non-column row
+        s.move_to_top();
+        assert!(!s.delete_selected_column());
+    }
+
+    #[test]
+    fn test_selected_is_column_after_add() {
+        let cfg = Config::default();
+        let mut s = SettingsState::new(&cfg);
+        s.add_column("doi".into(), "DOI".into(), "flex".into());
+        assert!(s.selected_is_column());
+        assert_eq!(s.selected_column_index(), Some(s.columns.len() - 1));
+    }
+
+    #[test]
+    fn test_set_column_width_updates_spec() {
+        let cfg = Config::default();
+        let mut s = SettingsState::new(&cfg);
+        s.add_column("doi".into(), "DOI".into(), "flex".into());
+        let idx = s.columns.len() - 1;
+        s.set_column_width(idx, "fixed:8".into());
+        assert_eq!(s.columns[idx].2, "fixed:8");
+    }
+
+    #[test]
+    fn test_set_column_width_out_of_bounds_is_noop() {
+        let cfg = Config::default();
+        let mut s = SettingsState::new(&cfg);
+        s.set_column_width(9999, "fixed:8".into()); // no panic
+    }
+
+    #[test]
+    fn test_set_column_name_updates_field_and_header() {
+        let cfg = Config::default();
+        let mut s = SettingsState::new(&cfg);
+        s.add_column("doi".into(), "DOI".into(), "flex".into());
+        let idx = s.columns.len() - 1;
+        s.set_column_name(idx, "isbn".into(), "ISBN".into());
+        assert_eq!(s.columns[idx].0, "isbn");
+        assert_eq!(s.columns[idx].1, "ISBN");
+    }
+
+    #[test]
+    fn test_set_column_name_out_of_bounds_is_noop() {
+        let cfg = Config::default();
+        let mut s = SettingsState::new(&cfg);
+        s.set_column_name(9999, "x".into(), "X".into());
+    }
+
+    // ── current_section ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_current_section_returns_a_section_name() {
+        let cfg = Config::default();
+        let mut s = SettingsState::new(&cfg);
+        s.move_to_top();
+        let section = s.current_section();
+        // After moving to the very top, the first selectable is under some section.
+        assert!(section.is_some());
+    }
 }
 
 // ── Render ────────────────────────────────────────────────────────────────────

@@ -7910,4 +7910,243 @@ mod tests {
             panic!("expected PendingAction::OpenWeb");
         }
     }
+
+    // ── parse_field_header ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_parse_field_header_no_separator() {
+        let (f, h) = parse_field_header("author");
+        assert_eq!(f, "author");
+        assert_eq!(h, "author");
+    }
+
+    #[test]
+    fn test_parse_field_header_with_pipe() {
+        let (f, h) = parse_field_header("citation_key|Key");
+        assert_eq!(f, "citation_key");
+        assert_eq!(h, "Key");
+    }
+
+    #[test]
+    fn test_parse_field_header_empty_header_falls_back_to_field() {
+        let (f, h) = parse_field_header("author|");
+        assert_eq!(f, "author");
+        assert_eq!(h, "author");
+    }
+
+    #[test]
+    fn test_parse_field_header_strips_whitespace() {
+        let (f, h) = parse_field_header("  year  |  Year  ");
+        assert_eq!(f, "year");
+        assert_eq!(h, "Year");
+    }
+
+    // ── sort_field_candidates ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_sort_field_candidates_includes_virtual_fields() {
+        let (app, _tmp) = make_app();
+        let fields = sort_field_candidates(&app.database);
+        for required in ["author", "citation_key", "entrytype", "journal", "title", "year"] {
+            assert!(fields.iter().any(|f| f == required),
+                "expected '{}' in sort fields, got {:?}", required, fields);
+        }
+    }
+
+    #[test]
+    fn test_sort_field_candidates_includes_database_fields() {
+        let (app, _tmp) = make_app();
+        // TEST_BIB has Smith2020 with journal+author+title+year — all already covered.
+        // Verify "journal" comes from the bib data path:
+        let result = sort_field_candidates(&app.database);
+        assert!(result.iter().any(|f| f == "journal"));
+        assert!(result.iter().any(|f| f == "title"));
+    }
+
+    // ── action_label_for_field ────────────────────────────────────────────────
+
+    #[test]
+    fn test_action_label_for_field_url_with_cleanup_enabled() {
+        let mut cfg = crate::config::schema::SaveConfig::default();
+        cfg.save_action_cleanup_url = true;
+        assert_eq!(action_label_for_field("url", &cfg), "cleanup_url");
+    }
+
+    #[test]
+    fn test_action_label_for_field_url_with_cleanup_disabled_falls_through() {
+        let mut cfg = crate::config::schema::SaveConfig::default();
+        cfg.save_action_cleanup_url = false;
+        // Falls through to text-field defaults
+        let label = action_label_for_field("url", &cfg);
+        // url has no specific match → falls into the `_` arm
+        assert!(["unicode→latex", "esc_underscores", "esc_ampersands",
+                 "latex_cleanup", "ordinals", "save_action"].contains(&label));
+    }
+
+    #[test]
+    fn test_action_label_for_field_isbn_normalize() {
+        let mut cfg = crate::config::schema::SaveConfig::default();
+        cfg.save_action_normalize_isbn = true;
+        assert_eq!(action_label_for_field("isbn", &cfg), "normalize_isbn");
+    }
+
+    #[test]
+    fn test_action_label_for_field_pages_normalize() {
+        let mut cfg = crate::config::schema::SaveConfig::default();
+        cfg.save_action_normalize_page_numbers = true;
+        assert_eq!(action_label_for_field("pages", &cfg), "normalize_pages");
+    }
+
+    #[test]
+    fn test_action_label_for_field_author_normalize_names() {
+        let mut cfg = crate::config::schema::SaveConfig::default();
+        cfg.save_action_normalize_names_of_persons = true;
+        assert_eq!(action_label_for_field("author", &cfg), "normalize_names");
+        assert_eq!(action_label_for_field("editor", &cfg), "normalize_names");
+        assert_eq!(action_label_for_field("translator", &cfg), "normalize_names");
+    }
+
+    #[test]
+    fn test_action_label_for_field_journal_abbreviate() {
+        let mut cfg = crate::config::schema::SaveConfig::default();
+        cfg.save_action_abbreviate_journal = true;
+        assert_eq!(action_label_for_field("journal", &cfg), "abbreviate_journal");
+        assert_eq!(action_label_for_field("journal_full", &cfg), "abbreviate_journal");
+    }
+
+    #[test]
+    fn test_action_label_for_field_text_field_priority_order() {
+        let mut cfg = crate::config::schema::SaveConfig::default();
+        // unicode→latex has highest priority
+        cfg.save_action_unicode_to_latex = true;
+        cfg.save_action_escape_underscores = true;
+        cfg.save_action_latex_cleanup = true;
+        assert_eq!(action_label_for_field("title", &cfg), "unicode→latex");
+    }
+
+    #[test]
+    fn test_action_label_for_field_no_actions_returns_save_action() {
+        let cfg = crate::config::schema::SaveConfig::default();
+        // Default config has many actions on; verify a field that has no specific match
+        // still returns *something* — pick a fresh config with all off:
+        let mut empty = crate::config::schema::SaveConfig::default();
+        empty.save_action_unicode_to_latex = false;
+        empty.save_action_escape_underscores = false;
+        empty.save_action_escape_ampersands = false;
+        empty.save_action_latex_cleanup = false;
+        empty.save_action_ordinals_to_superscript = false;
+        empty.save_action_cleanup_url = false;
+        empty.save_action_normalize_date = false;
+        empty.save_action_normalize_month = false;
+        empty.save_action_normalize_page_numbers = false;
+        empty.save_action_normalize_isbn = false;
+        empty.save_action_normalize_names_of_persons = false;
+        empty.save_action_abbreviate_journal = false;
+        assert_eq!(action_label_for_field("title", &empty), "save_action");
+        // Silence cfg unused warning
+        let _ = cfg;
+    }
+
+    // ── collect_group_names / find_group_node ─────────────────────────────────
+
+    fn make_group_node(name: &str, group_type: GroupType, children: Vec<GroupNode>) -> GroupNode {
+        GroupNode {
+            group: crate::bib::model::Group {
+                name: name.to_string(),
+                group_type,
+            },
+            children,
+            expanded: true,
+        }
+    }
+
+    #[test]
+    fn test_collect_group_names_skips_all_entries() {
+        let root = make_group_node(
+            "All Entries",
+            GroupType::AllEntries,
+            vec![
+                make_group_node("Physics", GroupType::Static, vec![]),
+                make_group_node("Chemistry", GroupType::Static, vec![]),
+            ],
+        );
+        let mut names = Vec::new();
+        collect_group_names(&root, &mut names);
+        assert_eq!(names, vec!["Physics", "Chemistry"]);
+    }
+
+    #[test]
+    fn test_collect_group_names_includes_nested() {
+        let root = make_group_node(
+            "All Entries",
+            GroupType::AllEntries,
+            vec![
+                make_group_node(
+                    "Physics",
+                    GroupType::Static,
+                    vec![make_group_node("Quantum", GroupType::Static, vec![])],
+                ),
+            ],
+        );
+        let mut names = Vec::new();
+        collect_group_names(&root, &mut names);
+        assert_eq!(names, vec!["Physics", "Quantum"]);
+    }
+
+    #[test]
+    fn test_find_group_node_finds_root() {
+        let root = make_group_node("Physics", GroupType::Static, vec![]);
+        let found = find_group_node(&root, "Physics");
+        assert!(found.is_some());
+    }
+
+    #[test]
+    fn test_find_group_node_finds_nested() {
+        let root = make_group_node(
+            "All Entries",
+            GroupType::AllEntries,
+            vec![make_group_node(
+                "Physics",
+                GroupType::Static,
+                vec![make_group_node("Quantum", GroupType::Static, vec![])],
+            )],
+        );
+        assert!(find_group_node(&root, "Quantum").is_some());
+    }
+
+    #[test]
+    fn test_find_group_node_returns_none_when_absent() {
+        let root = make_group_node("Physics", GroupType::Static, vec![]);
+        assert!(find_group_node(&root, "Chemistry").is_none());
+    }
+
+    #[test]
+    fn test_find_group_node_mut_empty_path_returns_root() {
+        let mut root = make_group_node("Physics", GroupType::Static, vec![]);
+        let found = find_group_node_mut(&mut root, &[]);
+        assert!(found.is_some());
+    }
+
+    #[test]
+    fn test_find_group_node_mut_navigates_path() {
+        let mut root = make_group_node(
+            "Root",
+            GroupType::AllEntries,
+            vec![
+                make_group_node("A", GroupType::Static, vec![
+                    make_group_node("A1", GroupType::Static, vec![]),
+                ]),
+                make_group_node("B", GroupType::Static, vec![]),
+            ],
+        );
+        let found = find_group_node_mut(&mut root, &[0, 0]);
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().group.name, "A1");
+    }
+
+    #[test]
+    fn test_find_group_node_mut_invalid_path_returns_none() {
+        let mut root = make_group_node("Physics", GroupType::Static, vec![]);
+        assert!(find_group_node_mut(&mut root, &[5]).is_none());
+    }
 }

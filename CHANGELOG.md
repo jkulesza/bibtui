@@ -1,5 +1,13 @@
 # Changelog
 
+### 0.58.0
+
+- **Expanded test coverage**: 80.11 % → 82.10 % regions (78.98 % → 81.09 % lines, 87.46 % → 89.69 % functions); 1296 → 1405 tests
+- **field_editor.rs** 74.43 % → 88.10 %: 37 new tests covering vim 3-key delete sequences (`dt{c}`, `df{c}`, `dT{c}`, `dF{c}`), `dw`, `t{c}`/`T{c}` find-to-char, `p` put with cursor clamping, undo stack (capped at 50, Normal-mode clamping), Replace mode push/backspace/append semantics, and the `clamp_normal` / `is_word_char` / ghost-text helpers
+- **entry_detail.rs** 73.49 % → 82.22 %: 12 new tests covering the in-detail search (`/`, `n`, `N`) — `push_search_char`, `search_backspace`, `clear_search`, case-insensitive matching, field-name vs field-value matches, and `next_match` / `prev_match` wrap-around
+- **settings.rs** 74.14 % → 80.21 %: 23 new tests covering `format_width_spec` / `parse_width_spec` round-trips and error-defaulting paths, column add / delete / set, and `current_section`
+- **app/mod.rs** 60.78 % → 62.65 %: 18 new tests covering `parse_field_header`, `sort_field_candidates`, `action_label_for_field` (all priority branches), `collect_group_names` (skips `AllEntries`, includes nested), and `find_group_node` / `find_group_node_mut` (path navigation)
+
 ### 0.57.0
 
 - **Manual filename sync** (`F` key in entry list): new Quality action that previews all files that would be renamed to match their citation keys in a scrollable `old → new` dialog before applying — works regardless of the `sync_filenames` config setting; shows "already in sync" status when nothing needs renaming

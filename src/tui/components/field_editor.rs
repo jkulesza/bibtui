@@ -1900,6 +1900,395 @@ mod tests {
         editor.push_char('!');
         assert_eq!(editor.value, "hello!");
     }
+
+    // ── delete_word_fwd (dw) ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_delete_word_fwd_basic() {
+        let mut e = FieldEditorState::new("f", "hello world");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor = 0;
+        e.delete_word_fwd();
+        assert_eq!(e.value, "world");
+        assert_eq!(e.unnamed_register, "hello ");
+    }
+
+    #[test]
+    fn test_delete_word_fwd_mid_word() {
+        let mut e = FieldEditorState::new("f", "hello world foo");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor = 6; // start of "world"
+        e.delete_word_fwd();
+        assert_eq!(e.value, "hello foo");
+        assert_eq!(e.unnamed_register, "world ");
+    }
+
+    #[test]
+    fn test_delete_word_fwd_at_last_word_clamps() {
+        let mut e = FieldEditorState::new("f", "abc def");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor = 4; // start of "def"
+        e.delete_word_fwd();
+        // After deletion value is "abc " — cursor clamped to last char (space at 3)
+        assert_eq!(e.value, "abc ");
+        assert_eq!(e.cursor, 3);
+    }
+
+    #[test]
+    fn test_delete_word_fwd_at_end_noop() {
+        let mut e = FieldEditorState::new("f", "abc");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor = 2; // 'c'
+        let before = e.value.clone();
+        e.delete_word_fwd();
+        // word_fwd at end returns text.len() which is > cursor, so it WILL delete to end.
+        // Verify behavior: deletes from 'c' onward.
+        assert!(e.value.len() <= before.len());
+    }
+
+    // ── delete_to_char (dt{c}) / delete_through_char (df{c}) ─────────────────
+
+    #[test]
+    fn test_delete_to_char_basic() {
+        let mut e = FieldEditorState::new("f", "hello world");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor = 0; // 'h'
+        e.delete_to_char('w');
+        // Deletes from cursor (inclusive) up to (not including) 'w'
+        assert_eq!(e.value, "world");
+        assert_eq!(e.unnamed_register, "hello ");
+    }
+
+    #[test]
+    fn test_delete_to_char_no_match_noop() {
+        let mut e = FieldEditorState::new("f", "abc");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor = 0;
+        e.delete_to_char('z');
+        assert_eq!(e.value, "abc");
+    }
+
+    #[test]
+    fn test_delete_through_char_basic() {
+        let mut e = FieldEditorState::new("f", "hello world");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor = 0;
+        e.delete_through_char('w');
+        // Deletes from cursor (inclusive) through (including) 'w'
+        assert_eq!(e.value, "orld");
+        assert_eq!(e.unnamed_register, "hello w");
+    }
+
+    #[test]
+    fn test_delete_through_char_no_match_noop() {
+        let mut e = FieldEditorState::new("f", "abc");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor = 0;
+        e.delete_through_char('z');
+        assert_eq!(e.value, "abc");
+    }
+
+    // ── delete_to_char_back (dT{c}) / delete_through_char_back (dF{c}) ───────
+
+    #[test]
+    fn test_delete_to_char_back_basic() {
+        let mut e = FieldEditorState::new("f", "hello world");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor = 8; // 'o' in "world"
+        e.delete_to_char_back('h');
+        // Deletes from (not including) 'h' backward through cursor
+        // 'h' at 0; after = 1; drains [1..8] = "ello wo"
+        assert_eq!(e.value, "hrld");
+        assert_eq!(e.unnamed_register, "ello wo");
+    }
+
+    #[test]
+    fn test_delete_to_char_back_no_match_noop() {
+        let mut e = FieldEditorState::new("f", "abc");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor = 2;
+        e.delete_to_char_back('z');
+        assert_eq!(e.value, "abc");
+    }
+
+    #[test]
+    fn test_delete_through_char_back_basic() {
+        let mut e = FieldEditorState::new("f", "hello world");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor = 8; // 'o' in "world"
+        e.delete_through_char_back('h');
+        // Includes 'h' and goes through cursor
+        assert_eq!(e.value, "rld");
+        assert_eq!(e.unnamed_register, "hello wo");
+    }
+
+    #[test]
+    fn test_delete_through_char_back_no_match_noop() {
+        let mut e = FieldEditorState::new("f", "abc");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor = 2;
+        e.delete_through_char_back('z');
+        assert_eq!(e.value, "abc");
+    }
+
+    // ── find_to_char_fwd (t{c}) / find_to_char_bwd (T{c}) ────────────────────
+
+    #[test]
+    fn test_find_to_char_fwd_basic() {
+        let mut e = FieldEditorState::new("f", "hello world");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor = 0;
+        e.find_to_char_fwd('w');
+        // cursor lands just before 'w' → position 5 (space)
+        assert_eq!(e.cursor, 5);
+    }
+
+    #[test]
+    fn test_find_to_char_fwd_no_match_stays() {
+        let mut e = FieldEditorState::new("f", "abc");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor = 0;
+        e.find_to_char_fwd('z');
+        assert_eq!(e.cursor, 0);
+    }
+
+    #[test]
+    fn test_find_to_char_bwd_basic() {
+        let mut e = FieldEditorState::new("f", "hello world");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor = 10; // 'd'
+        e.find_to_char_bwd('w');
+        // cursor lands just after 'w' → position 7 ('o')
+        assert_eq!(e.cursor, 7);
+    }
+
+    #[test]
+    fn test_find_to_char_bwd_no_match_stays() {
+        let mut e = FieldEditorState::new("f", "abc");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor = 2;
+        e.find_to_char_bwd('z');
+        assert_eq!(e.cursor, 2);
+    }
+
+    // ── put (vim p) ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_put_after_char() {
+        let mut e = FieldEditorState::new("f", "abc");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor = 0; // 'a'
+        e.put("XY");
+        // Inserts after 'a' → "aXYbc"; cursor on 'X' at byte 1
+        assert_eq!(e.value, "aXYbc");
+        assert_eq!(e.cursor, 1);
+    }
+
+    #[test]
+    fn test_put_on_empty_value() {
+        let mut e = FieldEditorState::new("author", "");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor = 0;
+        e.put("hi");
+        assert_eq!(e.value, "hi");
+        assert_eq!(e.cursor, 0);
+    }
+
+    #[test]
+    fn test_put_clamps_cursor_in_normal_mode() {
+        let mut e = FieldEditorState::new("f", "abc");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor = 2; // 'c' (last char)
+        e.put("Z");
+        // Inserts after 'c' → "abcZ"; cursor at insert_pos=3, then clamp
+        assert_eq!(e.value, "abcZ");
+        assert_eq!(e.cursor, 3); // clamped to last char 'Z'
+    }
+
+    // ── save_undo_snapshot / undo_edit ────────────────────────────────────────
+
+    #[test]
+    fn test_undo_restores_previous_value() {
+        let mut e = FieldEditorState::new("f", "hello");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor = 0;
+        e.save_undo_snapshot();
+        e.value = "modified".to_string();
+        e.cursor = 3;
+        e.undo_edit();
+        assert_eq!(e.value, "hello");
+        assert_eq!(e.cursor, 0);
+    }
+
+    #[test]
+    fn test_undo_empty_stack_noop() {
+        let mut e = FieldEditorState::new("f", "abc");
+        e.editing_mode = EditingMode::Normal;
+        e.undo_edit(); // empty stack
+        assert_eq!(e.value, "abc");
+    }
+
+    #[test]
+    fn test_undo_stack_capped_at_50() {
+        let mut e = FieldEditorState::new("f", "x");
+        for i in 0..55 {
+            e.value = format!("v{}", i);
+            e.save_undo_snapshot();
+        }
+        assert_eq!(e.undo_stack.len(), 50);
+        // The oldest entries got dropped — first remaining is v5
+        let first = &e.undo_stack[0].0;
+        assert_eq!(first, "v5");
+    }
+
+    #[test]
+    fn test_undo_clamps_in_normal_mode() {
+        let mut e = FieldEditorState::new("f", "hello world");
+        e.editing_mode = EditingMode::Normal;
+        e.cursor = 10;
+        e.save_undo_snapshot();
+        e.value = "ab".to_string();
+        e.cursor = 1;
+        e.undo_edit();
+        // restored value "hello world", restored cursor 10 — valid for that text
+        assert_eq!(e.value, "hello world");
+        assert_eq!(e.cursor, 10);
+    }
+
+    // ── Replace mode push_char / backspace ────────────────────────────────────
+
+    #[test]
+    fn test_replace_mode_push_char_overwrites() {
+        let mut e = FieldEditorState::new("f", "abc");
+        e.editing_mode = EditingMode::Replace;
+        e.cursor = 0; // 'a'
+        e.push_char('X');
+        assert_eq!(e.value, "Xbc");
+        assert_eq!(e.cursor, 1);
+        assert_eq!(e.replace_undo_stack.len(), 1);
+    }
+
+    #[test]
+    fn test_replace_mode_push_char_past_end_appends() {
+        let mut e = FieldEditorState::new("f", "ab");
+        e.editing_mode = EditingMode::Replace;
+        e.cursor = 2; // past last char
+        e.push_char('X');
+        assert_eq!(e.value, "abX");
+        assert_eq!(e.cursor, 3);
+        assert_eq!(e.replace_undo_stack.len(), 1);
+    }
+
+    #[test]
+    fn test_replace_mode_backspace_restores() {
+        let mut e = FieldEditorState::new("f", "abc");
+        e.editing_mode = EditingMode::Replace;
+        e.cursor = 0;
+        e.push_char('X'); // "Xbc", cursor 1
+        e.push_char('Y'); // "XYc", cursor 2
+        e.backspace();    // undo Y
+        assert_eq!(e.value, "Xbc");
+        assert_eq!(e.cursor, 1);
+        e.backspace();    // undo X
+        assert_eq!(e.value, "abc");
+        assert_eq!(e.cursor, 0);
+    }
+
+    #[test]
+    fn test_replace_mode_backspace_undoes_append() {
+        let mut e = FieldEditorState::new("f", "ab");
+        e.editing_mode = EditingMode::Replace;
+        e.cursor = 2;
+        e.push_char('X'); // appended → "abX"
+        e.backspace();
+        assert_eq!(e.value, "ab");
+        assert_eq!(e.cursor, 2);
+    }
+
+    #[test]
+    fn test_replace_mode_backspace_empty_stack_moves_back() {
+        let mut e = FieldEditorState::new("f", "abc");
+        e.editing_mode = EditingMode::Replace;
+        e.cursor = 2;
+        // empty replace_undo_stack — backspace just moves cursor
+        e.backspace();
+        assert_eq!(e.value, "abc");
+        assert_eq!(e.cursor, 1);
+    }
+
+    // ── enter_normal clears replace_undo_stack ────────────────────────────────
+
+    #[test]
+    fn test_enter_normal_clears_replace_undo() {
+        let mut e = FieldEditorState::new("f", "abc");
+        e.editing_mode = EditingMode::Replace;
+        e.cursor = 0;
+        e.push_char('X');
+        assert_eq!(e.replace_undo_stack.len(), 1);
+        e.enter_normal();
+        assert!(e.replace_undo_stack.is_empty());
+    }
+
+    // ── month_navigate row +/- 6 already tested; add zero-delta no-op ─────────
+
+    #[test]
+    fn test_month_navigate_zero_delta_keeps_value() {
+        let mut e = FieldEditorState::new("month", "jul");
+        e.month_navigate(0);
+        assert_eq!(e.value, "jul");
+    }
+
+    // ── clamp_normal direct tests ─────────────────────────────────────────────
+
+    #[test]
+    fn test_clamp_normal_empty_text() {
+        assert_eq!(clamp_normal(5, ""), 0);
+    }
+
+    #[test]
+    fn test_clamp_normal_in_range() {
+        assert_eq!(clamp_normal(1, "abc"), 1);
+    }
+
+    #[test]
+    fn test_clamp_normal_past_end_returns_last_char_start() {
+        assert_eq!(clamp_normal(10, "abc"), 2);
+    }
+
+    #[test]
+    fn test_clamp_normal_multibyte() {
+        // "é" is 2 bytes; last char start is at byte 0
+        assert_eq!(clamp_normal(10, "é"), 0);
+    }
+
+    // ── is_word_char ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_is_word_char_alnum_underscore() {
+        assert!(is_word_char('a'));
+        assert!(is_word_char('Z'));
+        assert!(is_word_char('3'));
+        assert!(is_word_char('_'));
+    }
+
+    #[test]
+    fn test_is_word_char_not_punctuation() {
+        assert!(!is_word_char('.'));
+        assert!(!is_word_char('-'));
+        assert!(!is_word_char(' '));
+        assert!(!is_word_char(','));
+    }
+
+    // ── ghost_text shows suffix when cursor at end ────────────────────────────
+
+    #[test]
+    fn test_ghost_text_value_completion() {
+        let mut e = FieldEditorState::new("title", "Smi");
+        e.editing_mode = EditingMode::Insert;
+        e.cursor = 3; // at end
+        e.completions = vec!["Smith, John".to_string()];
+        assert_eq!(e.ghost_text(), "th, John");
+    }
 }
 
 const MONTHS: [&str; 12] = [

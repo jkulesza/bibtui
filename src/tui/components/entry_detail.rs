@@ -900,6 +900,126 @@ mod tests {
         }).count();
         assert_eq!(isbn_count, 1, "isbn should appear exactly once even when listed in two groups");
     }
+
+    // ── In-detail search (/, n, N) ────────────────────────────────────────────
+
+    fn detail_with_article(author: &str, title: &str, year: &str) -> EntryDetailState {
+        let e = make_entry(
+            EntryType::Article,
+            &[
+                ("author", author),
+                ("title", title),
+                ("year", year),
+                ("journal", "Some Journal"),
+            ],
+        );
+        EntryDetailState::new(&e, vec![])
+    }
+
+    #[test]
+    fn test_push_search_char_populates_query_and_matches() {
+        let mut s = detail_with_article("Curie, Marie", "Radium", "1903");
+        s.push_search_char('r');
+        s.push_search_char('a');
+        s.push_search_char('d');
+        assert_eq!(s.search_query, "rad");
+        // Should find a match in title "Radium" (case-insensitive)
+        assert!(!s.match_indices.is_empty());
+    }
+
+    #[test]
+    fn test_search_backspace_removes_last_char() {
+        let mut s = detail_with_article("Smith, J.", "Nuclear", "2020");
+        s.push_search_char('n');
+        s.push_search_char('u');
+        s.search_backspace();
+        assert_eq!(s.search_query, "n");
+    }
+
+    #[test]
+    fn test_clear_search_empties_state() {
+        let mut s = detail_with_article("Smith, J.", "Nuclear", "2020");
+        s.push_search_char('n');
+        s.clear_search();
+        assert_eq!(s.search_query, "");
+        assert!(s.match_indices.is_empty());
+    }
+
+    #[test]
+    fn test_rebuild_matches_empty_query_clears() {
+        let mut s = detail_with_article("Smith, J.", "Nuclear", "2020");
+        s.push_search_char('n');
+        s.search_backspace(); // query now empty
+        assert!(s.match_indices.is_empty());
+    }
+
+    #[test]
+    fn test_search_matches_field_name() {
+        let mut s = detail_with_article("Smith, J.", "Paper", "2020");
+        s.push_search_char('y');
+        s.push_search_char('e');
+        s.push_search_char('a');
+        s.push_search_char('r');
+        // "year" is a field name → should produce at least one match
+        assert!(!s.match_indices.is_empty());
+    }
+
+    #[test]
+    fn test_search_case_insensitive() {
+        let mut s = detail_with_article("Smith, J.", "Quantum Physics", "2020");
+        s.push_search_char('Q');
+        s.push_search_char('U');
+        s.push_search_char('A');
+        // Lowercased "qua" should match "Quantum"
+        assert!(!s.match_indices.is_empty());
+    }
+
+    #[test]
+    fn test_next_match_no_matches_noop() {
+        let mut s = detail_with_article("Smith, J.", "Paper", "2020");
+        let before = s.selected();
+        s.next_match(); // empty match_indices
+        assert_eq!(s.selected(), before);
+    }
+
+    #[test]
+    fn test_prev_match_no_matches_noop() {
+        let mut s = detail_with_article("Smith, J.", "Paper", "2020");
+        let before = s.selected();
+        s.prev_match();
+        assert_eq!(s.selected(), before);
+    }
+
+    #[test]
+    fn test_next_match_wraps_around() {
+        let mut s = detail_with_article("Smith, J.", "Quantum", "2020");
+        s.push_search_char('q');
+        // Move selection past the last match, then next_match should wrap to first.
+        let last = *s.match_indices.last().unwrap();
+        s.select(last);
+        s.next_match();
+        assert_eq!(s.selected(), s.match_indices[0]);
+    }
+
+    #[test]
+    fn test_prev_match_wraps_around() {
+        let mut s = detail_with_article("Smith, J.", "Quantum", "2020");
+        s.push_search_char('q');
+        let first = s.match_indices[0];
+        s.select(first);
+        s.prev_match();
+        let last = *s.match_indices.last().unwrap();
+        assert_eq!(s.selected(), last);
+    }
+
+    // ── apply_display_pipeline ────────────────────────────────────────────────
+
+    #[test]
+    fn test_apply_display_pipeline_strip_braces_basic() {
+        // Already covered indirectly; verify path-isolated call
+        let s = apply_display_pipeline("{Hello}", false, false);
+        assert_eq!(s, "Hello");
+    }
 }
 
 pub fn render_entry_detail(
