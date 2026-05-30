@@ -1,5 +1,9 @@
 # Changelog
 
+### 0.58.1
+
+- **Dependency security update**: `openssl` 0.10.78 → 0.10.80, `openssl-sys` 0.9.114 → 0.9.116 — fixes three rust-openssl advisories: undefined behavior in `X509Ref::ocsp_responders` for certificates with non-UTF-8 OCSP URLs (High), heap buffer overflow when encrypting with AES key-wrap-with-padding (Moderate), and potential out-of-bounds write in `CipherCtxRef::cipher_update_inplace` for AES-KW-PAD ciphers (Moderate)
+
 ### 0.58.0
 
 - **Expanded test coverage**: 80.11 % → 82.10 % regions (78.98 % → 81.09 % lines, 87.46 % → 89.69 % functions); 1296 → 1405 tests
