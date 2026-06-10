@@ -1,5 +1,10 @@
 # Changelog
 
+### 0.60.1
+
+- **Fix titlecase skipping the first and last words of brace-wrapped fields**: a value enclosed in a single balanced brace pair (e.g. created by pasting into an empty field, which pre-fills protective braces) is now unwrapped, titlecased, and re-wrapped — previously the tokens carrying the outer braces (`{Discrimination`, `alanine}`) were mistaken for case-protected words and passed through unchanged. Interior protection groups (`{Monte Carlo}`), adjacent groups (`{MCNP} and {OpenMC}`), double wrapping, and unbalanced braces all keep their previous behavior
+- **5 new tests** for the outer-brace unwrap (full wrap, inner protected group, recursive double wrap, adjacent-groups non-trigger, unbalanced fallback)
+
 ### 0.60.0
 
 - **Opening a nonexistent .bib path now starts a blank library** instead of erroring: the status bar shows "New file: <path> (created on first save)" and the file is written on first save — works for both the CLI argument and the config-default path

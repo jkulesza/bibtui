@@ -10,6 +10,13 @@
 ///   capitalized, matching standard hyphenated-title-case rules).
 /// - All other words are capitalized (first letter upper, rest lower).
 pub fn apply_titlecase(input: &str, ignore_words: &[String], stop_words: &[String]) -> String {
+    // A value enclosed in a single balanced brace pair (e.g. a field created by
+    // pasting into an empty editor, which pre-fills protective braces) is
+    // unwrapped, titlecased, and re-wrapped — otherwise the outer braces would
+    // shield the first and last words from titlecasing.
+    if let Some(inner) = strip_outer_braces(input) {
+        return format!("{{{}}}", apply_titlecase(inner, ignore_words, stop_words));
+    }
     let words: Vec<&str> = input.split_whitespace().collect();
     let n = words.len();
     words
@@ -21,6 +28,32 @@ pub fn apply_titlecase(input: &str, ignore_words: &[String], stop_words: &[Strin
         })
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// Return the contents of `s` when the whole string is enclosed in a single
+/// balanced pair of braces (`{...}`); `None` otherwise. `{Monte Carlo} codes`
+/// is not enclosed — its opening brace closes before the end of the string.
+fn strip_outer_braces(s: &str) -> Option<&str> {
+    let inner = s.strip_prefix('{')?.strip_suffix('}')?;
+    let mut depth = 1usize; // depth inside the outer brace
+    for c in inner.chars() {
+        match c {
+            '{' => depth += 1,
+            '}' => {
+                depth = depth.checked_sub(1)?; // None: unbalanced
+                if depth == 0 {
+                    return None; // outer brace closes before the end
+                }
+            }
+            _ => {}
+        }
+    }
+    // depth must return to exactly the outer level for the pair to be balanced
+    if depth == 1 {
+        Some(inner)
+    } else {
+        None
+    }
 }
 
 /// Handle a single space-separated token, which may be a hyphenated compound.
@@ -160,6 +193,54 @@ mod tests {
         assert_eq!(
             apply_titlecase("reactor design high-fidelity", &[], &stops()),
             "Reactor Design High-Fidelity"
+        );
+    }
+
+    #[test]
+    fn test_fully_wrapped_value_titlecased_inside_braces() {
+        // Pasting into an empty field wraps the whole value in protective
+        // braces; titlecase must still reach the first and last words.
+        assert_eq!(
+            apply_titlecase(
+                "{Discrimination between gamma and mixed gamma-neutron fields by X-ray diffraction changes in alanine}",
+                &[],
+                &stops()
+            ),
+            "{Discrimination Between Gamma and Mixed Gamma-Neutron Fields by X-Ray Diffraction Changes in Alanine}"
+        );
+    }
+
+    #[test]
+    fn test_wrapped_value_preserves_inner_protected_groups() {
+        assert_eq!(
+            apply_titlecase("{transport in {Monte Carlo} codes}", &ignore(), &stops()),
+            "{Transport in {Monte Carlo} Codes}"
+        );
+    }
+
+    #[test]
+    fn test_double_wrapped_value_unwraps_recursively() {
+        assert_eq!(
+            apply_titlecase("{{neutron transport}}", &[], &stops()),
+            "{{Neutron Transport}}"
+        );
+    }
+
+    #[test]
+    fn test_adjacent_brace_groups_are_not_treated_as_wrapped() {
+        // Starts with { and ends with } but the outer brace closes early —
+        // these are two separate protection groups, both passed through.
+        assert_eq!(
+            apply_titlecase("{MCNP} and {OpenMC}", &[], &stops()),
+            "{MCNP} and {OpenMC}"
+        );
+    }
+
+    #[test]
+    fn test_unbalanced_braces_fall_back_to_word_rules() {
+        assert_eq!(
+            apply_titlecase("{unclosed brace title", &[], &stops()),
+            "{unclosed Brace Title"
         );
     }
 }
