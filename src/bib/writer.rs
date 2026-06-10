@@ -51,8 +51,8 @@ pub fn normalize_blank_lines(s: String) -> String {
         }
     }
 
-    // SAFETY: input was valid UTF-8 and we only kept/dropped '\n' bytes.
-    unsafe { String::from_utf8_unchecked(out) }
+    // Input was valid UTF-8 and we only dropped '\n' bytes, so this never fails.
+    String::from_utf8(out).expect("dropping newline bytes preserves UTF-8 validity")
 }
 
 /// Serialize a single entry from semantic data (for modified entries).
@@ -79,14 +79,13 @@ pub fn serialize_entry(entry: &Entry, align: bool, sort_fields: bool) -> String 
         let mut other_keys: Vec<&String> = entry.fields.keys()
             .filter(|k| !req_set.contains(k.as_str()) && !opt_set.contains(k.as_str())).collect();
 
-        req_keys.sort_unstable_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
-        opt_keys.sort_unstable_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
-        other_keys.sort_unstable_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+        req_keys.sort_unstable_by_key(|a| a.to_lowercase());
+        opt_keys.sort_unstable_by_key(|a| a.to_lowercase());
+        other_keys.sort_unstable_by_key(|a| a.to_lowercase());
 
         sorted_keys = req_keys.into_iter()
             .chain(opt_keys)
-            .chain(other_keys)
-            .map(|k| k.clone())
+            .chain(other_keys).cloned()
             .collect();
         Box::new(sorted_keys.iter().map(|k| (k, &entry.fields[k])))
     } else {
@@ -211,8 +210,6 @@ mod tests {
                 entry_type: "Article".into(),
                 citation_key: "k".into(),
                 fields: vec![],
-                align_width: 0,
-                trailing_comma: false,
                 raw_text: raw_text.clone(),
             })],
         };
@@ -332,8 +329,6 @@ mod tests {
                     entry_type: "Article".into(),
                     citation_key: "k".into(),
                     fields: vec![],
-                    align_width: 0,
-                    trailing_comma: false,
                     raw_text: "@Article{k,\n}\n".to_string(),
                 }),
                 RawItem::Comment { raw_text: "@Comment{x}".to_string() },

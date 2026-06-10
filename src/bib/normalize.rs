@@ -57,7 +57,7 @@ pub fn normalize_date(value: &str) -> String {
                 parts[1].trim().parse::<u32>(),
                 parts[2].trim().parse::<i32>(),
             ) {
-                if m >= 1 && m <= 12 && d >= 1 && d <= 31 && y > 0 {
+                if (1..=12).contains(&m) && (1..=31).contains(&d) && y > 0 {
                     return format!("{:04}-{:02}-{:02}", y, m, d);
                 }
             }
@@ -72,7 +72,7 @@ pub fn normalize_date(value: &str) -> String {
                 parts[0].trim().parse::<u32>(),
                 parts[1].trim().parse::<i32>(),
             ) {
-                if m >= 1 && m <= 12 && y > 0 {
+                if (1..=12).contains(&m) && y > 0 {
                     return format!("{:04}-{:02}", y, m);
                 }
             }
@@ -131,7 +131,7 @@ fn try_parse_month_year(s: &str) -> Option<String> {
             let m = month_name_to_num(tokens[0])?;
             let d: u32 = tokens[1].parse().ok()?;
             let y: i32 = tokens[2].parse().ok()?;
-            if d >= 1 && d <= 31 && y > 0 {
+            if (1..=31).contains(&d) && y > 0 {
                 Some(format!("{:04}-{:02}-{:02}", y, m, d))
             } else {
                 None

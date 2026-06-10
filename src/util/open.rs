@@ -211,6 +211,25 @@ pub fn open_url(url: &str) -> Result<()> {
     Ok(())
 }
 
+/// Abstraction over "open with the OS-default application" so app logic
+/// can be tested without launching real programs.
+pub trait Opener {
+    fn open_path(&self, path: &Path) -> Result<()>;
+    fn open_url(&self, url: &str) -> Result<()>;
+}
+
+/// The real OS opener (`open` on macOS, `xdg-open` on Linux).
+pub struct SystemOpener;
+
+impl Opener for SystemOpener {
+    fn open_path(&self, path: &Path) -> Result<()> {
+        open_path(path)
+    }
+    fn open_url(&self, url: &str) -> Result<()> {
+        open_url(url)
+    }
+}
+
 fn os_open_cmd() -> &'static str {
     #[cfg(target_os = "macos")]
     { "open" }

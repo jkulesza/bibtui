@@ -140,7 +140,7 @@ fn is_function_word(w: &str) -> bool {
 }
 
 /// Return the author or editor field (author preferred, editor as fallback).
-fn get_author_or_editor<'a>(fields: &'a IndexMap<String, String>) -> Option<&'a String> {
+fn get_author_or_editor(fields: &IndexMap<String, String>) -> Option<&String> {
     fields.get("author")
         .filter(|v| !v.is_empty())
         .or_else(|| fields.get("editor").filter(|v| !v.is_empty()))
@@ -628,7 +628,7 @@ fn forename_initial_of(name: &str) -> String {
 }
 
 fn extract_first_page(pages: &str) -> String {
-    pages.split(|c: char| c == '-' || c == ',')
+    pages.split(['-', ','])
         .next()
         .unwrap_or("")
         .trim()
@@ -636,15 +636,15 @@ fn extract_first_page(pages: &str) -> String {
 }
 
 fn extract_last_page(pages: &str) -> String {
-    pages.split(|c: char| c == '-' || c == ',')
-        .last()
+    pages.split(['-', ','])
+        .next_back()
         .unwrap_or("")
         .trim()
         .to_string()
 }
 
 fn split_keywords(k: &str) -> Vec<String> {
-    k.split(|c: char| c == ',' || c == ';')
+    k.split([',', ';'])
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect()
@@ -665,7 +665,7 @@ fn first_significant_words(s: &str, n: usize) -> String {
 fn capitalize_significant_words(s: &str) -> String {
     s.split_whitespace()
         .filter(|w| !is_function_word(w))
-        .map(|w| capitalize_word(w))
+        .map(capitalize_word)
         .collect()
 }
 
@@ -732,7 +732,7 @@ fn to_camel_case(s: &str) -> String {
     clean
         .split(|c: char| !c.is_alphanumeric())
         .filter(|w| !w.is_empty())
-        .map(|w| capitalize_word(w))
+        .map(capitalize_word)
         .collect()
 }
 
@@ -743,7 +743,7 @@ fn to_camel_case_n(s: &str, n: usize) -> String {
         .split(|c: char| !c.is_alphanumeric())
         .filter(|w| !w.is_empty())
         .take(n)
-        .map(|w| capitalize_word(w))
+        .map(capitalize_word)
         .collect()
 }
 

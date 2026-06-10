@@ -32,7 +32,7 @@ fn popup_area(area: Rect, width: u16, height: u16) -> Rect {
 }
 
 fn render_entry_list_help(f: &mut Frame, area: Rect, theme: &Theme) {
-    let width = (area.width * 9 / 10).min(100).max(60);
+    let width = (area.width * 9 / 10).clamp(60, 100);
     let height = (area.height.saturating_sub(2)).max(10);
     let popup = popup_area(area, width, height);
 
@@ -124,7 +124,7 @@ fn render_entry_list_help(f: &mut Frame, area: Rect, theme: &Theme) {
 }
 
 fn render_detail_help(f: &mut Frame, area: Rect, theme: &Theme) {
-    let width = (area.width * 9 / 10).min(100).max(60);
+    let width = (area.width * 9 / 10).clamp(60, 100);
     let height = (area.height.saturating_sub(2)).max(10);
     let popup = popup_area(area, width, height);
 

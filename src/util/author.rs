@@ -1,7 +1,7 @@
-/// Utilities for parsing and formatting BibTeX author strings.
-///
-/// BibTeX separates multiple authors with ` and ` (case-sensitive).
-/// Individual names may be in "First Last" or canonical "Last, First" form.
+//! Utilities for parsing and formatting BibTeX author strings.
+//!
+//! BibTeX separates multiple authors with ` and ` (case-sensitive).
+//! Individual names may be in "First Last" or canonical "Last, First" form.
 
 use regex::Regex;
 use std::sync::OnceLock;

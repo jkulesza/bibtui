@@ -977,11 +977,14 @@ fn find_next_char(text: &str, from: usize, c: char) -> Option<usize> {
 /// Find the byte position of the last occurrence of `c` strictly before `before`.
 fn find_prev_char(text: &str, before: usize, c: char) -> Option<usize> {
     text[..before]
-        .char_indices()
-        .filter(|(_, ch)| *ch == c)
-        .last()
+        .char_indices().rfind(|(_, ch)| *ch == c)
         .map(|(offset, _)| offset)
 }
+
+const MONTHS: [&str; 12] = [
+    "jan", "feb", "mar", "apr", "may", "jun",
+    "jul", "aug", "sep", "oct", "nov", "dec",
+];
 
 #[cfg(test)]
 mod tests {
@@ -2290,10 +2293,5 @@ mod tests {
         assert_eq!(e.ghost_text(), "th, John");
     }
 }
-
-const MONTHS: [&str; 12] = [
-    "jan", "feb", "mar", "apr", "may", "jun",
-    "jul", "aug", "sep", "oct", "nov", "dec",
-];
 
 

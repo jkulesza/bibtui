@@ -35,28 +35,13 @@ pub fn filter_by_group(entries: &[&Entry], group: &GroupNode) -> Vec<usize> {
                 .iter()
                 .enumerate()
                 .filter(|(_, e)| {
-                    let value = e.fields.get(field.as_str());
-                    if let Some(v) = value {
+                    if let Some(v) = e.fields.get(field.as_str()) {
                         if let Some(re) = &compiled_re {
                             re.is_match(v)
                         } else if *case_sensitive {
                             v.contains(search_term.as_str())
                         } else {
                             v.to_lowercase().contains(&search_term.to_lowercase())
-                        }
-                    } else if field == "author" {
-                        // Fallback: also check the author field when it is the
-                        // target but was not found via the primary lookup path.
-                        if let Some(author) = e.fields.get("author") {
-                            if let Some(re) = &compiled_re {
-                                re.is_match(author)
-                            } else if *case_sensitive {
-                                author.contains(search_term.as_str())
-                            } else {
-                                author.to_lowercase().contains(&search_term.to_lowercase())
-                            }
-                        } else {
-                            false
                         }
                     } else {
                         false

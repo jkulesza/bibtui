@@ -407,6 +407,201 @@ fn push_field_or_files(
     result.push(DisplayItem::Field { name, value, category });
 }
 
+#[allow(clippy::too_many_arguments)] // display params; bundling into a struct is tracked in REVIEW_FINDINGS.md
+pub fn render_entry_detail(
+    f: &mut Frame,
+    area: Rect,
+    entry: &Entry,
+    state: &mut EntryDetailState,
+    theme: &Theme,
+    show_braces: bool,
+    render_latex_enabled: bool,
+    is_searching: bool,
+) {
+    let hint = if is_searching || !state.search_query.is_empty() {
+        " [e]dit  [A]dd  [d]el  [/] search  [n/N] next/prev  [Esc] clear search "
+    } else {
+        " [e]dit  [A]dd field  add [f]ile  [d]el  [T]itlecase  norm n[a]mes  [o]pen  [w]eb  [Tab] groups  [c]itekey  [/] search  [Esc] back "
+    };
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(theme.border)
+        .title(format!(" {} ", entry.citation_key))
+        .title_bottom(Line::from(hint).style(theme.label));
+
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    // Type + groups lines at top
+    let type_line = Line::from(vec![
+        Span::styled("  Type:   ", theme.label),
+        Span::styled(entry.entry_type.display_name(), theme.value),
+    ]);
+    let groups_line = if entry.group_memberships.is_empty() {
+        Line::from(vec![
+            Span::styled("  Groups: ", theme.label),
+            Span::styled("(none)", theme.label),
+        ])
+    } else {
+        Line::from(vec![
+            Span::styled("  Groups: ", theme.label),
+            Span::styled(entry.group_memberships.join(", "), theme.value),
+        ])
+    };
+
+    // Determine max field name length for alignment
+    let max_name_len = state
+        .display_fields
+        .iter()
+        .filter_map(|item| match item {
+            DisplayItem::Field { name, .. } => Some(name.len()),
+            _ => None,
+        })
+        .max()
+        .unwrap_or(0);
+
+    // Determine the label "file" width for FileEntry rows so they align
+    // with Field rows (but don't inflate max_name_len beyond real field names).
+    let file_name_len = "file".len();
+
+    let search_active = is_searching || !state.search_query.is_empty();
+
+    let items: Vec<ListItem> = state
+        .display_fields
+        .iter()
+        .enumerate()
+        .map(|(idx, item)| {
+            let is_match = search_active && state.match_indices.contains(&idx);
+            match item {
+                DisplayItem::Header(label) => ListItem::new(Line::from(Span::styled(
+                    format!("  {}", label),
+                    theme.required_label,
+                ))),
+                DisplayItem::Field { name, value, category } => {
+                    let padding = " ".repeat(max_name_len.saturating_sub(name.len()));
+                    let name_style = if is_match {
+                        theme.search_match
+                    } else {
+                        match category {
+                            FieldCategory::Required => theme.required_label,
+                            FieldCategory::Optional
+                            | FieldCategory::Other
+                            | FieldCategory::Custom(_) => theme.label,
+                        }
+                    };
+                    let value_style = if value.is_empty() && *category == FieldCategory::Required {
+                        theme.search_match.add_modifier(Modifier::DIM)
+                    } else {
+                        theme.value
+                    };
+                    let display_value: String = if value.is_empty() {
+                        String::new()
+                    } else {
+                        apply_display_pipeline(value, show_braces, render_latex_enabled)
+                    };
+                    ListItem::new(Line::from(vec![
+                        Span::styled(format!("    {}{} : ", name, padding), name_style),
+                        Span::styled(display_value, value_style),
+                    ]))
+                }
+                DisplayItem::FileEntry { label, .. } => {
+                    let padding = " ".repeat(max_name_len.saturating_sub(file_name_len));
+                    let label_style = if is_match { theme.search_match } else { theme.value };
+                    ListItem::new(Line::from(vec![
+                        Span::styled(format!("    file{} : ↳ ", padding), theme.label),
+                        Span::styled(label.clone(), label_style),
+                    ]))
+                }
+            }
+        })
+        .collect();
+
+    // Reserve a preview pane at the bottom for the full selected-field value.
+    // When search is active, add a 1-row search bar above the preview pane.
+    let preview_height = 4u16;
+    let chunks = if search_active {
+        Layout::vertical([
+            Constraint::Length(2),
+            Constraint::Min(3),
+            Constraint::Length(1),
+            Constraint::Length(preview_height),
+        ])
+        .split(inner)
+    } else {
+        Layout::vertical([
+            Constraint::Length(2),
+            Constraint::Min(3),
+            Constraint::Length(0),
+            Constraint::Length(preview_height),
+        ])
+        .split(inner)
+    };
+
+    let type_para = Paragraph::new(vec![type_line, groups_line]);
+    f.render_widget(type_para, chunks[0]);
+
+    let list = List::new(items).highlight_style(theme.selected);
+    f.render_stateful_widget(list, chunks[1], &mut state.list_state);
+
+    // Search bar row (chunks[2]) — shown only when search is active.
+    if search_active && chunks[2].height > 0 {
+        let match_info = if state.match_indices.is_empty() {
+            " (no matches)".to_string()
+        } else {
+            let pos = state.match_indices.iter().position(|&i| i == state.selected())
+                .map(|p| format!(" ({}/{})", p + 1, state.match_indices.len()))
+                .unwrap_or_else(|| format!(" ({} matches)", state.match_indices.len()));
+            pos
+        };
+        let cursor = if is_searching { "_" } else { "" };
+        let search_line = Line::from(vec![
+            Span::styled(" / ", theme.search_match),
+            Span::styled(format!("{}{}", state.search_query, cursor), theme.value),
+            Span::styled(match_info, theme.label),
+        ]);
+        f.render_widget(Paragraph::new(search_line), chunks[2]);
+    }
+
+    // Preview pane: show full value of selected field with wrapping.
+    // For FileEntry rows, show the label of the specific file being highlighted.
+    let (preview_label, preview_text) = match state.display_fields.get(state.selected()) {
+        Some(DisplayItem::FileEntry { label, .. }) => {
+            (" file ".to_string(), label.clone())
+        }
+        Some(DisplayItem::Field { name, value, .. }) if !value.is_empty() => {
+            let text = apply_display_pipeline(value, show_braces, render_latex_enabled);
+            (format!(" {} ", name), text)
+        }
+        Some(DisplayItem::Field { name, .. }) => (format!(" {} ", name), "(empty)".to_string()),
+        _ => (" Value ".to_string(), String::new()),
+    };
+    let preview_block = Block::default()
+        .borders(Borders::TOP)
+        .border_style(theme.border.add_modifier(Modifier::DIM))
+        .title(preview_label)
+        .title_style(theme.label);
+    let preview = Paragraph::new(preview_text)
+        .block(preview_block)
+        .wrap(Wrap { trim: true })
+        .style(theme.value);
+    f.render_widget(preview, chunks[3]);
+}
+
+/// Apply the display pipeline: optionally render LaTeX, then optionally strip braces.
+/// LaTeX must run first because it needs the `{...}` accent patterns.
+fn apply_display_pipeline(value: &str, show_braces: bool, render_latex_enabled: bool) -> String {
+    let s = if render_latex_enabled {
+        render_latex(value)
+    } else {
+        value.to_string()
+    };
+    if show_braces {
+        s
+    } else {
+        strip_case_braces(&s)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -456,7 +651,7 @@ mod tests {
         // After moving down, we should still be on a Field (not a Header)
         assert!(matches!(state.display_fields[after], DisplayItem::Field { .. }));
         // And we should have moved
-        assert!(after > start || after == start); // could stay if already at last field
+        assert!(after >= start); // could stay if already at last field
     }
 
     #[test]
@@ -1019,199 +1214,5 @@ mod tests {
         // Already covered indirectly; verify path-isolated call
         let s = apply_display_pipeline("{Hello}", false, false);
         assert_eq!(s, "Hello");
-    }
-}
-
-pub fn render_entry_detail(
-    f: &mut Frame,
-    area: Rect,
-    entry: &Entry,
-    state: &mut EntryDetailState,
-    theme: &Theme,
-    show_braces: bool,
-    render_latex_enabled: bool,
-    is_searching: bool,
-) {
-    let hint = if is_searching || !state.search_query.is_empty() {
-        " [e]dit  [A]dd  [d]el  [/] search  [n/N] next/prev  [Esc] clear search "
-    } else {
-        " [e]dit  [A]dd field  add [f]ile  [d]el  [T]itlecase  norm n[a]mes  [o]pen  [w]eb  [Tab] groups  [c]itekey  [/] search  [Esc] back "
-    };
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(theme.border)
-        .title(format!(" {} ", entry.citation_key))
-        .title_bottom(Line::from(hint).style(theme.label));
-
-    let inner = block.inner(area);
-    f.render_widget(block, area);
-
-    // Type + groups lines at top
-    let type_line = Line::from(vec![
-        Span::styled("  Type:   ", theme.label),
-        Span::styled(entry.entry_type.display_name(), theme.value),
-    ]);
-    let groups_line = if entry.group_memberships.is_empty() {
-        Line::from(vec![
-            Span::styled("  Groups: ", theme.label),
-            Span::styled("(none)", theme.label),
-        ])
-    } else {
-        Line::from(vec![
-            Span::styled("  Groups: ", theme.label),
-            Span::styled(entry.group_memberships.join(", "), theme.value),
-        ])
-    };
-
-    // Determine max field name length for alignment
-    let max_name_len = state
-        .display_fields
-        .iter()
-        .filter_map(|item| match item {
-            DisplayItem::Field { name, .. } => Some(name.len()),
-            _ => None,
-        })
-        .max()
-        .unwrap_or(0);
-
-    // Determine the label "file" width for FileEntry rows so they align
-    // with Field rows (but don't inflate max_name_len beyond real field names).
-    let file_name_len = "file".len();
-
-    let search_active = is_searching || !state.search_query.is_empty();
-
-    let items: Vec<ListItem> = state
-        .display_fields
-        .iter()
-        .enumerate()
-        .map(|(idx, item)| {
-            let is_match = search_active && state.match_indices.contains(&idx);
-            match item {
-                DisplayItem::Header(label) => ListItem::new(Line::from(Span::styled(
-                    format!("  {}", label),
-                    theme.required_label,
-                ))),
-                DisplayItem::Field { name, value, category } => {
-                    let padding = " ".repeat(max_name_len.saturating_sub(name.len()));
-                    let name_style = if is_match {
-                        theme.search_match
-                    } else {
-                        match category {
-                            FieldCategory::Required => theme.required_label,
-                            FieldCategory::Optional
-                            | FieldCategory::Other
-                            | FieldCategory::Custom(_) => theme.label,
-                        }
-                    };
-                    let value_style = if value.is_empty() && *category == FieldCategory::Required {
-                        theme.search_match.add_modifier(Modifier::DIM)
-                    } else {
-                        theme.value
-                    };
-                    let display_value: String = if value.is_empty() {
-                        String::new()
-                    } else {
-                        apply_display_pipeline(value, show_braces, render_latex_enabled)
-                    };
-                    ListItem::new(Line::from(vec![
-                        Span::styled(format!("    {}{} : ", name, padding), name_style),
-                        Span::styled(display_value, value_style),
-                    ]))
-                }
-                DisplayItem::FileEntry { label, .. } => {
-                    let padding = " ".repeat(max_name_len.saturating_sub(file_name_len));
-                    let label_style = if is_match { theme.search_match } else { theme.value };
-                    ListItem::new(Line::from(vec![
-                        Span::styled(format!("    file{} : ↳ ", padding), theme.label),
-                        Span::styled(label.clone(), label_style),
-                    ]))
-                }
-            }
-        })
-        .collect();
-
-    // Reserve a preview pane at the bottom for the full selected-field value.
-    // When search is active, add a 1-row search bar above the preview pane.
-    let preview_height = 4u16;
-    let chunks = if search_active {
-        Layout::vertical([
-            Constraint::Length(2),
-            Constraint::Min(3),
-            Constraint::Length(1),
-            Constraint::Length(preview_height),
-        ])
-        .split(inner)
-    } else {
-        Layout::vertical([
-            Constraint::Length(2),
-            Constraint::Min(3),
-            Constraint::Length(0),
-            Constraint::Length(preview_height),
-        ])
-        .split(inner)
-    };
-
-    let type_para = Paragraph::new(vec![type_line, groups_line]);
-    f.render_widget(type_para, chunks[0]);
-
-    let list = List::new(items).highlight_style(theme.selected);
-    f.render_stateful_widget(list, chunks[1], &mut state.list_state);
-
-    // Search bar row (chunks[2]) — shown only when search is active.
-    if search_active && chunks[2].height > 0 {
-        let match_info = if state.match_indices.is_empty() {
-            " (no matches)".to_string()
-        } else {
-            let pos = state.match_indices.iter().position(|&i| i == state.selected())
-                .map(|p| format!(" ({}/{})", p + 1, state.match_indices.len()))
-                .unwrap_or_else(|| format!(" ({} matches)", state.match_indices.len()));
-            pos
-        };
-        let cursor = if is_searching { "_" } else { "" };
-        let search_line = Line::from(vec![
-            Span::styled(" / ", theme.search_match),
-            Span::styled(format!("{}{}", state.search_query, cursor), theme.value),
-            Span::styled(match_info, theme.label),
-        ]);
-        f.render_widget(Paragraph::new(search_line), chunks[2]);
-    }
-
-    // Preview pane: show full value of selected field with wrapping.
-    // For FileEntry rows, show the label of the specific file being highlighted.
-    let (preview_label, preview_text) = match state.display_fields.get(state.selected()) {
-        Some(DisplayItem::FileEntry { label, .. }) => {
-            (" file ".to_string(), label.clone())
-        }
-        Some(DisplayItem::Field { name, value, .. }) if !value.is_empty() => {
-            let text = apply_display_pipeline(value, show_braces, render_latex_enabled);
-            (format!(" {} ", name), text)
-        }
-        Some(DisplayItem::Field { name, .. }) => (format!(" {} ", name), "(empty)".to_string()),
-        _ => (" Value ".to_string(), String::new()),
-    };
-    let preview_block = Block::default()
-        .borders(Borders::TOP)
-        .border_style(theme.border.add_modifier(Modifier::DIM))
-        .title(preview_label)
-        .title_style(theme.label);
-    let preview = Paragraph::new(preview_text)
-        .block(preview_block)
-        .wrap(Wrap { trim: true })
-        .style(theme.value);
-    f.render_widget(preview, chunks[3]);
-}
-
-/// Apply the display pipeline: optionally render LaTeX, then optionally strip braces.
-/// LaTeX must run first because it needs the `{...}` accent patterns.
-fn apply_display_pipeline(value: &str, show_braces: bool, render_latex_enabled: bool) -> String {
-    let s = if render_latex_enabled {
-        render_latex(value)
-    } else {
-        value.to_string()
-    };
-    if show_braces {
-        s
-    } else {
-        strip_case_braces(&s)
     }
 }

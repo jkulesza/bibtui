@@ -14,9 +14,26 @@ fn test_string_missing_brace_errors() {
 }
 
 #[test]
-fn test_entry_missing_open_brace_errors() {
-    // No '{' after the entry type
-    assert!(parse_bib_file("@Article key,\n  author = {A},\n}").is_err());
+fn test_entry_missing_open_brace_is_passthrough_text() {
+    // No '{' after the entry type — treated as stray inter-entry text (e.g.
+    // an email address in a comment line), preserved byte-for-byte.
+    let input = "@Article key,\n  author = {A},\n}";
+    let raw = parse_bib_file(input).unwrap();
+    assert_eq!(write_bib_file(&raw), input);
+    // No semantic entry is created from the stray text.
+    let db = build_database(raw);
+    assert!(db.entries.is_empty());
+}
+
+#[test]
+fn test_stray_at_in_comment_line_roundtrips() {
+    // A '%' comment containing an email address must not abort the file load.
+    let input = "% maintained by jane@example.org\n@Article{k,\n  title = {T},\n}\n";
+    let raw = parse_bib_file(input).unwrap();
+    assert_eq!(write_bib_file(&raw), input);
+    let db = build_database(raw);
+    assert_eq!(db.entries.len(), 1);
+    assert!(db.entries.contains_key("k"));
 }
 
 #[test]

@@ -445,7 +445,7 @@ impl SettingsState {
         // ── Citekey Templates (one item per standard entry type) ──
         let base = items.len(); // 11
         for type_name in CITEKEY_TYPES {
-            let entry_type = EntryType::from_str(type_name);
+            let entry_type = EntryType::parse(type_name);
             let display_name = entry_type.display_name();
             let fallback = format!("{}_[year]_[auth]", display_name);
             let current = config.citekey.templates.get(*type_name).cloned()
@@ -1022,6 +1022,287 @@ impl SettingsState {
             self.scroll_offset = self.cursor - viewport_height + 1;
         }
     }
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+
+const LABEL_W: usize = 26;
+const VAL_W: usize = 18;
+
+/// Word-wrap `text` into lines, each prefixed with `prefix`.
+/// Returns at most `max_lines` lines.
+fn wrap_text(text: &str, width: usize, prefix: &str, max_lines: usize) -> Vec<String> {
+    let effective_w = width.saturating_sub(prefix.len());
+    if effective_w == 0 || text.is_empty() {
+        return vec![prefix.to_string()];
+    }
+    let mut lines: Vec<String> = Vec::new();
+    let mut current = String::new();
+    for word in text.split_whitespace() {
+        if current.is_empty() {
+            current.push_str(word);
+        } else if current.len() + 1 + word.len() <= effective_w {
+            current.push(' ');
+            current.push_str(word);
+        } else {
+            lines.push(format!("{}{}", prefix, current));
+            if lines.len() == max_lines {
+                return lines;
+            }
+            current = word.to_string();
+        }
+    }
+    lines.push(format!("{}{}", prefix, current));
+    lines
+}
+
+pub fn render_settings(f: &mut Frame, area: Rect, state: &mut SettingsState, theme: &Theme) {
+    // Description height: word-wrap the selected item's text and size to fit,
+    // capped at 4 inner lines so it never dominates the layout.
+    let desc_text = state
+        .selected_item()
+        .map(|i| i.description.clone())
+        .unwrap_or_default();
+    let desc_inner_w = area.width.saturating_sub(3) as usize; // 2 borders + 1 leading space
+    let desc_wrapped = wrap_text(&desc_text, desc_inner_w, " ", 4);
+    let desc_height = (desc_wrapped.len() as u16).max(1) + 2; // +2 for top/bottom borders
+
+    // Split into list + description + hint
+    let v = Layout::vertical([
+        Constraint::Min(3),
+        Constraint::Length(desc_height),
+        Constraint::Length(1),
+    ])
+    .split(area);
+
+    let list_area = v[0];
+    let desc_area = v[1];
+    let hint_area = v[2];
+
+    // ── List block ──────────────────────────────────────────────────────────
+    let list_block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(theme.border)
+        .title(" Settings ");
+    let list_inner = list_block.inner(list_area);
+    f.render_widget(list_block, list_area);
+
+    let viewport_h = list_inner.height as usize;
+    state.ensure_visible(viewport_h);
+
+    let modified_style = Style::default()
+        .fg(Color::Yellow)
+        .add_modifier(Modifier::BOLD);
+    let section_sep_style = theme.border;
+
+    let defaults = Config::default();
+    let default_field_groups: Vec<(String, String)> = defaults.field_groups.iter()
+        .map(|fg| (fg.name.clone(), fg.fields.join(", ")))
+        .collect();
+    let default_columns: Vec<(String, String, String)> = defaults.display.columns.iter()
+        .map(|c| (c.field.clone(), c.header.clone(), format_width_spec(&c.width, c.max_width)))
+        .collect();
+
+    // Compute dynamic column widths from the available line width.
+    //
+    // Row structure:  prefix(7) + " "+label(1+LABEL_W) + val + mod(2) + hint
+    // For Item rows:  hint = "default: "(9) + default_val
+    // fixed overhead consumed before flexible columns:
+    let total_w = list_inner.width as usize;
+    let row_overhead = 7 + 1 + LABEL_W + 2; // 36
+    let flexible = total_w.saturating_sub(row_overhead);
+    // val_w: half of (flexible - "default: " prefix), min VAL_W, max 60
+    let val_w = if flexible > 9 {
+        ((flexible - 9) / 2).clamp(VAL_W, 60)
+    } else {
+        VAL_W
+    };
+    // default_w: whatever remains after val_w and the 9-char "default: " label
+    let default_w = flexible.saturating_sub(val_w + 9).max(VAL_W / 2);
+
+    let lines: Vec<Line> = state
+        .rows
+        .iter()
+        .enumerate()
+        .skip(state.scroll_offset)
+        .take(viewport_h)
+        .map(|(row_idx, row)| match row {
+            SettingRow::Section(name) => {
+                let label = format!(" ── {} ", name);
+                let fill_w = total_w.saturating_sub(label.len());
+                let fill = "─".repeat(fill_w);
+                Line::from(vec![
+                    Span::styled(label, theme.header),
+                    Span::styled(fill, section_sep_style),
+                ])
+            }
+            SettingRow::Item(item_idx) => {
+                let item = &state.items[*item_idx];
+                let is_selected = row_idx == state.cursor;
+                let is_modified = item.value != item.default;
+
+                let base_style =
+                    if is_selected { theme.selected } else { Style::default() };
+
+                let cursor_ch = if is_selected { "▶" } else { " " };
+                let type_ch = match &item.value {
+                    SettingValue::Bool(true) => "[✓]",
+                    SettingValue::Bool(false) => "[ ]",
+                    SettingValue::Choice { .. } => "[⇄]",
+                    SettingValue::Str(_) => "[-]",
+                };
+
+                let label = format!(" {:<w$}", item.label, w = LABEL_W);
+                let val_str = item.value.display();
+                let val_trunc: String = val_str.chars().take(val_w).collect();
+                let val_padded = format!("{:<w$}", val_trunc, w = val_w);
+
+                let default_str = item.default.display();
+                let default_trunc: String = default_str.chars().take(default_w).collect();
+
+                let mod_marker = if is_modified { "● " } else { "  " };
+                let default_hint = format!("default: {}", default_trunc);
+
+                let val_style = if is_modified { modified_style } else { base_style };
+                let hint_style = if is_modified {
+                    Style::default().fg(Color::DarkGray)
+                } else {
+                    theme.label
+                };
+                let mod_style = if is_modified {
+                    Style::default().fg(Color::Yellow)
+                } else {
+                    base_style
+                };
+
+                Line::from(vec![
+                    Span::styled(format!(" {} {} ", cursor_ch, type_ch), base_style),
+                    Span::styled(label, base_style),
+                    Span::styled(val_padded, val_style),
+                    Span::styled(mod_marker, mod_style),
+                    Span::styled(default_hint, hint_style),
+                ])
+            }
+            SettingRow::Column(col_idx) => {
+                let (field, header, width_spec) = match state.columns.get(*col_idx) {
+                    Some(c) => c,
+                    None => return Line::from(""),
+                };
+                let is_selected = row_idx == state.cursor;
+                let is_modified = !default_columns.iter()
+                    .any(|(df, dh, dw)| df == field && dh == header && dw == width_spec);
+
+                let base_style = if is_selected { theme.selected } else { Style::default() };
+                let cursor_ch = if is_selected { "▶" } else { " " };
+
+                let display_name = if header != field {
+                    format!("{} ({})", field, header)
+                } else {
+                    field.clone()
+                };
+                let label = format!(" {:<w$}", display_name, w = LABEL_W);
+                let val_trunc: String = width_spec.chars().take(val_w).collect();
+                let val_padded = format!("{:<w$}", val_trunc, w = val_w);
+                let mod_marker = if is_modified { "● " } else { "  " };
+                let val_style = if is_modified { modified_style } else { base_style };
+                let mod_style = if is_modified {
+                    Style::default().fg(Color::Yellow)
+                } else {
+                    base_style
+                };
+
+                let hint_text = if let Some((_, _, dw)) = default_columns.iter()
+                    .find(|(df, _, _)| df == field)
+                {
+                    let dw_trunc: String = dw.chars().take(default_w).collect();
+                    format!("default: {}", dw_trunc)
+                } else {
+                    "fixed:N / percent:N / flex [max:N]".to_string()
+                };
+                let hint_style = if is_modified {
+                    Style::default().fg(Color::DarkGray)
+                } else {
+                    theme.label
+                };
+
+                Line::from(vec![
+                    Span::styled(format!(" {} [C] ", cursor_ch), base_style),
+                    Span::styled(label, base_style),
+                    Span::styled(val_padded, val_style),
+                    Span::styled(mod_marker, mod_style),
+                    Span::styled(hint_text, hint_style),
+                ])
+            }
+            SettingRow::FieldGroup(fg_idx) => {
+                let (name, fields_csv) = match state.field_groups.get(*fg_idx) {
+                    Some(fg) => fg,
+                    None => return Line::from(""),
+                };
+                let is_selected = row_idx == state.cursor;
+                let is_modified = !default_field_groups.iter()
+                    .any(|(dn, df)| dn == name && df == fields_csv);
+
+                let base_style = if is_selected { theme.selected } else { Style::default() };
+                let cursor_ch = if is_selected { "▶" } else { " " };
+
+                let label = format!(" {:<w$}", name, w = LABEL_W);
+                let val_trunc: String = fields_csv.chars().take(val_w).collect();
+                let val_padded = format!("{:<w$}", val_trunc, w = val_w);
+                let mod_marker = if is_modified { "● " } else { "  " };
+                let val_style = if is_modified { modified_style } else { base_style };
+                let mod_style = if is_modified {
+                    Style::default().fg(Color::Yellow)
+                } else {
+                    base_style
+                };
+
+                Line::from(vec![
+                    Span::styled(format!(" {} [G] ", cursor_ch), base_style),
+                    Span::styled(label, base_style),
+                    Span::styled(val_padded, val_style),
+                    Span::styled(mod_marker, mod_style),
+                    Span::styled("fields (comma-separated)", theme.label),
+                ])
+            }
+        })
+        .collect();
+
+    f.render_widget(Paragraph::new(lines), list_inner);
+
+    // ── Description block ───────────────────────────────────────────────────
+    let desc_block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(theme.border)
+        .title(" Description ");
+    let desc_inner = desc_block.inner(desc_area);
+    f.render_widget(desc_block, desc_area);
+
+    let desc_lines: Vec<Line> = desc_wrapped
+        .into_iter()
+        .map(|s| Line::from(Span::styled(s, theme.value)))
+        .collect();
+    f.render_widget(Paragraph::new(desc_lines), desc_inner);
+
+    // ── Hint bar ────────────────────────────────────────────────────────────
+    let action_hint = if state.selected_is_column() {
+        "e: edit width  r: rename (field|header)  a: add column  x: delete column"
+    } else if state.selected_is_field_group() {
+        "e: edit fields  r: rename  a: add group  x: delete group"
+    } else {
+        match state.selected_item().map(|i| &i.value) {
+            Some(SettingValue::Bool(_)) => "Enter/Space: toggle  a: add field group",
+            Some(SettingValue::Choice { .. }) => "Enter/Space: cycle  a: add field group",
+            _ => "e: edit value  a: add field group",
+        }
+    };
+    let hint = format!(
+        " j/k: navigate  {}  E: export  I: import  Esc: close",
+        action_hint
+    );
+    f.render_widget(
+        Paragraph::new(Line::from(Span::styled(hint, theme.label))),
+        hint_area,
+    );
 }
 
 #[cfg(test)]
@@ -1710,285 +1991,4 @@ mod tests {
         // After moving to the very top, the first selectable is under some section.
         assert!(section.is_some());
     }
-}
-
-// ── Render ────────────────────────────────────────────────────────────────────
-
-const LABEL_W: usize = 26;
-const VAL_W: usize = 18;
-
-/// Word-wrap `text` into lines, each prefixed with `prefix`.
-/// Returns at most `max_lines` lines.
-fn wrap_text(text: &str, width: usize, prefix: &str, max_lines: usize) -> Vec<String> {
-    let effective_w = width.saturating_sub(prefix.len());
-    if effective_w == 0 || text.is_empty() {
-        return vec![prefix.to_string()];
-    }
-    let mut lines: Vec<String> = Vec::new();
-    let mut current = String::new();
-    for word in text.split_whitespace() {
-        if current.is_empty() {
-            current.push_str(word);
-        } else if current.len() + 1 + word.len() <= effective_w {
-            current.push(' ');
-            current.push_str(word);
-        } else {
-            lines.push(format!("{}{}", prefix, current));
-            if lines.len() == max_lines {
-                return lines;
-            }
-            current = word.to_string();
-        }
-    }
-    lines.push(format!("{}{}", prefix, current));
-    lines
-}
-
-pub fn render_settings(f: &mut Frame, area: Rect, state: &mut SettingsState, theme: &Theme) {
-    // Description height: word-wrap the selected item's text and size to fit,
-    // capped at 4 inner lines so it never dominates the layout.
-    let desc_text = state
-        .selected_item()
-        .map(|i| i.description.clone())
-        .unwrap_or_default();
-    let desc_inner_w = area.width.saturating_sub(3) as usize; // 2 borders + 1 leading space
-    let desc_wrapped = wrap_text(&desc_text, desc_inner_w, " ", 4);
-    let desc_height = (desc_wrapped.len() as u16).max(1) + 2; // +2 for top/bottom borders
-
-    // Split into list + description + hint
-    let v = Layout::vertical([
-        Constraint::Min(3),
-        Constraint::Length(desc_height),
-        Constraint::Length(1),
-    ])
-    .split(area);
-
-    let list_area = v[0];
-    let desc_area = v[1];
-    let hint_area = v[2];
-
-    // ── List block ──────────────────────────────────────────────────────────
-    let list_block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(theme.border)
-        .title(" Settings ");
-    let list_inner = list_block.inner(list_area);
-    f.render_widget(list_block, list_area);
-
-    let viewport_h = list_inner.height as usize;
-    state.ensure_visible(viewport_h);
-
-    let modified_style = Style::default()
-        .fg(Color::Yellow)
-        .add_modifier(Modifier::BOLD);
-    let section_sep_style = theme.border;
-
-    let defaults = Config::default();
-    let default_field_groups: Vec<(String, String)> = defaults.field_groups.iter()
-        .map(|fg| (fg.name.clone(), fg.fields.join(", ")))
-        .collect();
-    let default_columns: Vec<(String, String, String)> = defaults.display.columns.iter()
-        .map(|c| (c.field.clone(), c.header.clone(), format_width_spec(&c.width, c.max_width)))
-        .collect();
-
-    // Compute dynamic column widths from the available line width.
-    //
-    // Row structure:  prefix(7) + " "+label(1+LABEL_W) + val + mod(2) + hint
-    // For Item rows:  hint = "default: "(9) + default_val
-    // fixed overhead consumed before flexible columns:
-    let total_w = list_inner.width as usize;
-    let row_overhead = 7 + 1 + LABEL_W + 2; // 36
-    let flexible = total_w.saturating_sub(row_overhead);
-    // val_w: half of (flexible - "default: " prefix), min VAL_W, max 60
-    let val_w = if flexible > 9 {
-        ((flexible - 9) / 2).max(VAL_W).min(60)
-    } else {
-        VAL_W
-    };
-    // default_w: whatever remains after val_w and the 9-char "default: " label
-    let default_w = flexible.saturating_sub(val_w + 9).max(VAL_W / 2);
-
-    let lines: Vec<Line> = state
-        .rows
-        .iter()
-        .enumerate()
-        .skip(state.scroll_offset)
-        .take(viewport_h)
-        .map(|(row_idx, row)| match row {
-            SettingRow::Section(name) => {
-                let label = format!(" ── {} ", name);
-                let fill_w = total_w.saturating_sub(label.len());
-                let fill = "─".repeat(fill_w);
-                Line::from(vec![
-                    Span::styled(label, theme.header),
-                    Span::styled(fill, section_sep_style),
-                ])
-            }
-            SettingRow::Item(item_idx) => {
-                let item = &state.items[*item_idx];
-                let is_selected = row_idx == state.cursor;
-                let is_modified = item.value != item.default;
-
-                let base_style =
-                    if is_selected { theme.selected } else { Style::default() };
-
-                let cursor_ch = if is_selected { "▶" } else { " " };
-                let type_ch = match &item.value {
-                    SettingValue::Bool(true) => "[✓]",
-                    SettingValue::Bool(false) => "[ ]",
-                    SettingValue::Choice { .. } => "[⇄]",
-                    SettingValue::Str(_) => "[-]",
-                };
-
-                let label = format!(" {:<w$}", item.label, w = LABEL_W);
-                let val_str = item.value.display();
-                let val_trunc: String = val_str.chars().take(val_w).collect();
-                let val_padded = format!("{:<w$}", val_trunc, w = val_w);
-
-                let default_str = item.default.display();
-                let default_trunc: String = default_str.chars().take(default_w).collect();
-
-                let mod_marker = if is_modified { "● " } else { "  " };
-                let default_hint = format!("default: {}", default_trunc);
-
-                let val_style = if is_modified { modified_style } else { base_style };
-                let hint_style = if is_modified {
-                    Style::default().fg(Color::DarkGray)
-                } else {
-                    theme.label
-                };
-                let mod_style = if is_modified {
-                    Style::default().fg(Color::Yellow)
-                } else {
-                    base_style
-                };
-
-                Line::from(vec![
-                    Span::styled(format!(" {} {} ", cursor_ch, type_ch), base_style),
-                    Span::styled(label, base_style),
-                    Span::styled(val_padded, val_style),
-                    Span::styled(mod_marker, mod_style),
-                    Span::styled(default_hint, hint_style),
-                ])
-            }
-            SettingRow::Column(col_idx) => {
-                let (field, header, width_spec) = match state.columns.get(*col_idx) {
-                    Some(c) => c,
-                    None => return Line::from(""),
-                };
-                let is_selected = row_idx == state.cursor;
-                let is_modified = !default_columns.iter()
-                    .any(|(df, dh, dw)| df == field && dh == header && dw == width_spec);
-
-                let base_style = if is_selected { theme.selected } else { Style::default() };
-                let cursor_ch = if is_selected { "▶" } else { " " };
-
-                let display_name = if header != field {
-                    format!("{} ({})", field, header)
-                } else {
-                    field.clone()
-                };
-                let label = format!(" {:<w$}", display_name, w = LABEL_W);
-                let val_trunc: String = width_spec.chars().take(val_w).collect();
-                let val_padded = format!("{:<w$}", val_trunc, w = val_w);
-                let mod_marker = if is_modified { "● " } else { "  " };
-                let val_style = if is_modified { modified_style } else { base_style };
-                let mod_style = if is_modified {
-                    Style::default().fg(Color::Yellow)
-                } else {
-                    base_style
-                };
-
-                let hint_text = if let Some((_, _, dw)) = default_columns.iter()
-                    .find(|(df, _, _)| df == field)
-                {
-                    let dw_trunc: String = dw.chars().take(default_w).collect();
-                    format!("default: {}", dw_trunc)
-                } else {
-                    "fixed:N / percent:N / flex [max:N]".to_string()
-                };
-                let hint_style = if is_modified {
-                    Style::default().fg(Color::DarkGray)
-                } else {
-                    theme.label
-                };
-
-                Line::from(vec![
-                    Span::styled(format!(" {} [C] ", cursor_ch), base_style),
-                    Span::styled(label, base_style),
-                    Span::styled(val_padded, val_style),
-                    Span::styled(mod_marker, mod_style),
-                    Span::styled(hint_text, hint_style),
-                ])
-            }
-            SettingRow::FieldGroup(fg_idx) => {
-                let (name, fields_csv) = match state.field_groups.get(*fg_idx) {
-                    Some(fg) => fg,
-                    None => return Line::from(""),
-                };
-                let is_selected = row_idx == state.cursor;
-                let is_modified = !default_field_groups.iter()
-                    .any(|(dn, df)| dn == name && df == fields_csv);
-
-                let base_style = if is_selected { theme.selected } else { Style::default() };
-                let cursor_ch = if is_selected { "▶" } else { " " };
-
-                let label = format!(" {:<w$}", name, w = LABEL_W);
-                let val_trunc: String = fields_csv.chars().take(val_w).collect();
-                let val_padded = format!("{:<w$}", val_trunc, w = val_w);
-                let mod_marker = if is_modified { "● " } else { "  " };
-                let val_style = if is_modified { modified_style } else { base_style };
-                let mod_style = if is_modified {
-                    Style::default().fg(Color::Yellow)
-                } else {
-                    base_style
-                };
-
-                Line::from(vec![
-                    Span::styled(format!(" {} [G] ", cursor_ch), base_style),
-                    Span::styled(label, base_style),
-                    Span::styled(val_padded, val_style),
-                    Span::styled(mod_marker, mod_style),
-                    Span::styled("fields (comma-separated)", theme.label),
-                ])
-            }
-        })
-        .collect();
-
-    f.render_widget(Paragraph::new(lines), list_inner);
-
-    // ── Description block ───────────────────────────────────────────────────
-    let desc_block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(theme.border)
-        .title(" Description ");
-    let desc_inner = desc_block.inner(desc_area);
-    f.render_widget(desc_block, desc_area);
-
-    let desc_lines: Vec<Line> = desc_wrapped
-        .into_iter()
-        .map(|s| Line::from(Span::styled(s, theme.value)))
-        .collect();
-    f.render_widget(Paragraph::new(desc_lines), desc_inner);
-
-    // ── Hint bar ────────────────────────────────────────────────────────────
-    let action_hint = if state.selected_is_column() {
-        "e: edit width  r: rename (field|header)  a: add column  x: delete column"
-    } else if state.selected_is_field_group() {
-        "e: edit fields  r: rename  a: add group  x: delete group"
-    } else {
-        match state.selected_item().map(|i| &i.value) {
-            Some(SettingValue::Bool(_)) => "Enter/Space: toggle  a: add field group",
-            Some(SettingValue::Choice { .. }) => "Enter/Space: cycle  a: add field group",
-            _ => "e: edit value  a: add field group",
-        }
-    };
-    let hint = format!(
-        " j/k: navigate  {}  E: export  I: import  Esc: close",
-        action_hint
-    );
-    f.render_widget(
-        Paragraph::new(Line::from(Span::styled(hint, theme.label))),
-        hint_area,
-    );
 }

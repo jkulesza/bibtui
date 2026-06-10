@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use indexmap::IndexMap;
 use std::fmt;
 
@@ -30,11 +28,9 @@ pub struct RawEntry {
     pub entry_type: String,
     pub citation_key: String,
     pub fields: Vec<RawField>,
-    /// Column at which '=' signs are aligned (0 = no alignment)
-    pub align_width: usize,
-    /// Whether there's a trailing comma after the last field
-    pub trailing_comma: bool,
-    /// The complete raw text of this entry, used for passthrough writing
+    /// The complete raw text of this entry, used for passthrough writing.
+    /// All original formatting (indentation, alignment, trailing commas) is
+    /// preserved here rather than as structured data.
     pub raw_text: String,
 }
 
@@ -42,14 +38,6 @@ pub struct RawEntry {
 pub struct RawField {
     pub name: String,
     pub value: RawFieldValue,
-    /// Leading whitespace before field name
-    pub indent: String,
-    /// Whitespace between field name and '='
-    pub pre_eq: String,
-    /// Whitespace between '=' and value
-    pub post_eq: String,
-    /// Trailing content after value (comma, whitespace, comment)
-    pub trailing: String,
 }
 
 #[derive(Debug, Clone)]
@@ -82,6 +70,10 @@ pub struct Database {
     pub groups: GroupTree,
     pub jabref_meta: JabRefMeta,
     pub raw_file: RawBibFile,
+    /// Citation keys that appeared more than once in the source file. The raw
+    /// file keeps every copy (byte-perfect passthrough), but the semantic map
+    /// can only hold the last one — the user should be warned.
+    pub duplicate_keys: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -137,7 +129,7 @@ pub enum EntryType {
 }
 
 impl EntryType {
-    pub fn from_str(s: &str) -> Self {
+    pub fn parse(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "article" => EntryType::Article,
             "book" => EntryType::Book,
@@ -268,32 +260,32 @@ mod tests {
 
     #[test]
     fn test_entry_type_from_str_all() {
-        assert_eq!(EntryType::from_str("article"), EntryType::Article);
-        assert_eq!(EntryType::from_str("book"), EntryType::Book);
-        assert_eq!(EntryType::from_str("booklet"), EntryType::Booklet);
-        assert_eq!(EntryType::from_str("inbook"), EntryType::InBook);
-        assert_eq!(EntryType::from_str("incollection"), EntryType::InCollection);
-        assert_eq!(EntryType::from_str("inproceedings"), EntryType::InProceedings);
-        assert_eq!(EntryType::from_str("conference"), EntryType::InProceedings);
-        assert_eq!(EntryType::from_str("manual"), EntryType::Manual);
-        assert_eq!(EntryType::from_str("mastersthesis"), EntryType::MastersThesis);
-        assert_eq!(EntryType::from_str("misc"), EntryType::Misc);
-        assert_eq!(EntryType::from_str("phdthesis"), EntryType::PhdThesis);
-        assert_eq!(EntryType::from_str("proceedings"), EntryType::Proceedings);
-        assert_eq!(EntryType::from_str("techreport"), EntryType::TechReport);
-        assert_eq!(EntryType::from_str("unpublished"), EntryType::Unpublished);
+        assert_eq!(EntryType::parse("article"), EntryType::Article);
+        assert_eq!(EntryType::parse("book"), EntryType::Book);
+        assert_eq!(EntryType::parse("booklet"), EntryType::Booklet);
+        assert_eq!(EntryType::parse("inbook"), EntryType::InBook);
+        assert_eq!(EntryType::parse("incollection"), EntryType::InCollection);
+        assert_eq!(EntryType::parse("inproceedings"), EntryType::InProceedings);
+        assert_eq!(EntryType::parse("conference"), EntryType::InProceedings);
+        assert_eq!(EntryType::parse("manual"), EntryType::Manual);
+        assert_eq!(EntryType::parse("mastersthesis"), EntryType::MastersThesis);
+        assert_eq!(EntryType::parse("misc"), EntryType::Misc);
+        assert_eq!(EntryType::parse("phdthesis"), EntryType::PhdThesis);
+        assert_eq!(EntryType::parse("proceedings"), EntryType::Proceedings);
+        assert_eq!(EntryType::parse("techreport"), EntryType::TechReport);
+        assert_eq!(EntryType::parse("unpublished"), EntryType::Unpublished);
     }
 
     #[test]
     fn test_entry_type_from_str_case_insensitive() {
-        assert_eq!(EntryType::from_str("Article"), EntryType::Article);
-        assert_eq!(EntryType::from_str("TECHREPORT"), EntryType::TechReport);
+        assert_eq!(EntryType::parse("Article"), EntryType::Article);
+        assert_eq!(EntryType::parse("TECHREPORT"), EntryType::TechReport);
     }
 
     #[test]
     fn test_entry_type_from_str_unknown() {
         assert_eq!(
-            EntryType::from_str("IEEEtranBSTCTL"),
+            EntryType::parse("IEEEtranBSTCTL"),
             EntryType::Other("IEEEtranBSTCTL".to_string())
         );
     }

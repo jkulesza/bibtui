@@ -12,6 +12,12 @@ pub struct SearchBarState {
     pub result_count: usize,
 }
 
+impl Default for SearchBarState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SearchBarState {
     pub fn new() -> Self {
         SearchBarState {

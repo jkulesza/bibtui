@@ -1,5 +1,22 @@
 # Changelog
 
+### 0.59.0
+
+Full-codebase review release: correctness fixes, a large module refactor, testability abstractions, and expanded coverage.
+
+- **Fix save corruption with `entry_sort_order: none`**: `sync_dirty_entries` left `raw_index` stale across saves — *add → save → edit → save* inserted a duplicate entry instead of updating in place, and *delete → save → delete → save* removed the wrong entry. The sync now runs in four phases (in-place updates, removals, insertions, then an unconditional `raw_index` rebuild). The default `citation_key` sort order masked the bug
+- **Fix `duplicate_entry()` overwriting the original on save**: the copy shared the original's `raw_index`, so saving after duplicating replaced the original entry on disk; the copy now gets its own raw slot
+- **Parser: stray `@` in inter-entry text no longer aborts loading**: a comment line like `% maintained by jane@example.org` previously failed the whole file; such text is now passed through byte-perfectly. Genuinely malformed entries (unterminated braces) still error
+- **Duplicate citation keys are now detected**: recorded in `Database::duplicate_keys` and surfaced as a status-bar warning on load (the raw file keeps both copies, as before)
+- **Explicit `--config` path that doesn't exist now errors** instead of silently falling back to the implicit search paths
+- **Search: URLs are no longer misparsed as field filters**: `https://...` in a query no longer triggers `field:query` syntax
+- **Removed the only `unsafe` block** (`writer.rs` UTF-8 conversion) and a dead fallback branch in keyword-group filtering
+- **Module split**: `app/mod.rs` (8,742 lines) split into `editing.rs`, `save.rs`, `groups.rs`, `import.rs`, `completions.rs`, and `tests.rs` (mod.rs now 2,483 lines); no behavior change
+- **Testable clipboard/opener**: new `Clipboard` and `Opener` traits with system impls; `App` holds injectable boxed instances, so yank/open logic is now covered by 14 mock-based tests
+- **`main.rs` cleanup**: now consumes the lib crate instead of re-declaring every module (the crate was compiled twice and every lib test ran twice); bib-path resolution extracted into a tested `resolve_bib_path()` and clap parsing covered by tests
+- **Clippy clean**: `cargo clippy --all-targets -- -D warnings` passes (was ~75 warnings); `EntryType::from_str` renamed to `EntryType::parse`, dead `RawEntry`/`RawField` formatting fields removed, manual clamp patterns fixed
+- **Expanded test coverage**: 1405 → 1461 tests; line coverage ~81 % → ~87 % — save pipeline (previously 0 executions), group management round-trips, import-result handling, `sync_filenames`, and ratatui `TestBackend` render smoke tests (`settings_screen.rs` 0 % → 98 %, `dialog.rs` 65 % → 98.6 %)
+
 ### 0.58.1
 
 - **Dependency security update**: `openssl` 0.10.78 → 0.10.80, `openssl-sys` 0.9.114 → 0.9.116 — fixes three rust-openssl advisories: undefined behavior in `X509Ref::ocsp_responders` for certificates with non-UTF-8 OCSP URLs (High), heap buffer overflow when encrypting with AES key-wrap-with-padding (Moderate), and potential out-of-bounds write in `CipherCtxRef::cipher_update_inplace` for AES-KW-PAD ciphers (Moderate)

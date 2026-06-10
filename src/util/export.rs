@@ -306,7 +306,7 @@ fn entry_to_ris(entry: &Entry) -> String {
 pub fn export_ris(db: &Database) -> String {
     db.entries
         .values()
-        .map(|e| entry_to_ris(e))
+        .map(entry_to_ris)
         .collect::<Vec<_>>()
         .join("\n\n")
 }
@@ -346,6 +346,7 @@ mod tests {
             groups: crate::bib::model::GroupTree::default(),
             jabref_meta: crate::bib::model::JabRefMeta::default(),
             raw_file: crate::bib::model::RawBibFile { items: vec![] },
+            duplicate_keys: Vec::new(),
         }
     }
 

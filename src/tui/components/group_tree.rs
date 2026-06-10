@@ -105,6 +105,68 @@ fn flatten_node(
     }
 }
 
+pub fn render_group_tree(
+    f: &mut Frame,
+    area: Rect,
+    state: &mut GroupTreeState,
+    theme: &Theme,
+    focused: bool,
+    total_entries: usize,
+) {
+    let border_style = if focused {
+        theme.border.add_modifier(Modifier::BOLD)
+    } else {
+        theme.border
+    };
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(border_style)
+        .title(" Groups ");
+
+    let items: Vec<ListItem> = state
+        .flat_items
+        .iter()
+        .map(|item| {
+            let indent = "  ".repeat(item.depth);
+            let icon = if item.has_children {
+                if item.expanded {
+                    "v "
+                } else {
+                    "> "
+                }
+            } else {
+                "  "
+            };
+
+            let count_str = if item.depth == 0 {
+                format!(" ({})", total_entries)
+            } else if let Some(count) = item.entry_count {
+                format!(" ({})", count)
+            } else {
+                String::new()
+            };
+
+            let style = if state.active_group.as_ref() == Some(&item.name) {
+                theme.group_active
+            } else {
+                theme.normal
+            };
+
+            ListItem::new(Line::from(vec![Span::styled(
+                format!("{}{}{}{}", indent, icon, item.name, count_str),
+                style,
+            )]))
+        })
+        .collect();
+
+    let list = List::new(items)
+        .block(block)
+        .highlight_style(theme.selected);
+
+    f.render_stateful_widget(list, area, &mut state.list_state);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -268,66 +330,4 @@ mod tests {
             assert!(item.entry_count.is_none());
         }
     }
-}
-
-pub fn render_group_tree(
-    f: &mut Frame,
-    area: Rect,
-    state: &mut GroupTreeState,
-    theme: &Theme,
-    focused: bool,
-    total_entries: usize,
-) {
-    let border_style = if focused {
-        theme.border.add_modifier(Modifier::BOLD)
-    } else {
-        theme.border
-    };
-
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(border_style)
-        .title(" Groups ");
-
-    let items: Vec<ListItem> = state
-        .flat_items
-        .iter()
-        .map(|item| {
-            let indent = "  ".repeat(item.depth);
-            let icon = if item.has_children {
-                if item.expanded {
-                    "v "
-                } else {
-                    "> "
-                }
-            } else {
-                "  "
-            };
-
-            let count_str = if item.depth == 0 {
-                format!(" ({})", total_entries)
-            } else if let Some(count) = item.entry_count {
-                format!(" ({})", count)
-            } else {
-                String::new()
-            };
-
-            let style = if state.active_group.as_ref() == Some(&item.name) {
-                theme.group_active
-            } else {
-                theme.normal
-            };
-
-            ListItem::new(Line::from(vec![Span::styled(
-                format!("{}{}{}{}", indent, icon, item.name, count_str),
-                style,
-            )]))
-        })
-        .collect();
-
-    let list = List::new(items)
-        .block(block)
-        .highlight_style(theme.selected);
-
-    f.render_stateful_widget(list, area, &mut state.list_state);
 }

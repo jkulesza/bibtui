@@ -1,10 +1,29 @@
+/// Abstraction over the system clipboard so app logic can be tested
+/// without touching the real clipboard.
+pub trait Clipboard {
+    fn copy(&self, text: &str) -> anyhow::Result<()>;
+    fn paste(&self) -> anyhow::Result<String>;
+}
+
+/// The real system clipboard (pbcopy/pbpaste on macOS, xclip/xsel on Linux).
+pub struct SystemClipboard;
+
+impl Clipboard for SystemClipboard {
+    fn copy(&self, text: &str) -> anyhow::Result<()> {
+        copy_to_clipboard(text)
+    }
+    fn paste(&self) -> anyhow::Result<String> {
+        read_from_clipboard()
+    }
+}
+
 /// Read text from the system clipboard.
 pub fn read_from_clipboard() -> anyhow::Result<String> {
     #[cfg(target_os = "macos")]
     {
         use std::process::Command;
         let output = Command::new("pbpaste").output()?;
-        return Ok(String::from_utf8_lossy(&output.stdout).into_owned());
+        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     }
 
     #[cfg(target_os = "linux")]
@@ -39,7 +58,7 @@ pub fn copy_to_clipboard(text: &str) -> anyhow::Result<()> {
             stdin.write_all(text.as_bytes())?;
         }
         child.wait()?;
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(target_os = "linux")]

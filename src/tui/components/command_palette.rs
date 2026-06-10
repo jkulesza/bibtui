@@ -14,6 +14,12 @@ pub struct CommandPaletteState {
     pub completion_idx: usize,
 }
 
+impl Default for CommandPaletteState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CommandPaletteState {
     pub fn new() -> Self {
         CommandPaletteState {

@@ -61,7 +61,7 @@ fn estimate_wrapped_lines(text: &str, width: usize) -> usize {
     text.lines()
         .map(|line| {
             let chars = line.chars().count();
-            if chars == 0 { 1 } else { (chars + width - 1) / width }
+            if chars == 0 { 1 } else { chars.div_ceil(width) }
         })
         .sum::<usize>()
         .max(1)

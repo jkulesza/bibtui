@@ -5,6 +5,7 @@ use ratatui::Frame;
 
 use crate::tui::theme::Theme;
 
+#[allow(clippy::too_many_arguments)] // display params; bundling into a struct is tracked in REVIEW_FINDINGS.md
 pub fn render_status_bar(
     f: &mut Frame,
     area: Rect,

@@ -7,6 +7,15 @@ use super::schema::Config;
 
 /// Load configuration with precedence: CLI flag > ./bibtui.yaml > $XDG_CONFIG_HOME/bibtui/config.yaml
 pub fn load_config(cli_config: Option<&str>) -> Result<Config> {
+    // An explicitly requested config file must exist — silently falling back
+    // to the implicit search paths would hide typos in `--config`.
+    if let Some(p) = cli_config {
+        let path = PathBuf::from(p);
+        if !path.exists() {
+            anyhow::bail!("Config file not found: {}", path.display());
+        }
+    }
+
     // Try paths in order of precedence
     let paths_to_try: Vec<PathBuf> = {
         let mut v = Vec::new();
@@ -48,10 +57,13 @@ mod tests {
     use tempfile::NamedTempFile;
 
     #[test]
-    fn test_load_config_returns_defaults_when_no_file_exists() {
-        // Pass a path that definitely doesn't exist.
-        let cfg = load_config(Some("/nonexistent/__bibtui_test__.yaml")).unwrap();
-        assert_eq!(cfg.general.backup_on_save, Config::default().general.backup_on_save);
+    fn test_load_config_missing_explicit_path_errors() {
+        // An explicitly requested config file that doesn't exist is an error,
+        // not a silent fallback to defaults.
+        let result = load_config(Some("/nonexistent/__bibtui_test__.yaml"));
+        assert!(result.is_err());
+        let msg = format!("{}", result.unwrap_err());
+        assert!(msg.contains("Config file not found"), "got: {}", msg);
     }
 
     #[test]
@@ -104,7 +116,7 @@ mod tests {
     fn test_load_config_minimal_empty_yaml() {
         // An empty YAML file should deserialise to all defaults.
         let mut tmp = NamedTempFile::new().unwrap();
-        writeln!(tmp, "").unwrap();
+        writeln!(tmp).unwrap();
         tmp.flush().unwrap();
         let path = tmp.path().to_str().unwrap();
         let cfg = load_config(Some(path)).unwrap();
@@ -132,7 +144,7 @@ mod tests {
         // After loading any config, all standard entry types should have a
         // non-empty template (either configured or filled in from defaults).
         let mut tmp = NamedTempFile::new().unwrap();
-        writeln!(tmp, "").unwrap();
+        writeln!(tmp).unwrap();
         tmp.flush().unwrap();
         let cfg = load_config(Some(tmp.path().to_str().unwrap())).unwrap();
         for type_name in &["article", "book", "inbook", "inproceedings", "techreport",
@@ -145,10 +157,8 @@ mod tests {
     }
 
     #[test]
-    fn test_load_config_nonexistent_cli_path_uses_defaults() {
-        // An explicit CLI path that doesn't exist should fall through to defaults.
-        let cfg = load_config(Some("/tmp/__definitely_does_not_exist_xyz.yaml")).unwrap();
-        let default = super::super::schema::Config::default();
-        assert_eq!(cfg.general.backup_on_save, default.general.backup_on_save);
+    fn test_load_config_nonexistent_cli_path_errors() {
+        // An explicit CLI path that doesn't exist must not fall through to defaults.
+        assert!(load_config(Some("/tmp/__definitely_does_not_exist_xyz.yaml")).is_err());
     }
 }

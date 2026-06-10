@@ -93,11 +93,11 @@ fn labeled_doi(text: &str) -> Option<String> {
 
     for prefix in prefixes {
         let Some(pos) = lower.find(prefix) else { continue };
-        let after = text[pos + prefix.len()..].trim_start_matches(|c: char| c == ' ' || c == '\t');
+        let after = text[pos + prefix.len()..].trim_start_matches([' ', '\t']);
         // Skip the literal "doi:" that may still prefix the number
         let after = after
             .strip_prefix("doi:")
-            .map(|s| s.trim_start_matches(|c: char| c == ' ' || c == '\t'))
+            .map(|s| s.trim_start_matches([' ', '\t']))
             .unwrap_or(after);
         if after.starts_with("10.") {
             if let Some(doi) = extract_doi_at(after) {
@@ -141,7 +141,7 @@ fn extract_doi_at(text: &str) -> Option<String> {
         })
         .unwrap_or(text.len().min(200));
 
-    let candidate = text[..end].trim_end_matches(|c: char| matches!(c, '.' | ',' | ';' | ':'));
+    let candidate = text[..end].trim_end_matches(['.', ',', ';', ':']);
 
     // Validate: 10.XXXX/suffix  (XXXX = 4+ ASCII digits)
     let slash = candidate.find('/')?;

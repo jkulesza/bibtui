@@ -99,7 +99,25 @@ impl<'a> Parser<'a> {
             "comment" => self.parse_comment(entry_start),
             "preamble" => self.parse_bib_preamble(entry_start),
             "string" => self.parse_string_def(entry_start),
-            _ => self.parse_entry(entry_start, type_name_str),
+            _ => {
+                // A stray '@' in inter-entry text (e.g. an email address in a
+                // `%` comment line) is not the start of an entry. Only treat it
+                // as one when a '{' follows the type name; otherwise pass the
+                // rest of the line through as preamble text.
+                let saved = self.pos;
+                self.skip_whitespace();
+                if self.peek() == Some('{') {
+                    self.pos = saved;
+                    self.parse_entry(entry_start, type_name_str)
+                } else {
+                    self.pos = saved;
+                    let _rest_of_line = self.take_while(|c| c != '\n');
+                    if self.peek() == Some('\n') {
+                        self.advance(1);
+                    }
+                    Ok(RawItem::Preamble(self.input[entry_start..self.pos].to_string()))
+                }
+            }
         }
     }
 
@@ -182,14 +200,13 @@ impl<'a> Parser<'a> {
             self.advance(1);
         }
 
-        // Parse fields
+        // Parse fields. Whitespace and trailing commas are consumed but not
+        // stored — formatting is preserved via raw_text passthrough.
         let mut fields = Vec::new();
-        let mut trailing_comma = false;
 
         loop {
-            // Capture indent whitespace
-            let indent = self.take_while(|c| c == ' ' || c == '\t' || c == '\r' || c == '\n');
-            let indent_str = indent.to_string();
+            // Skip indent whitespace
+            self.take_while(|c| c == ' ' || c == '\t' || c == '\r' || c == '\n');
 
             // Check for end of entry
             if self.peek() == Some('}') {
@@ -215,7 +232,7 @@ impl<'a> Parser<'a> {
             }
 
             // Whitespace before '='
-            let pre_eq = self.take_while(|c| c == ' ' || c == '\t').to_string();
+            self.skip_inline_whitespace();
 
             // Expect '='
             if self.peek() != Some('=') {
@@ -229,42 +246,28 @@ impl<'a> Parser<'a> {
             self.advance(1);
 
             // Whitespace after '='
-            let post_eq = self.take_while(|c| c == ' ' || c == '\t').to_string();
+            self.skip_inline_whitespace();
 
             // Parse field value
             let value = self.parse_field_value()?;
 
-            // Trailing: comma
-            let mut trailing = String::new();
+            // Trailing comma
             if self.peek() == Some(',') {
                 self.advance(1);
-                trailing.push(',');
-                trailing_comma = true;
-            } else {
-                trailing_comma = false;
             }
 
             fields.push(RawField {
                 name: field_name,
                 value,
-                indent: indent_str,
-                pre_eq,
-                post_eq,
-                trailing,
             });
         }
 
         let raw_text = self.input[start..self.pos].to_string();
 
-        // Compute alignment width: max field name length
-        let align_width = fields.iter().map(|f| f.name.len()).max().unwrap_or(0);
-
         Ok(RawItem::Entry(RawEntry {
             entry_type,
             citation_key,
             fields,
-            align_width,
-            trailing_comma,
             raw_text,
         }))
     }
@@ -406,11 +409,12 @@ impl<'a> Parser<'a> {
 pub fn build_database(raw: RawBibFile) -> Database {
     let mut entries = IndexMap::new();
     let mut jabref_meta = JabRefMeta::default();
+    let mut duplicate_keys = Vec::new();
 
     for (idx, item) in raw.items.iter().enumerate() {
         match item {
             RawItem::Entry(raw_entry) => {
-                let entry_type = EntryType::from_str(&raw_entry.entry_type);
+                let entry_type = EntryType::parse(&raw_entry.entry_type);
                 let mut fields = IndexMap::new();
 
                 for field in &raw_entry.fields {
@@ -437,7 +441,9 @@ pub fn build_database(raw: RawBibFile) -> Database {
                     dirty: false,
                 };
 
-                entries.insert(raw_entry.citation_key.clone(), entry);
+                if entries.insert(raw_entry.citation_key.clone(), entry).is_some() {
+                    duplicate_keys.push(raw_entry.citation_key.clone());
+                }
             }
             RawItem::Comment { raw_text } => {
                 // Parse JabRef metadata from @Comment blocks
@@ -454,6 +460,7 @@ pub fn build_database(raw: RawBibFile) -> Database {
         groups,
         jabref_meta,
         raw_file: raw,
+        duplicate_keys,
     }
 }
 
@@ -582,6 +589,27 @@ mod tests {
         if let Some(RawItem::Entry(e)) = raw.items.iter().find(|i| matches!(i, RawItem::Entry(_))) {
             assert!(matches!(e.fields[0].value, RawFieldValue::Quoted(_)));
         }
+    }
+
+    #[test]
+    fn test_build_database_records_duplicate_keys() {
+        let input = "@Article{k1,\n  title = {A},\n}\n\n@Article{k1,\n  title = {B},\n}\n";
+        let raw = parse_bib_file(input).unwrap();
+        let db = build_database(raw);
+        assert_eq!(db.entries.len(), 1);
+        assert_eq!(db.duplicate_keys, vec!["k1".to_string()]);
+        // Last copy wins in the semantic map; the raw file keeps both.
+        assert_eq!(db.entries["k1"].fields["title"], "B");
+    }
+
+    #[test]
+    fn test_stray_at_without_brace_is_preamble() {
+        let input = "see jane@example.org for details\n@Article{k,\n  title = {T},\n}\n";
+        let raw = parse_bib_file(input).unwrap();
+        let output = super::super::writer::write_bib_file(&raw);
+        assert_eq!(input, output);
+        let db = build_database(raw);
+        assert_eq!(db.entries.len(), 1);
     }
 
     #[test]

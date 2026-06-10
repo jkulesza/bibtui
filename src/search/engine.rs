@@ -7,6 +7,12 @@ pub struct SearchEngine {
     matcher: Matcher,
 }
 
+impl Default for SearchEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SearchEngine {
     pub fn new() -> Self {
         SearchEngine {
@@ -47,7 +53,7 @@ impl SearchEngine {
             }
         }
 
-        results.sort_by(|a, b| b.1.cmp(&a.1));
+        results.sort_by_key(|&(_, score)| std::cmp::Reverse(score));
         results
     }
 }
@@ -56,13 +62,16 @@ impl SearchEngine {
 fn parse_query(query: &str) -> (Option<&str>, &str) {
     if let Some(colon_pos) = query.find(':') {
         let field = &query[..colon_pos];
-        // Only treat as field filter if the field name looks valid
+        let rest = &query[colon_pos + 1..];
+        // Only treat as field filter if the field name looks valid and the
+        // query isn't a URL (e.g. "https://doi.org/...").
         if !field.is_empty()
+            && !rest.starts_with("//")
             && field
                 .chars()
                 .all(|c| c.is_alphanumeric() || c == '_')
         {
-            return (Some(field), &query[colon_pos + 1..]);
+            return (Some(field), rest);
         }
     }
     (None, query)

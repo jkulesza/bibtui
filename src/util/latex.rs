@@ -260,7 +260,7 @@ fn render_math_content(s: &str) -> String {
     result = render_subscripts(&result);
     // Strip remaining braces and backslash-space
     result = result.replace("\\,", "\u{200A}").replace("\\;", " ").replace("\\:", " ");
-    result.replace('{', "").replace('}', "").replace('\\', "")
+    result.replace(['{', '}', '\\'], "")
 }
 
 static SUP: &[(char, char)] = &[

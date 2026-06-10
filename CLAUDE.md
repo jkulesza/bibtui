@@ -29,7 +29,15 @@ All tests must pass before committing. The shell needs `export PATH="$HOME/.carg
 ```
 src/
   main.rs          — CLI parsing (clap), config loading, terminal setup
-  app.rs           — App state, event loop, action dispatch
+  app/
+    mod.rs         — App state, event loop, action dispatch
+    actions.rs     — Action enum, pending actions, undo types
+    editing.rs     — Field editor lifecycle, citekey regen, vim action handler
+    save.rs        — Save pipeline: filename sync, save actions, violations
+    groups.rs      — Group CRUD + raw-file sync
+    import.rs      — DOI/URL/PDF import + background fetch handling
+    completions.rs — Field/sort/path tab completion
+    tests.rs       — App test module
   bib/
     parser.rs      — Custom recursive-descent BibTeX parser (byte-perfect round-trip)
     model.rs       — RawBibFile + Database dual representation
