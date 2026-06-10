@@ -31,7 +31,7 @@ use crate::tui::components::command_palette::CommandPaletteState;
 use crate::tui::components::dialog::{DialogKind, DialogState};
 use crate::tui::components::entry_detail::EntryDetailState;
 use crate::tui::components::entry_list::EntryListState;
-use crate::tui::components::field_editor::{EditingMode, FieldEditorState};
+use crate::tui::components::field_editor::{collapse_newlines, EditingMode, FieldEditorState};
 use crate::tui::components::group_tree::GroupTreeState;
 use crate::tui::components::search_bar::SearchBarState;
 use crate::tui::event::poll_event;
@@ -130,10 +130,17 @@ pub struct App {
 
 impl App {
     pub fn new(bib_path: PathBuf, config: Config) -> Result<Self> {
-        let content = std::fs::read_to_string(&bib_path)
-            .with_context(|| format!("Failed to read {}", bib_path.display()))?;
-        let raw = parse_bib_file(&content)
-            .with_context(|| format!("Failed to parse {}", bib_path.display()))?;
+        // A path that doesn't exist yet opens a blank library; the file is
+        // created on first save.
+        let (raw, is_new_file) = if bib_path.exists() {
+            let content = std::fs::read_to_string(&bib_path)
+                .with_context(|| format!("Failed to read {}", bib_path.display()))?;
+            let raw = parse_bib_file(&content)
+                .with_context(|| format!("Failed to parse {}", bib_path.display()))?;
+            (raw, false)
+        } else {
+            (RawBibFile { items: vec![] }, true)
+        };
         let database = build_database(raw);
 
         let theme = Theme::from_config(&config.theme);
@@ -148,7 +155,12 @@ impl App {
         let user_bindings = build_user_bindings(&config.keybindings);
 
         let default_sort = config.display.default_sort.clone();
-        let status_message = if database.duplicate_keys.is_empty() {
+        let status_message = if is_new_file {
+            Some(format!(
+                "New file: {} (created on first save)",
+                bib_path.display()
+            ))
+        } else if database.duplicate_keys.is_empty() {
             None
         } else {
             Some(format!(
@@ -346,7 +358,48 @@ impl App {
     fn handle_event(&mut self, event: Event) {
         match event {
             Event::Key(key) => self.handle_key(key),
+            Event::Paste(text) => self.handle_paste(&text),
             Event::Resize(_, _) => {} // Ratatui handles resize automatically
+            _ => {}
+        }
+    }
+
+    /// Handle a bracketed-paste event. Newlines are collapsed into single
+    /// spaces so a multi-line paste (e.g. a title copied from a PDF) lands
+    /// in one field instead of the first newline confirming the edit.
+    fn handle_paste(&mut self, text: &str) {
+        let text = collapse_newlines(text);
+        if text.is_empty() {
+            return;
+        }
+        if let Some(ref mut editor) = self.field_editor_state {
+            editor.save_undo_snapshot();
+            if editor.editing_mode == EditingMode::Normal && !editor.editing_name {
+                editor.put(&text);
+            } else {
+                for c in text.chars() {
+                    editor.push_char(c);
+                }
+            }
+            self.update_field_completions();
+            return;
+        }
+        match self.mode {
+            InputMode::Search => {
+                for c in text.chars() {
+                    self.handle_action(Action::SearchChar(c));
+                }
+            }
+            InputMode::DetailSearch => {
+                for c in text.chars() {
+                    self.handle_action(Action::DetailSearchChar(c));
+                }
+            }
+            InputMode::Command => {
+                for c in text.chars() {
+                    self.handle_action(Action::CommandChar(c));
+                }
+            }
             _ => {}
         }
     }

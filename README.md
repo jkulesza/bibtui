@@ -78,7 +78,7 @@ Options:
   -V, --version          Print version
 ```
 
-If no file is given on the command line, bibtui looks for `bib_file` in the config file.
+If no file is given on the command line, bibtui looks for `bib_file` in the config file. A path that does not exist yet opens a blank library and the file is created on first save.
 
 ```sh
 bibtui references.bib
@@ -407,7 +407,7 @@ PDF candidates are tried in order (Unpaywall OA → publisher PDF → ANS direct
 cargo test
 ```
 
-All 1461 tests pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, journal abbreviation, TUI component state machines, config loading, import pipeline, and export serialisation). Line coverage: ~87%.
+All 1473 tests pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, journal abbreviation, TUI component state machines, config loading, import pipeline, and export serialisation). Line coverage: ~87%.
 
 Coverage analysis runs automatically in CI via `cargo-llvm-cov`. To run locally:
 

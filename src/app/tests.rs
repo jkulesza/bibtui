@@ -3456,3 +3456,103 @@ fn test_dialog_confirm_open_web_opens_selected_url() {
     app.handle_dialog_confirm();
     assert_eq!(opened.borrow().as_slice(), ["url:https://example.org/b"]);
 }
+
+// ── Nonexistent .bib path opens a blank library ───────────────────────────
+
+#[test]
+fn test_new_with_nonexistent_path_opens_blank_library() {
+    let dir = tempfile::tempdir().unwrap();
+    let bib_path = dir.path().join("new_library.bib");
+    let app = App::new(bib_path.clone(), default_config()).unwrap();
+    assert_eq!(app.database.entries.len(), 0);
+    assert!(!app.dirty);
+    assert_eq!(app.bib_path, bib_path);
+    assert!(app.status_message.as_deref().unwrap().contains("New file"));
+    assert_eq!(app.mode, InputMode::Normal);
+}
+
+#[test]
+fn test_new_with_nonexistent_path_save_creates_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let bib_path = dir.path().join("new_library.bib");
+    let mut cfg = default_config();
+    cfg.save.entry_sort_order = "none".to_string();
+    cfg.save.field_order = "none".to_string();
+    cfg.save.save_action_regenerate_citekeys = false;
+    cfg.general.backup_on_save = false;
+    let mut app = App::new(bib_path.clone(), cfg).unwrap();
+    insert_new_entry(&mut app, "Fresh2026");
+    app.save();
+    assert!(bib_path.exists());
+    let written = std::fs::read_to_string(&bib_path).unwrap();
+    assert!(written.contains("Fresh2026"));
+}
+
+// ── Multi-line paste (bracketed paste) ────────────────────────────────────
+
+#[test]
+fn test_paste_multiline_into_insert_mode_editor_collapses_newlines() {
+    let (mut app, _tmp) = make_app();
+    let mut editor = FieldEditorState::new("title", "");
+    editor.editing_mode = EditingMode::Insert;
+    app.field_editor_state = Some(editor);
+    app.mode = InputMode::Editing;
+    app.handle_event(Event::Paste("A Title That\nSpans Three\nLines".to_string()));
+    // An empty editor pre-fills protective braces; the paste lands inside them.
+    assert_eq!(
+        app.field_editor_state.as_ref().unwrap().value,
+        "{A Title That Spans Three Lines}"
+    );
+}
+
+#[test]
+fn test_paste_into_normal_mode_editor_uses_put() {
+    let (mut app, _tmp) = make_app();
+    let mut editor = FieldEditorState::new("title", "X");
+    editor.editing_mode = EditingMode::Normal;
+    app.field_editor_state = Some(editor);
+    app.mode = InputMode::Editing;
+    app.handle_event(Event::Paste("one\ntwo".to_string()));
+    // put() inserts after the cursor char, like vim `p`
+    assert_eq!(app.field_editor_state.as_ref().unwrap().value, "Xone two");
+}
+
+#[test]
+fn test_paste_into_search_updates_query() {
+    let (mut app, _tmp) = make_app();
+    app.handle_action(Action::EnterSearch);
+    app.handle_event(Event::Paste("Smith\n2020".to_string()));
+    assert_eq!(app.search_bar_state.query, "Smith 2020");
+}
+
+#[test]
+fn test_paste_into_command_palette() {
+    let (mut app, _tmp) = make_app();
+    app.handle_action(Action::EnterCommand);
+    app.handle_event(Event::Paste("sort year".to_string()));
+    assert_eq!(app.command_palette_state.input, "sort year");
+}
+
+#[test]
+fn test_paste_in_normal_mode_is_ignored() {
+    let (mut app, _tmp) = make_app();
+    app.handle_event(Event::Paste("stray paste".to_string()));
+    assert_eq!(app.mode, InputMode::Normal);
+    assert!(app.search_bar_state.query.is_empty());
+}
+
+#[test]
+fn test_edit_put_clipboard_multiline_collapsed() {
+    let (mut app, _tmp) = make_app();
+    app.clipboard = Box::new(MockClipboard {
+        copied: Rc::new(RefCell::new(Vec::new())),
+        paste_text: "Line One\nLine Two".to_string(),
+        fail: false,
+    });
+    app.field_editor_state = Some(FieldEditorState::new("title", "x"));
+    app.handle_field_editor_action(Action::EditPut);
+    assert_eq!(
+        app.field_editor_state.as_ref().unwrap().value,
+        "xLine One Line Two"
+    );
+}

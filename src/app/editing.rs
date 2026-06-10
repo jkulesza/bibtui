@@ -830,6 +830,7 @@ impl App {
                 });
                 match text_result {
                     Some(Ok(text)) if !text.is_empty() => {
+                        let text = collapse_newlines(&text);
                         if let Some(ref mut editor) = self.field_editor_state {
                             editor.save_undo_snapshot();
                             editor.put(&text);

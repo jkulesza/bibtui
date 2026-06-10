@@ -41,6 +41,24 @@ pub struct FieldEditorState {
     pub replace_undo_stack: Vec<(usize, String)>,
 }
 
+/// Collapse newlines in pasted text into single spaces.
+///
+/// Multi-line strings (e.g. a title copied from a PDF) become one line;
+/// each line is trimmed and blank lines are dropped. Text without
+/// newlines is returned unchanged.
+pub fn collapse_newlines(text: &str) -> String {
+    if !text.contains(['\n', '\r']) {
+        return text.to_string();
+    }
+    text.replace("\r\n", "\n")
+        .replace('\r', "\n")
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 impl FieldEditorState {
     /// Create an editor for an existing field (value-only editing).
     pub fn new(field_name: &str, value: &str) -> Self {
@@ -2292,6 +2310,27 @@ mod tests {
         e.completions = vec!["Smith, John".to_string()];
         assert_eq!(e.ghost_text(), "th, John");
     }
+
+    #[test]
+    fn test_collapse_newlines_multiline() {
+        assert_eq!(
+            collapse_newlines("A Title That\nSpans Lines"),
+            "A Title That Spans Lines"
+        );
+    }
+
+    #[test]
+    fn test_collapse_newlines_trims_and_drops_blank_lines() {
+        assert_eq!(collapse_newlines("  one  \n\n  two\n"), "one two");
+    }
+
+    #[test]
+    fn test_collapse_newlines_crlf_and_bare_cr() {
+        assert_eq!(collapse_newlines("a\r\nb\rc"), "a b c");
+    }
+
+    #[test]
+    fn test_collapse_newlines_no_newlines_unchanged() {
+        assert_eq!(collapse_newlines("plain text  "), "plain text  ");
+    }
 }
-
-

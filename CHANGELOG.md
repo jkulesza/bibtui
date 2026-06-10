@@ -1,5 +1,11 @@
 # Changelog
 
+### 0.60.0
+
+- **Opening a nonexistent .bib path now starts a blank library** instead of erroring: the status bar shows "New file: <path> (created on first save)" and the file is written on first save — works for both the CLI argument and the config-default path
+- **Multi-line paste is now handled correctly**: bracketed paste is enabled, so pasting a multi-line string (e.g. a title copied from a PDF) arrives as a single event with newlines collapsed into single spaces — previously the first newline acted as Enter, confirming the edit with only part of the string. Pastes route to the active input (field editor, search, detail search, or command palette); the field editor's `p` clipboard paste applies the same newline collapsing
+- **13 new tests**: blank-library open + save-creates-file; paste into Insert/Normal editor modes, search, and command palette; paste ignored in Normal mode; multi-line clipboard `p`; `collapse_newlines` unit cases (CRLF, bare CR, blank-line trimming, no-newline passthrough)
+
 ### 0.59.0
 
 Full-codebase review release: correctness fixes, a large module refactor, testability abstractions, and expanded coverage.
