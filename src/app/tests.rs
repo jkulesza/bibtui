@@ -766,6 +766,48 @@ fn test_add_entry_of_type() {
 }
 
 #[test]
+fn test_add_entry_of_type_twice_keeps_both() {
+    let (mut app, _tmp) = make_app();
+    let before = app.database.entries.len();
+    app.add_entry_of_type("Article");
+    // Simulate an edit to the first placeholder entry before adding another.
+    app.database
+        .entries
+        .get_mut("New_Article")
+        .unwrap()
+        .fields
+        .insert("title".to_string(), "Kept".to_string());
+    app.add_entry_of_type("Article");
+    assert_eq!(app.database.entries.len(), before + 2);
+    assert!(app.database.entries.contains_key("New_Article"));
+    assert!(app.database.entries.contains_key("New_Article_2"));
+    // The first entry's edits were not overwritten.
+    assert_eq!(
+        app.database.entries["New_Article"].fields.get("title").map(String::as_str),
+        Some("Kept")
+    );
+}
+
+#[test]
+fn test_duplicate_entry_twice_keeps_three_distinct_entries() {
+    let (mut app, _tmp) = make_app();
+    let key = app.sorted_keys[0].clone();
+    let before = app.database.entries.len();
+    // Re-select the same source entry before each duplication.
+    let dup = |app: &mut App, key: &str| {
+        let idx = app.sorted_keys.iter().position(|k| k == key).unwrap();
+        app.entry_list_state.select(idx);
+        app.handle_action(Action::DuplicateEntry);
+    };
+    dup(&mut app, &key);
+    dup(&mut app, &key);
+    assert_eq!(app.database.entries.len(), before + 2);
+    assert!(app.database.entries.contains_key(&key));
+    assert!(app.database.entries.contains_key(&format!("{}_copy", key)));
+    assert!(app.database.entries.contains_key(&format!("{}_copy_2", key)));
+}
+
+#[test]
 fn test_delete_entry() {
     let (mut app, _tmp) = make_app();
     let key = app.sorted_keys[0].clone();

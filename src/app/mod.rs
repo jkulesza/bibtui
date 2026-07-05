@@ -1250,7 +1250,8 @@ impl App {
             fields.insert(field.to_string(), String::new());
         }
 
-        let key = format!("New_{}", type_name);
+        // Never overwrite an existing entry with the same placeholder key.
+        let key = self.unique_citekey(&format!("New_{}", type_name), "");
         let entry = Entry {
             entry_type,
             citation_key: key.clone(),
@@ -1403,7 +1404,8 @@ impl App {
     fn duplicate_entry(&mut self) {
         if let Some(key) = self.selected_entry_key() {
             if let Some(entry) = self.database.entries.get(&key).cloned() {
-                let new_key = format!("{}_copy", key);
+                // Never overwrite an existing entry (e.g. duplicating twice).
+                let new_key = self.unique_citekey(&format!("{}_copy", key), "");
                 let mut new_entry = entry;
                 new_entry.citation_key = new_key.clone();
                 new_entry.dirty = true;
