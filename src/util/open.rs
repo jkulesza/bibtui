@@ -59,21 +59,23 @@ pub fn parse_file_field(s: &str) -> Vec<ParsedFile> {
     files
 }
 
-/// Split on `;` that are not preceded by `\`.
+/// Split on `;` that are not escaped by `\`.
+///
+/// Escape sequences (`\\`, `\;`, `\:`) are preserved verbatim so the
+/// colon-splitting stage can unescape them in the right context.
 fn split_semicolons(s: &str) -> Vec<String> {
     let mut parts = Vec::new();
     let mut current = String::new();
     let mut chars = s.chars().peekable();
     while let Some(c) = chars.next() {
         if c == '\\' {
+            current.push(c);
             if let Some(&next) = chars.peek() {
-                if next == ';' || next == ':' {
+                if next == '\\' || next == ';' || next == ':' {
                     current.push(next);
                     chars.next();
-                    continue;
                 }
             }
-            current.push(c);
         } else if c == ';' {
             parts.push(std::mem::take(&mut current));
         } else {
@@ -84,21 +86,21 @@ fn split_semicolons(s: &str) -> Vec<String> {
     parts
 }
 
-/// Split on `:` that are not preceded by `\`, up to 3 parts.
+/// Split on `:` that are not escaped by `\`, up to 3 parts, unescaping
+/// `\\`, `\;`, and `\:` in the output.
 fn split_colons(s: &str) -> Vec<String> {
     let mut parts: Vec<String> = Vec::new();
     let mut current = String::new();
     let mut chars = s.chars().peekable();
     while let Some(c) = chars.next() {
         if c == '\\' {
-            if let Some(&next) = chars.peek() {
-                if next == ':' {
-                    current.push(':');
+            match chars.peek() {
+                Some(&next) if next == '\\' || next == ';' || next == ':' => {
+                    current.push(next);
                     chars.next();
-                    continue;
                 }
+                _ => current.push(c),
             }
-            current.push(c);
         } else if c == ':' && parts.len() < 2 {
             parts.push(std::mem::take(&mut current));
         } else {
@@ -172,13 +174,37 @@ pub fn resolve_file_path(path: &str, bib_dir: &Path) -> PathBuf {
     }
 }
 
+/// Escape a single `file` field component: `\` first, then `;` and `:`,
+/// mirroring what `parse_file_field` unescapes.
+fn escape_file_component(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '\\' => out.push_str(r"\\"),
+            ';' => out.push_str(r"\;"),
+            ':' => out.push_str(r"\:"),
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
 /// Serialize a list of `ParsedFile`s back into the JabRef `file` field format.
 ///
-/// Produces `Description:Path:Type` entries joined by `;`.
+/// Produces `Description:Path:Type` entries joined by `;`, escaping `\`,
+/// `;`, and `:` within each component so the value round-trips through
+/// `parse_file_field`.
 pub fn serialize_file_field(files: &[ParsedFile]) -> String {
     files
         .iter()
-        .map(|f| format!("{}:{}:{}", f.description, f.path, f.file_type))
+        .map(|f| {
+            format!(
+                "{}:{}:{}",
+                escape_file_component(&f.description),
+                escape_file_component(&f.path),
+                escape_file_component(&f.file_type)
+            )
+        })
         .collect::<Vec<_>>()
         .join(";")
 }
@@ -369,15 +395,12 @@ mod tests {
 
     #[test]
     fn test_parse_file_field_escaped_colon() {
-        // The escape \: is handled at the split_semicolons stage, which converts \: to :
-        // in the segment string. split_colons then sees "Desc:path:with:colons.pdf:PDF"
-        // and splits at the first two unescaped colons.
-        // So description="Desc", path="path", file_type="with:colons.pdf:PDF".
-        // This test verifies the actual parsing behavior.
+        // Escaped colons stay inside the component instead of splitting it.
         let files = parse_file_field(r"Desc:path\:with\:colons.pdf:PDF");
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].description, "Desc");
-        assert_eq!(files[0].path, "path");
+        assert_eq!(files[0].path, "path:with:colons.pdf");
+        assert_eq!(files[0].file_type, "PDF");
     }
 
     #[test]
@@ -449,9 +472,10 @@ mod tests {
 
     #[test]
     fn test_split_semicolons_escaped_semicolon_keeps_one_part() {
+        // The escape is preserved for the colon stage to unescape.
         let parts = split_semicolons(r"a\;b");
         assert_eq!(parts.len(), 1);
-        assert_eq!(parts[0], "a;b");
+        assert_eq!(parts[0], r"a\;b");
     }
 
     #[test]
@@ -509,5 +533,61 @@ mod tests {
         // Only one colon-split part (no path) → skipped
         let files = parse_file_field("just-a-description");
         assert!(files.is_empty());
+    }
+
+    // ── serialize/parse round trip with separators in components ───────────
+
+    fn assert_round_trip(files: &[ParsedFile]) {
+        let serialized = serialize_file_field(files);
+        let reparsed = parse_file_field(&serialized);
+        assert_eq!(reparsed.len(), files.len(), "serialized: {serialized:?}");
+        for (orig, back) in files.iter().zip(reparsed.iter()) {
+            assert_eq!(back.description, orig.description, "serialized: {serialized:?}");
+            assert_eq!(back.path, orig.path, "serialized: {serialized:?}");
+            assert_eq!(back.file_type, orig.file_type, "serialized: {serialized:?}");
+        }
+    }
+
+    #[test]
+    fn test_round_trip_colon_in_description() {
+        assert_round_trip(&[ParsedFile {
+            description: "Review: final".into(),
+            path: "papers/foo.pdf".into(),
+            file_type: "PDF".into(),
+        }]);
+    }
+
+    #[test]
+    fn test_round_trip_semicolon_in_description() {
+        assert_round_trip(&[ParsedFile {
+            description: "part one; part two".into(),
+            path: "a.pdf".into(),
+            file_type: "PDF".into(),
+        }]);
+    }
+
+    #[test]
+    fn test_round_trip_backslash_in_path() {
+        assert_round_trip(&[ParsedFile {
+            description: "Windows copy".into(),
+            path: r"C:\papers\foo.pdf".into(),
+            file_type: "PDF".into(),
+        }]);
+    }
+
+    #[test]
+    fn test_round_trip_multiple_files_with_separators() {
+        assert_round_trip(&[
+            ParsedFile {
+                description: "Review: final; approved".into(),
+                path: r"dir\sub:strange.pdf".into(),
+                file_type: "PDF".into(),
+            },
+            ParsedFile {
+                description: String::new(),
+                path: "plain.pdf".into(),
+                file_type: "PDF".into(),
+            },
+        ]);
     }
 }
