@@ -40,9 +40,14 @@ pub fn abbreviate_authors(s: &str) -> String {
 ///
 /// Names already in "Last, First" form are left unchanged.
 /// "First Last" names are converted to "Last, First".
-/// Handles "Jr.", "III" and similar suffixes: "John Smith Jr." → "Smith Jr., John"
-/// is NOT attempted — only the last whitespace token is treated as the last name.
-/// For accurate results on complex names, the user should edit the field directly.
+/// Lowercase von-particles attach to the last name per BibTeX's rule
+/// (the first lowercase-starting token begins the last-name block):
+/// "Guido van Rossum" → "van Rossum, Guido".
+/// Names ending in a suffix token ("Jr.", "Jr", "Sr.", "Sr", "II", "III",
+/// "IV") are left untouched rather than guessed at; the user should
+/// brace-protect or edit such names directly.
+/// A name that is entirely one brace group (e.g. a corporate author) is
+/// returned unchanged.
 pub fn normalize_author_names(s: &str) -> String {
     if s.is_empty() {
         return String::new();
@@ -99,22 +104,84 @@ fn tokenize_name(name: &str) -> Vec<String> {
 }
 
 /// Insert a space between consecutive initials: "G.H." → "G. H.", "A.B.C." → "A. B. C."
-/// Applied outside brace groups (the regex won't match inside `{...}` in practice).
+/// Only substitutes at brace depth 0; text inside `{...}` groups is untouched.
 fn separate_initials(s: &str) -> String {
     static RE: OnceLock<Regex> = OnceLock::new();
     let re = RE.get_or_init(|| Regex::new(r"([A-Z]\.)([A-Z])").expect("hardcoded regex is valid"));
-    let mut result = s.to_string();
-    loop {
-        let next = re.replace_all(&result, "$1 $2").into_owned();
-        if next == result {
-            break;
+
+    let apply = |chunk: &str| -> String {
+        let mut result = chunk.to_string();
+        loop {
+            let next = re.replace_all(&result, "$1 $2").into_owned();
+            if next == result {
+                break;
+            }
+            result = next;
         }
-        result = next;
+        result
+    };
+
+    let mut out = String::new();
+    let mut outside = String::new();
+    let mut depth = 0usize;
+    for ch in s.chars() {
+        if depth == 0 {
+            if ch == '{' {
+                out.push_str(&apply(&outside));
+                outside.clear();
+                depth = 1;
+                out.push(ch);
+            } else {
+                outside.push(ch);
+            }
+        } else {
+            match ch {
+                '{' => depth += 1,
+                '}' => depth = depth.saturating_sub(1),
+                _ => {}
+            }
+            out.push(ch);
+        }
     }
-    result
+    out.push_str(&apply(&outside));
+    out
+}
+
+/// Returns true when the entire (trimmed) name is one `{...}` group.
+fn is_single_brace_group(name: &str) -> bool {
+    if !name.starts_with('{') || !name.ends_with('}') {
+        return false;
+    }
+    let mut depth = 0usize;
+    let last = name.len() - 1;
+    for (i, ch) in name.char_indices() {
+        match ch {
+            '{' => depth += 1,
+            '}' => {
+                depth = depth.saturating_sub(1);
+                // The outer group must not close before the end of the string.
+                if depth == 0 && i != last {
+                    return false;
+                }
+            }
+            _ => {}
+        }
+    }
+    depth == 0
+}
+
+/// Returns true for a trailing name-suffix token like "Jr." or "III".
+fn is_suffix_token(token: &str) -> bool {
+    matches!(token, "Jr." | "Jr" | "Sr." | "Sr" | "II" | "III" | "IV")
 }
 
 fn normalize_one(name: &str) -> String {
+    // A fully brace-protected name (corporate author) is returned verbatim,
+    // before any processing including initial separation.
+    if is_single_brace_group(name) {
+        return name.to_string();
+    }
+
     let converted = if has_comma_at_depth_zero(name) {
         // Already in "Last, First" form
         name.to_string()
@@ -124,9 +191,30 @@ fn normalize_one(name: &str) -> String {
             0 => String::new(),
             1 => name.to_string(),
             _ => {
-                let last = parts.last().expect("parts.len() >= 2 in this arm").clone();
-                let first = parts[..parts.len() - 1].join(" ");
-                format!("{}, {}", last, first)
+                // A trailing suffix token would be misparsed as the last name;
+                // leave the whole name untouched rather than mangle it.
+                if parts.last().map(|t| is_suffix_token(t)).unwrap_or(false) {
+                    return name.to_string();
+                }
+                // BibTeX von-particle rule: the first token starting with a
+                // lowercase letter begins the last-name block.
+                let von_start = parts
+                    .iter()
+                    .position(|t| t.chars().next().is_some_and(|c| c.is_lowercase()));
+                match von_start {
+                    // The whole name is the last-name block; nothing to move.
+                    Some(0) => name.to_string(),
+                    Some(i) => {
+                        let last = parts[i..].join(" ");
+                        let first = parts[..i].join(" ");
+                        format!("{}, {}", last, first)
+                    }
+                    None => {
+                        let last = parts.last().expect("parts.len() >= 2 in this arm").clone();
+                        let first = parts[..parts.len() - 1].join(" ");
+                        format!("{}, {}", last, first)
+                    }
+                }
             }
         }
     };
@@ -230,5 +318,81 @@ mod tests {
     fn test_normalize_single_token() {
         // A bare last name with no spaces stays as-is
         assert_eq!(normalize_author_names("Smith"), "Smith");
+    }
+
+    #[test]
+    fn test_normalize_von_particle() {
+        assert_eq!(normalize_author_names("Guido van Rossum"), "van Rossum, Guido");
+        assert_eq!(
+            normalize_author_names("Ludwig van der Waals"),
+            "van der Waals, Ludwig"
+        );
+        assert_eq!(normalize_author_names("Jean de la Fontaine"), "de la Fontaine, Jean");
+        // Already normalized von form is left unchanged.
+        assert_eq!(normalize_author_names("van Rossum, Guido"), "van Rossum, Guido");
+        // Name that starts with a lowercase particle has no first-name block.
+        assert_eq!(normalize_author_names("van Beethoven"), "van Beethoven");
+    }
+
+    #[test]
+    fn test_normalize_suffix_left_untouched() {
+        assert_eq!(normalize_author_names("John Smith Jr."), "John Smith Jr.");
+        assert_eq!(normalize_author_names("John Smith Jr"), "John Smith Jr");
+        assert_eq!(normalize_author_names("Robert Downey Sr."), "Robert Downey Sr.");
+        assert_eq!(normalize_author_names("Henry Ford II"), "Henry Ford II");
+        assert_eq!(normalize_author_names("William Gates III"), "William Gates III");
+        assert_eq!(normalize_author_names("Thurston Howell IV"), "Thurston Howell IV");
+    }
+
+    #[test]
+    fn test_normalize_corporate_brace_group_unchanged() {
+        // A name that is entirely one brace group is returned verbatim —
+        // in particular separate_initials must not touch "U.S.".
+        assert_eq!(
+            normalize_author_names("{U.S. Department of Energy}"),
+            "{U.S. Department of Energy}"
+        );
+        assert_eq!(
+            normalize_author_names("{Steering Committee}"),
+            "{Steering Committee}"
+        );
+    }
+
+    #[test]
+    fn test_separate_initials_brace_aware() {
+        // Initials inside a brace group are untouched; outside they separate.
+        assert_eq!(
+            normalize_author_names("G.H. {von M.K. Institute}"),
+            "{von M.K. Institute}, G. H."
+        );
+    }
+
+    #[test]
+    fn test_normalize_others_unchanged() {
+        assert_eq!(
+            normalize_author_names("Smith, John and others"),
+            "Smith, John and others"
+        );
+        assert_eq!(
+            normalize_author_names("John Smith and others"),
+            "Smith, John and others"
+        );
+    }
+
+    #[test]
+    fn test_normalize_idempotent() {
+        let inputs = [
+            "Guido van Rossum",
+            "John Smith Jr.",
+            "{U.S. Department of Energy}",
+            "G.H. Smith and Alice Jones and others",
+            "R. J. {McConn Jr.} and C. J. Gesh",
+            "Jean de la Fontaine and Henry Ford II",
+        ];
+        for input in inputs {
+            let once = normalize_author_names(input);
+            let twice = normalize_author_names(&once);
+            assert_eq!(twice, once, "not idempotent for input: {input}");
+        }
     }
 }
