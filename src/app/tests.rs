@@ -3081,6 +3081,90 @@ fn test_sync_filenames_already_named_is_noop() {
     assert!(dir.path().join("PDF/Smith2020.pdf").exists());
 }
 
+#[test]
+fn test_sync_filenames_does_not_overwrite_existing_target() {
+    let dir = tempfile::tempdir().unwrap();
+    let bib_path = dir.path().join("lib.bib");
+    // Entry keyed "Key" whose attachment is "a.pdf"; a distinct "Key.pdf" already
+    // exists in the same directory and must not be clobbered by the rename.
+    std::fs::write(
+        &bib_path,
+        "@Article{Key,\n  title = {T},\n  file  = {:a.pdf:PDF},\n}\n",
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("a.pdf"), b"ORIGINAL-A").unwrap();
+    std::fs::write(dir.path().join("Key.pdf"), b"ORIGINAL-KEY").unwrap();
+
+    let mut cfg = default_config();
+    cfg.save.entry_sort_order = "none".to_string();
+    cfg.save.field_order = "none".to_string();
+    cfg.save.save_action_regenerate_citekeys = false;
+    cfg.general.backup_on_save = false;
+    let mut app = App::new(bib_path, cfg).unwrap();
+
+    app.sync_filenames(true);
+
+    // The pre-existing Key.pdf keeps its original contents.
+    assert_eq!(
+        std::fs::read(dir.path().join("Key.pdf")).unwrap(),
+        b"ORIGINAL-KEY"
+    );
+    // a.pdf is left in place (the rename was skipped).
+    assert_eq!(
+        std::fs::read(dir.path().join("a.pdf")).unwrap(),
+        b"ORIGINAL-A"
+    );
+    // The file field is unchanged.
+    assert_eq!(app.database.entries["Key"].fields["file"], ":a.pdf:PDF");
+}
+
+#[test]
+fn test_sync_filenames_multi_attachment_conflict_skips_only_that_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let bib_path = dir.path().join("lib.bib");
+    // Entry with two attachments: targets are Key_1.pdf and Key_2.pdf.
+    // A distinct Key_1.pdf already exists, so attachment 1 must be skipped
+    // while attachment 2 is still renamed.
+    std::fs::write(
+        &bib_path,
+        "@Article{Key,\n  title = {T},\n  file  = {:a.pdf:PDF;:b.pdf:PDF},\n}\n",
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("a.pdf"), b"ORIGINAL-A").unwrap();
+    std::fs::write(dir.path().join("b.pdf"), b"ORIGINAL-B").unwrap();
+    std::fs::write(dir.path().join("Key_1.pdf"), b"ORIGINAL-KEY1").unwrap();
+
+    let mut cfg = default_config();
+    cfg.save.entry_sort_order = "none".to_string();
+    cfg.save.field_order = "none".to_string();
+    cfg.save.save_action_regenerate_citekeys = false;
+    cfg.general.backup_on_save = false;
+    let mut app = App::new(bib_path, cfg).unwrap();
+
+    app.sync_filenames(true);
+
+    // The conflicting target keeps its original contents.
+    assert_eq!(
+        std::fs::read(dir.path().join("Key_1.pdf")).unwrap(),
+        b"ORIGINAL-KEY1"
+    );
+    // Attachment 1 is left in place; attachment 2 was renamed.
+    assert_eq!(
+        std::fs::read(dir.path().join("a.pdf")).unwrap(),
+        b"ORIGINAL-A"
+    );
+    assert!(!dir.path().join("b.pdf").exists());
+    assert_eq!(
+        std::fs::read(dir.path().join("Key_2.pdf")).unwrap(),
+        b"ORIGINAL-B"
+    );
+    // The file field keeps the skipped path and records the renamed one.
+    assert_eq!(
+        app.database.entries["Key"].fields["file"],
+        ":a.pdf:PDF;:Key_2.pdf:PDF"
+    );
+}
+
 // ── Render smoke tests (TestBackend) ─────────────────────────────────────
 
 /// Render the app into an in-memory buffer and return its text content.

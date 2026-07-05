@@ -77,6 +77,14 @@ impl App {
                     .unwrap_or_else(|| file_dir.join(&new_filename));
 
                 if old_abs.exists() {
+                    if rename_target_conflicts(&old_abs, &new_abs) {
+                        rename_msgs.push(format!(
+                            "skipped {}: target {} already exists",
+                            old_abs.display(),
+                            new_abs.display()
+                        ));
+                        continue;
+                    }
                     if let Err(e) = std::fs::rename(&old_abs, &new_abs) {
                         rename_msgs.push(format!("rename {}: {}", old_abs.display(), e));
                         continue;
@@ -178,6 +186,14 @@ impl App {
                 .unwrap_or_else(|| file_dir.join(&new_filename));
 
             if old_abs.exists() {
+                if rename_target_conflicts(&old_abs, &new_abs) {
+                    rename_msgs.push(format!(
+                        "skipped {}: target {} already exists",
+                        old_abs.display(),
+                        new_abs.display()
+                    ));
+                    continue;
+                }
                 if let Err(e) = std::fs::rename(&old_abs, &new_abs) {
                     rename_msgs.push(format!("rename {}: {}", old_abs.display(), e));
                     continue;
@@ -914,5 +930,19 @@ pub(super) fn get_sort_value(entry: &Entry, field: &str) -> String {
         "citation_key" | "key" | "citekey" => entry.citation_key.clone(),
         "entrytype" | "type" => entry.entry_type.display_name().to_string(),
         _ => entry.fields.get(field).cloned().unwrap_or_default(),
+    }
+}
+
+/// Returns true when renaming `src` to `dest` would clobber an existing,
+/// unrelated file.  A destination that resolves (via canonicalization) to the
+/// same file as `src` is not a conflict — this permits case-only renames on
+/// case-insensitive filesystems.
+fn rename_target_conflicts(src: &std::path::Path, dest: &std::path::Path) -> bool {
+    if !dest.exists() {
+        return false;
+    }
+    match (src.canonicalize(), dest.canonicalize()) {
+        (Ok(a), Ok(b)) => a != b,
+        _ => true,
     }
 }
