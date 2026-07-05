@@ -1,5 +1,9 @@
 # Changelog
 
+### 0.61.0
+
+- **Fix data loss and data-corruption bugs**: fix issues where attachments could be overwritten without warning, corrupt "von" last names, key collisions for duplicate add/duplicate entries, and fail-to-expand tildes
+
 ### 0.60.1
 
 - **Fix titlecase skipping the first and last words of brace-wrapped fields**: a value enclosed in a single balanced brace pair (e.g. created by pasting into an empty field, which pre-fills protective braces) is now unwrapped, titlecased, and re-wrapped — previously the tokens carrying the outer braces (`{Discrimination`, `alanine}`) were mistaken for case-protected words and passed through unchanged. Interior protection groups (`{Monte Carlo}`), adjacent groups (`{MCNP} and {OpenMC}`), double wrapping, and unbalanced braces all keep their previous behavior

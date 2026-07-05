@@ -6,5 +6,6 @@ pub mod import;
 pub mod journal;
 pub mod latex;
 pub mod open;
+pub mod path;
 pub mod titlecase;
 pub mod unicode;

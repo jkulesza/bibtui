@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 use clap::Parser;
 
+use bibtui::util::path::expand_tilde;
 use bibtui::{app, config, tui};
 
 #[derive(Parser, Debug)]
@@ -19,12 +20,13 @@ struct Cli {
 
 /// Resolve which .bib file to open: the CLI argument beats the config default.
 /// Returns `None` when neither is given (open an empty library and prompt for
-/// a path). A path that does not exist yet is returned as-is — the app opens
-/// a blank library and creates the file on first save.
+/// a path). A leading `~` is expanded to the home directory. A path that does
+/// not exist yet is returned as-is — the app opens a blank library and creates
+/// the file on first save.
 fn resolve_bib_path(cli_arg: Option<String>, config_default: Option<&str>) -> Option<PathBuf> {
     cli_arg
         .or_else(|| config_default.map(String::from))
-        .map(PathBuf::from)
+        .map(|p| PathBuf::from(expand_tilde(&p)))
 }
 
 fn main() -> Result<()> {
@@ -85,6 +87,22 @@ mod tests {
     fn test_resolve_bib_path_falls_back_to_config_default() {
         let resolved = resolve_bib_path(None, Some("default.bib"));
         assert_eq!(resolved, Some(PathBuf::from("default.bib")));
+    }
+
+    #[test]
+    fn test_resolve_bib_path_expands_tilde_in_config_default() {
+        if let Some(home) = dirs::home_dir() {
+            let resolved = resolve_bib_path(None, Some("~/x.bib"));
+            assert_eq!(resolved, Some(home.join("x.bib")));
+        }
+    }
+
+    #[test]
+    fn test_resolve_bib_path_expands_tilde_in_cli_arg() {
+        if let Some(home) = dirs::home_dir() {
+            let resolved = resolve_bib_path(Some("~/y.bib".to_string()), Some("~/x.bib"));
+            assert_eq!(resolved, Some(home.join("y.bib")));
+        }
     }
 
     #[test]

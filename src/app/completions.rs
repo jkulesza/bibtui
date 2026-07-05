@@ -303,15 +303,7 @@ impl App {
     }
 }
 
-pub(super) fn expand_tilde(s: &str) -> String {
-    if s == "~" || s.starts_with("~/") {
-        if let Some(home) = std::env::var_os("HOME") {
-            let home = home.to_string_lossy();
-            return format!("{}{}", home, &s[1..]);
-        }
-    }
-    s.to_string()
-}
+pub(super) use crate::util::path::expand_tilde;
 
 /// Contract an absolute path back to a `~`-prefixed form when the path falls
 /// under the user's home directory.  Returns the input unchanged otherwise.
