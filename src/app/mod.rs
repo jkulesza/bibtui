@@ -155,7 +155,7 @@ impl App {
         let user_bindings = build_user_bindings(&config.keybindings);
 
         let default_sort = config.display.default_sort.clone();
-        let status_message = if is_new_file {
+        let mut status_message = if is_new_file {
             Some(format!(
                 "New file: {} (created on first save)",
                 bib_path.display()
@@ -168,6 +168,14 @@ impl App {
                 database.duplicate_keys.join(", ")
             ))
         };
+        let config_warnings = config.validation_warnings();
+        if !config_warnings.is_empty() {
+            let warning = format!("Config warning: {}", config_warnings.join("; "));
+            status_message = Some(match status_message {
+                Some(msg) => format!("{} | {}", msg, warning),
+                None => warning,
+            });
+        }
         let app = App {
             database,
             config,

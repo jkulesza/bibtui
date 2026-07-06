@@ -2731,7 +2731,7 @@ fn make_app_no_sort() -> (App, NamedTempFile) {
     tmp.flush().unwrap();
     let mut cfg = default_config();
     cfg.save.entry_sort_order = "none".to_string();
-    cfg.save.field_order = "none".to_string();
+    cfg.save.field_order = "jabref".to_string();
     cfg.save.save_action_regenerate_citekeys = false;
     cfg.general.backup_on_save = false;
     let app = App::new(tmp.path().to_path_buf(), cfg).unwrap();
@@ -2788,7 +2788,7 @@ fn test_save_dirty_entry_preserves_concat_and_string_refs() {
     tmp.flush().unwrap();
     let mut cfg = default_config();
     cfg.save.entry_sort_order = "none".to_string();
-    cfg.save.field_order = "none".to_string();
+    cfg.save.field_order = "jabref".to_string();
     cfg.save.save_action_regenerate_citekeys = false;
     cfg.general.backup_on_save = false;
     let mut app = App::new(tmp.path().to_path_buf(), cfg).unwrap();
@@ -2994,7 +2994,7 @@ fn test_save_with_duplicate_keys_keeps_both_entries() {
     tmp.flush().unwrap();
     let mut cfg = default_config();
     cfg.save.entry_sort_order = "none".to_string();
-    cfg.save.field_order = "none".to_string();
+    cfg.save.field_order = "jabref".to_string();
     cfg.save.save_action_regenerate_citekeys = false;
     cfg.general.backup_on_save = false;
     let mut app = App::new(tmp.path().to_path_buf(), cfg).unwrap();
@@ -3018,6 +3018,38 @@ fn test_save_with_duplicate_keys_keeps_both_entries() {
     assert_eq!(out.matches("@Article{k1,").count(), 1);
     assert_eq!(out.matches("@Article{k1_dup2,").count(), 1);
     assert!(parse_bib_file(&out).is_ok());
+}
+
+#[test]
+fn test_app_warns_on_unrecognized_field_order() {
+    let mut tmp = NamedTempFile::new().unwrap();
+    write!(tmp, "{}", TEST_BIB).unwrap();
+    tmp.flush().unwrap();
+    let mut cfg = default_config();
+    cfg.save.field_order = "alpha".to_string();
+    let app = App::new(tmp.path().to_path_buf(), cfg).unwrap();
+    let msg = app.status_message.clone().unwrap_or_default();
+    assert!(msg.contains("field_order"), "got: {}", msg);
+    assert!(msg.contains("alpha"), "got: {}", msg);
+}
+
+/// With the default config (field_order: jabref), a save must not
+/// re-serialize clean entries — their bytes pass through unchanged.
+#[test]
+fn test_default_field_order_does_not_reserialize_clean_entries() {
+    let mut tmp = NamedTempFile::new().unwrap();
+    write!(tmp, "{}", TEST_BIB).unwrap();
+    tmp.flush().unwrap();
+    let mut cfg = default_config();
+    assert_eq!(cfg.save.field_order, "jabref");
+    // Keep entries in file order and keys stable so passthrough is observable.
+    cfg.save.entry_sort_order = "none".to_string();
+    cfg.save.save_action_regenerate_citekeys = false;
+    cfg.general.backup_on_save = false;
+    let mut app = App::new(tmp.path().to_path_buf(), cfg).unwrap();
+    app.save();
+    let out = std::fs::read_to_string(tmp.path()).unwrap();
+    assert_eq!(out, TEST_BIB, "clean entries must round-trip byte-for-byte");
 }
 
 // ── Group management ─────────────────────────────────────────────────────
@@ -3174,7 +3206,7 @@ fn make_app_with_attachment() -> (App, tempfile::TempDir) {
     std::fs::write(dir.path().join("PDF/old.pdf"), b"%PDF-1.4").unwrap();
     let mut cfg = default_config();
     cfg.save.entry_sort_order = "none".to_string();
-    cfg.save.field_order = "none".to_string();
+    cfg.save.field_order = "jabref".to_string();
     cfg.save.save_action_regenerate_citekeys = false;
     cfg.general.backup_on_save = false;
     let app = App::new(bib_path, cfg).unwrap();
@@ -3239,7 +3271,7 @@ fn test_sync_filenames_does_not_overwrite_existing_target() {
 
     let mut cfg = default_config();
     cfg.save.entry_sort_order = "none".to_string();
-    cfg.save.field_order = "none".to_string();
+    cfg.save.field_order = "jabref".to_string();
     cfg.save.save_action_regenerate_citekeys = false;
     cfg.general.backup_on_save = false;
     let mut app = App::new(bib_path, cfg).unwrap();
@@ -3278,7 +3310,7 @@ fn test_sync_filenames_multi_attachment_conflict_skips_only_that_file() {
 
     let mut cfg = default_config();
     cfg.save.entry_sort_order = "none".to_string();
-    cfg.save.field_order = "none".to_string();
+    cfg.save.field_order = "jabref".to_string();
     cfg.save.save_action_regenerate_citekeys = false;
     cfg.general.backup_on_save = false;
     let mut app = App::new(bib_path, cfg).unwrap();
@@ -3703,7 +3735,7 @@ fn test_new_with_nonexistent_path_save_creates_file() {
     let bib_path = dir.path().join("new_library.bib");
     let mut cfg = default_config();
     cfg.save.entry_sort_order = "none".to_string();
-    cfg.save.field_order = "none".to_string();
+    cfg.save.field_order = "jabref".to_string();
     cfg.save.save_action_regenerate_citekeys = false;
     cfg.general.backup_on_save = false;
     let mut app = App::new(bib_path.clone(), cfg).unwrap();

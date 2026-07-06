@@ -145,7 +145,8 @@ save:
   # Align field values to a common column within each entry
   align_fields: true
 
-  # Field ordering strategy: 'jabref' preserves JabRef order; 'alpha' sorts alphabetically
+  # Field ordering strategy: 'jabref' (default) preserves JabRef order;
+  # 'alphabetical' sorts fields within required / optional / nonstandard groups
   field_order: jabref
 
   # Sort order for entries in the written file.

@@ -11,7 +11,7 @@ A terminal UI BibTeX manager written in Rust. Designed as a lightweight, keyboar
 
 - Fast fuzzy search across all fields with field-specific syntax (`author:smith year:2020`)
 - JabRef-compatible group tree (static and keyword groups)
-- Byte-perfect BibTeX round-tripping — formatting is preserved for unmodified entries; in edited entries, unchanged fields keep their original form (`#` concatenation, `@String` references, quoted vs braced style); on save, fields are alphabetized within required / optional / nonstandard subgroups for consistent ordering
+- Byte-perfect BibTeX round-tripping — formatting is preserved for unmodified entries; in edited entries, unchanged fields keep their original form (`#` concatenation, `@String` references, quoted vs braced style); optional `field_order: alphabetical` sorts fields within required / optional / nonstandard subgroups on save
 - Vim-style navigation throughout
 - Entry CRUD: add, edit, duplicate, delete with undo (`u`)
 - JabRef-compatible citation key patterns with three-level precedence (`.bib` metadata, YAML config, defaults)
@@ -335,7 +335,8 @@ display:
 
 save:
   align_fields: true                      # align field values to a column on save
-  field_order: alphabetical               # alphabetical (default) | jabref
+  field_order: jabref                     # jabref (default) | alphabetical
+                                          # jabref preserves original field order;
                                           # alphabetical sorts within required / optional /
                                           # nonstandard subgroups on every save
   sync_filenames: false                   # rename attached files to match citation key on save

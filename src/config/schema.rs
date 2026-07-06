@@ -31,6 +31,33 @@ impl Default for Config {
     }
 }
 
+impl Config {
+    /// Collect warnings for unrecognized enumerated config values instead of
+    /// letting them silently fall back to default behavior. Returned strings
+    /// are surfaced in the startup status message.
+    pub fn validation_warnings(&self) -> Vec<String> {
+        let mut warnings = Vec::new();
+
+        const FIELD_ORDERS: &[&str] = &["jabref", "alphabetical"];
+        if !FIELD_ORDERS.contains(&self.save.field_order.as_str()) {
+            warnings.push(format!(
+                "unrecognized save.field_order '{}' (expected 'jabref' or 'alphabetical'); using 'jabref'",
+                self.save.field_order
+            ));
+        }
+
+        const ENTRY_SORT_ORDERS: &[&str] = &["citation_key", "none"];
+        if !ENTRY_SORT_ORDERS.contains(&self.save.entry_sort_order.as_str()) {
+            warnings.push(format!(
+                "unrecognized save.entry_sort_order '{}' (expected 'citation_key' or 'none'); using 'citation_key'",
+                self.save.entry_sort_order
+            ));
+        }
+
+        warnings
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct GeneralConfig {
@@ -137,6 +164,9 @@ pub struct EntryTypeConfig {
 #[serde(default)]
 pub struct SaveConfig {
     pub align_fields: bool,
+    /// Field ordering strategy on save.
+    /// `"jabref"` (default) — preserve JabRef/original field order;
+    /// `"alphabetical"` — sort fields within required / optional / nonstandard groups.
     pub field_order: String,
     /// Rename attached files to match the citation key on save.
     /// Single file: `citekey.ext`. Multiple files: `citekey_1.ext`, `citekey_2.ext`, …
@@ -185,7 +215,7 @@ impl Default for SaveConfig {
     fn default() -> Self {
         SaveConfig {
             align_fields: true,
-            field_order: "alphabetical".to_string(),
+            field_order: "jabref".to_string(),
             sync_filenames: false,
             save_action_escape_underscores: true,
             save_action_escape_ampersands: true,
@@ -289,4 +319,53 @@ impl Default for CitationConfig {
 pub struct CustomFieldGroup {
     pub name: String,
     pub fields: Vec<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_field_order_is_jabref() {
+        assert_eq!(Config::default().save.field_order, "jabref");
+    }
+
+    #[test]
+    fn test_validation_warnings_empty_for_default_config() {
+        assert!(Config::default().validation_warnings().is_empty());
+    }
+
+    #[test]
+    fn test_validation_warns_on_unrecognized_field_order() {
+        let mut cfg = Config::default();
+        cfg.save.field_order = "alpha".to_string();
+        let warnings = cfg.validation_warnings();
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("field_order"), "got: {}", warnings[0]);
+        assert!(warnings[0].contains("alpha"), "got: {}", warnings[0]);
+    }
+
+    #[test]
+    fn test_validation_warns_on_unrecognized_entry_sort_order() {
+        let mut cfg = Config::default();
+        cfg.save.entry_sort_order = "author".to_string();
+        let warnings = cfg.validation_warnings();
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("entry_sort_order"), "got: {}", warnings[0]);
+    }
+
+    #[test]
+    fn test_validation_accepts_all_documented_values() {
+        for fo in &["jabref", "alphabetical"] {
+            for so in &["citation_key", "none"] {
+                let mut cfg = Config::default();
+                cfg.save.field_order = fo.to_string();
+                cfg.save.entry_sort_order = so.to_string();
+                assert!(
+                    cfg.validation_warnings().is_empty(),
+                    "'{}'/'{}' must be accepted", fo, so
+                );
+            }
+        }
+    }
 }
