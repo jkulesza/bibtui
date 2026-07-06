@@ -36,294 +36,361 @@ impl App {
     }
 
     pub(super) fn confirm_edit(&mut self) {
-        // Export settings ─────────────────────────────────────────────────────
-        // New file: the user just entered a path for a brand-new library. ─────
-        if matches!(self.pending_action, Some(PendingAction::NewFile)) {
-            let path_str = self
-                .field_editor_state
-                .as_ref()
-                .map(|e| e.value.trim().to_string())
-                .unwrap_or_default();
-            self.field_editor_state = None;
-            self.pending_action = None;
-
-            if path_str.is_empty() {
-                // Re-prompt: the user must provide a path.
-                self.status_message =
-                    Some("Please enter a path for the new library.".to_string());
-                self.field_editor_state =
-                    Some(FieldEditorState::for_path("Save new library as", ""));
-                self.pending_action = Some(PendingAction::NewFile);
-                self.mode = InputMode::Editing;
-                return;
+        // Dispatch on the pending action.  Each arm owns its own field-editor
+        // cleanup and target mode; anything without a dedicated arm (including
+        // `None`) falls through to the ordinary field-edit path.
+        match self.pending_action.take() {
+            Some(PendingAction::NewFile) => self.confirm_new_file(),
+            Some(PendingAction::ExportSettings) => self.confirm_export_settings(),
+            Some(PendingAction::ExportJson) => self.confirm_export_json(),
+            Some(PendingAction::ExportRis) => self.confirm_export_ris(),
+            Some(PendingAction::ImportUrl) => self.confirm_import_url(),
+            Some(PendingAction::ImportSettings) => self.confirm_import_settings(),
+            Some(PendingAction::EditSetting { setting_id }) => {
+                self.confirm_edit_setting(setting_id)
             }
+            Some(PendingAction::AddFieldGroup) => self.confirm_add_field_group(),
+            Some(PendingAction::EditFieldGroupFields { index }) => {
+                self.confirm_edit_field_group_fields(index)
+            }
+            Some(PendingAction::RenameFieldGroup { index }) => {
+                self.confirm_rename_field_group(index)
+            }
+            Some(PendingAction::AddColumn) => self.confirm_add_column(),
+            Some(PendingAction::EditColumnWidth { index }) => {
+                self.confirm_edit_column_width(index)
+            }
+            Some(PendingAction::RenameColumn { index }) => self.confirm_rename_column(index),
+            Some(PendingAction::AddFileAttachment { entry_key }) => {
+                self.confirm_add_file_attachment(entry_key)
+            }
+            Some(PendingAction::EditFileAttachment { entry_key, index }) => {
+                self.confirm_edit_file_attachment(entry_key, index)
+            }
+            Some(PendingAction::AddGroup { parent_path }) => {
+                self.confirm_add_group(parent_path)
+            }
+            _ => self.confirm_field_edit(),
+        }
+    }
 
-            // Append .bib if the user omitted it.
-            let path_str = if path_str.ends_with(".bib") {
-                path_str
-            } else {
-                format!("{}.bib", path_str)
-            };
+    /// New file: the user just entered a path for a brand-new library.
+    fn confirm_new_file(&mut self) {
+        let path_str = self
+            .field_editor_state
+            .as_ref()
+            .map(|e| e.value.trim().to_string())
+            .unwrap_or_default();
+        self.field_editor_state = None;
 
-            self.bib_path = PathBuf::from(expand_tilde(&path_str));
-            self.mode = InputMode::Normal;
-            self.save(); // writes the (empty) file to disk
+        if path_str.is_empty() {
+            // Re-prompt: the user must provide a path.
+            self.status_message = Some("Please enter a path for the new library.".to_string());
+            self.field_editor_state = Some(FieldEditorState::for_path("Save new library as", ""));
+            self.pending_action = Some(PendingAction::NewFile);
+            self.mode = InputMode::Editing;
             return;
         }
 
-        if matches!(self.pending_action, Some(PendingAction::ExportSettings)) {
-            let path_str = self
-                .field_editor_state
-                .as_ref()
-                .map(|e| e.value.trim().to_string())
-                .unwrap_or_else(|| "bibtui.yaml".to_string());
-            self.field_editor_state = None;
-            self.pending_action = None;
-            self.mode = InputMode::Settings;
-            if !path_str.is_empty() {
-                self.export_settings(&path_str);
-            }
-            return;
-        }
+        // Append .bib if the user omitted it.
+        let path_str = if path_str.ends_with(".bib") {
+            path_str
+        } else {
+            format!("{}.bib", path_str)
+        };
 
-        // Export as CSL-JSON ──────────────────────────────────────────────────
-        if matches!(self.pending_action, Some(PendingAction::ExportJson)) {
-            let path_str = self
-                .field_editor_state
-                .as_ref()
-                .map(|e| e.value.trim().to_string())
-                .unwrap_or_default();
-            self.field_editor_state = None;
-            self.pending_action = None;
-            self.mode = InputMode::Normal;
-            if !path_str.is_empty() {
-                self.do_export_json(&path_str);
-            }
-            return;
-        }
+        self.bib_path = PathBuf::from(expand_tilde(&path_str));
+        self.mode = InputMode::Normal;
+        self.save(); // writes the (empty) file to disk
+    }
 
-        // Export as RIS ───────────────────────────────────────────────────────
-        if matches!(self.pending_action, Some(PendingAction::ExportRis)) {
-            let path_str = self
-                .field_editor_state
-                .as_ref()
-                .map(|e| e.value.trim().to_string())
-                .unwrap_or_default();
-            self.field_editor_state = None;
-            self.pending_action = None;
-            self.mode = InputMode::Normal;
-            if !path_str.is_empty() {
-                self.do_export_ris(&path_str);
-            }
-            return;
+    fn confirm_export_settings(&mut self) {
+        let path_str = self
+            .field_editor_state
+            .as_ref()
+            .map(|e| e.value.trim().to_string())
+            .unwrap_or_else(|| "bibtui.yaml".to_string());
+        self.field_editor_state = None;
+        self.mode = InputMode::Settings;
+        if !path_str.is_empty() {
+            self.export_settings(&path_str);
         }
+    }
 
-        // Import entry from DOI/URL ───────────────────────────────────────────
-        if matches!(self.pending_action, Some(PendingAction::ImportUrl)) {
-            let doi_or_url = self
-                .field_editor_state
-                .as_ref()
-                .map(|e| e.value.trim().to_string())
-                .unwrap_or_default();
-            self.field_editor_state = None;
-            self.pending_action = None;
-            self.mode = InputMode::Normal;
-            if !doi_or_url.is_empty() {
-                self.spawn_import(doi_or_url);
-            }
-            return;
+    /// Export as CSL-JSON.
+    fn confirm_export_json(&mut self) {
+        let path_str = self
+            .field_editor_state
+            .as_ref()
+            .map(|e| e.value.trim().to_string())
+            .unwrap_or_default();
+        self.field_editor_state = None;
+        self.mode = InputMode::Normal;
+        if !path_str.is_empty() {
+            self.do_export_json(&path_str);
         }
+    }
 
-        // Import settings ─────────────────────────────────────────────────────
-        if matches!(self.pending_action, Some(PendingAction::ImportSettings)) {
-            let path_str = self
-                .field_editor_state
-                .as_ref()
-                .map(|e| e.value.trim().to_string())
-                .unwrap_or_default();
-            self.field_editor_state = None;
-            self.pending_action = None;
-            self.mode = InputMode::Settings;
-            if !path_str.is_empty() {
-                self.import_settings(&path_str);
-            }
-            return;
+    /// Export as RIS.
+    fn confirm_export_ris(&mut self) {
+        let path_str = self
+            .field_editor_state
+            .as_ref()
+            .map(|e| e.value.trim().to_string())
+            .unwrap_or_default();
+        self.field_editor_state = None;
+        self.mode = InputMode::Normal;
+        if !path_str.is_empty() {
+            self.do_export_ris(&path_str);
         }
+    }
 
-        // Edit a string setting ───────────────────────────────────────────────
-        if matches!(self.pending_action, Some(PendingAction::EditSetting { .. })) {
-            let setting_id = match self.pending_action.take() {
-                Some(PendingAction::EditSetting { setting_id }) => setting_id,
-                _ => return,
-            };
-            let new_val = self
-                .field_editor_state
-                .as_ref()
-                .map(|e| e.value.clone())
-                .unwrap_or_default();
-            self.field_editor_state = None;
-            self.mode = InputMode::Settings;
+    /// Import entry from DOI/URL.
+    fn confirm_import_url(&mut self) {
+        let doi_or_url = self
+            .field_editor_state
+            .as_ref()
+            .map(|e| e.value.trim().to_string())
+            .unwrap_or_default();
+        self.field_editor_state = None;
+        self.mode = InputMode::Normal;
+        if !doi_or_url.is_empty() {
+            self.spawn_import(doi_or_url);
+        }
+    }
+
+    fn confirm_import_settings(&mut self) {
+        let path_str = self
+            .field_editor_state
+            .as_ref()
+            .map(|e| e.value.trim().to_string())
+            .unwrap_or_default();
+        self.field_editor_state = None;
+        self.mode = InputMode::Settings;
+        if !path_str.is_empty() {
+            self.import_settings(&path_str);
+        }
+    }
+
+    /// Edit a string setting.
+    fn confirm_edit_setting(&mut self, setting_id: String) {
+        let new_val = self
+            .field_editor_state
+            .as_ref()
+            .map(|e| e.value.clone())
+            .unwrap_or_default();
+        self.field_editor_state = None;
+        self.mode = InputMode::Settings;
+        if let Some(ref mut s) = self.settings_state {
+            s.set_value(&setting_id, SettingValue::Str(new_val));
+            s.apply_to_config(&mut self.config);
+            self.sync_runtime_from_config();
+        }
+    }
+
+    /// Add a new field group.
+    fn confirm_add_field_group(&mut self) {
+        let name = self
+            .field_editor_state
+            .as_ref()
+            .map(|e| e.value.trim().to_string())
+            .unwrap_or_default();
+        self.field_editor_state = None;
+        self.mode = InputMode::Settings;
+        if !name.is_empty() {
             if let Some(ref mut s) = self.settings_state {
-                s.set_value(&setting_id, SettingValue::Str(new_val));
-                s.apply_to_config(&mut self.config);
-                self.sync_runtime_from_config();
-            }
-            return;
-        }
-
-        // Add a new field group ───────────────────────────────────────────────
-        if matches!(self.pending_action, Some(PendingAction::AddFieldGroup)) {
-            let name = self.field_editor_state.as_ref()
-                .map(|e| e.value.trim().to_string()).unwrap_or_default();
-            self.pending_action = None;
-            self.field_editor_state = None;
-            self.mode = InputMode::Settings;
-            if !name.is_empty() {
-                if let Some(ref mut s) = self.settings_state {
-                    s.add_field_group(name);
-                    s.apply_to_config(&mut self.config);
-                }
-                self.sync_runtime_from_config();
-            }
-            return;
-        }
-
-        // Edit field group fields ─────────────────────────────────────────────
-        if matches!(self.pending_action, Some(PendingAction::EditFieldGroupFields { .. })) {
-            let index = match self.pending_action.take() {
-                Some(PendingAction::EditFieldGroupFields { index }) => index,
-                _ => return,
-            };
-            let fields_csv = self.field_editor_state.as_ref()
-                .map(|e| e.value.clone()).unwrap_or_default();
-            self.field_editor_state = None;
-            self.mode = InputMode::Settings;
-            if let Some(ref mut s) = self.settings_state {
-                s.set_field_group_fields(index, fields_csv);
+                s.add_field_group(name);
                 s.apply_to_config(&mut self.config);
             }
             self.sync_runtime_from_config();
-            return;
         }
+    }
 
-        // Rename a field group ────────────────────────────────────────────────
-        if matches!(self.pending_action, Some(PendingAction::RenameFieldGroup { .. })) {
-            let index = match self.pending_action.take() {
-                Some(PendingAction::RenameFieldGroup { index }) => index,
-                _ => return,
-            };
-            let name = self.field_editor_state.as_ref()
-                .map(|e| e.value.trim().to_string()).unwrap_or_default();
-            self.field_editor_state = None;
-            self.mode = InputMode::Settings;
-            if !name.is_empty() {
-                if let Some(ref mut s) = self.settings_state {
-                    s.set_field_group_name(index, name);
-                    s.apply_to_config(&mut self.config);
-                }
-                self.sync_runtime_from_config();
-            }
-            return;
+    /// Edit field group fields.
+    fn confirm_edit_field_group_fields(&mut self, index: usize) {
+        let fields_csv = self
+            .field_editor_state
+            .as_ref()
+            .map(|e| e.value.clone())
+            .unwrap_or_default();
+        self.field_editor_state = None;
+        self.mode = InputMode::Settings;
+        if let Some(ref mut s) = self.settings_state {
+            s.set_field_group_fields(index, fields_csv);
+            s.apply_to_config(&mut self.config);
         }
+        self.sync_runtime_from_config();
+    }
 
-        // Add a new display column ────────────────────────────────────────────
-        if matches!(self.pending_action, Some(PendingAction::AddColumn)) {
-            let input = self.field_editor_state.as_ref()
-                .map(|e| e.value.trim().to_string()).unwrap_or_default();
-            self.pending_action = None;
-            self.field_editor_state = None;
-            self.mode = InputMode::Settings;
-            if !input.is_empty() {
-                let (field, header) = parse_field_header(&input);
-                if let Some(ref mut s) = self.settings_state {
-                    s.add_column(field, header, "flex".to_string());
-                    s.apply_to_config(&mut self.config);
-                }
-                self.sync_runtime_from_config();
-            }
-            return;
-        }
-
-        // Edit column width ───────────────────────────────────────────────────
-        if matches!(self.pending_action, Some(PendingAction::EditColumnWidth { .. })) {
-            let index = match self.pending_action.take() {
-                Some(PendingAction::EditColumnWidth { index }) => index,
-                _ => return,
-            };
-            let width_spec = self.field_editor_state.as_ref()
-                .map(|e| e.value.trim().to_string()).unwrap_or_default();
-            self.field_editor_state = None;
-            self.mode = InputMode::Settings;
+    /// Rename a field group.
+    fn confirm_rename_field_group(&mut self, index: usize) {
+        let name = self
+            .field_editor_state
+            .as_ref()
+            .map(|e| e.value.trim().to_string())
+            .unwrap_or_default();
+        self.field_editor_state = None;
+        self.mode = InputMode::Settings;
+        if !name.is_empty() {
             if let Some(ref mut s) = self.settings_state {
-                s.set_column_width(index, width_spec);
+                s.set_field_group_name(index, name);
                 s.apply_to_config(&mut self.config);
             }
             self.sync_runtime_from_config();
-            return;
         }
+    }
 
-        // Rename a display column ─────────────────────────────────────────────
-        if matches!(self.pending_action, Some(PendingAction::RenameColumn { .. })) {
-            let index = match self.pending_action.take() {
-                Some(PendingAction::RenameColumn { index }) => index,
-                _ => return,
-            };
-            let input = self.field_editor_state.as_ref()
-                .map(|e| e.value.trim().to_string()).unwrap_or_default();
-            self.field_editor_state = None;
-            self.mode = InputMode::Settings;
-            if !input.is_empty() {
-                let (field, header) = parse_field_header(&input);
-                if let Some(ref mut s) = self.settings_state {
-                    s.set_column_name(index, field, header);
-                    s.apply_to_config(&mut self.config);
-                }
-                self.sync_runtime_from_config();
+    /// Add a new display column.
+    fn confirm_add_column(&mut self) {
+        let input = self
+            .field_editor_state
+            .as_ref()
+            .map(|e| e.value.trim().to_string())
+            .unwrap_or_default();
+        self.field_editor_state = None;
+        self.mode = InputMode::Settings;
+        if !input.is_empty() {
+            let (field, header) = parse_field_header(&input);
+            if let Some(ref mut s) = self.settings_state {
+                s.add_column(field, header, "flex".to_string());
+                s.apply_to_config(&mut self.config);
             }
-            return;
+            self.sync_runtime_from_config();
         }
+    }
 
-        // Add a new file attachment ───────────────────────────────────────────
-        if matches!(self.pending_action, Some(PendingAction::AddFileAttachment { .. })) {
-            let entry_key = match self.pending_action.take() {
-                Some(PendingAction::AddFileAttachment { entry_key }) => entry_key,
-                _ => return,
-            };
-            let path_str = self.field_editor_state.as_ref()
-                .map(|e| e.value.trim().to_string()).unwrap_or_default();
-            self.field_editor_state = None;
-            self.mode = InputMode::Detail;
-            if !path_str.is_empty() {
-                let abs_path = PathBuf::from(expand_tilde(&path_str));
-                let file_type = abs_path
+    /// Edit column width.
+    fn confirm_edit_column_width(&mut self, index: usize) {
+        let width_spec = self
+            .field_editor_state
+            .as_ref()
+            .map(|e| e.value.trim().to_string())
+            .unwrap_or_default();
+        self.field_editor_state = None;
+        self.mode = InputMode::Settings;
+        if let Some(ref mut s) = self.settings_state {
+            s.set_column_width(index, width_spec);
+            s.apply_to_config(&mut self.config);
+        }
+        self.sync_runtime_from_config();
+    }
+
+    /// Rename a display column.
+    fn confirm_rename_column(&mut self, index: usize) {
+        let input = self
+            .field_editor_state
+            .as_ref()
+            .map(|e| e.value.trim().to_string())
+            .unwrap_or_default();
+        self.field_editor_state = None;
+        self.mode = InputMode::Settings;
+        if !input.is_empty() {
+            let (field, header) = parse_field_header(&input);
+            if let Some(ref mut s) = self.settings_state {
+                s.set_column_name(index, field, header);
+                s.apply_to_config(&mut self.config);
+            }
+            self.sync_runtime_from_config();
+        }
+    }
+
+    /// Add a new file attachment.
+    fn confirm_add_file_attachment(&mut self, entry_key: String) {
+        let path_str = self
+            .field_editor_state
+            .as_ref()
+            .map(|e| e.value.trim().to_string())
+            .unwrap_or_default();
+        self.field_editor_state = None;
+        self.mode = InputMode::Detail;
+        if !path_str.is_empty() {
+            let abs_path = PathBuf::from(expand_tilde(&path_str));
+            let file_type = abs_path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.to_uppercase())
+                .unwrap_or_default();
+            // Store a path relative to the JabRef fileDirectory (same convention
+            // used by the import pipeline).  Falls back to absolute if the file
+            // is outside that directory or canonicalization fails.
+            let file_dir = effective_file_dir(
+                &self.bib_path,
+                self.database.jabref_meta.file_directory.as_deref(),
+            );
+            let stored_path = crate::util::open::make_relative(&file_dir, &abs_path)
+                .to_string_lossy()
+                .into_owned();
+            let current = self
+                .database
+                .entries
+                .get(&entry_key)
+                .and_then(|e| e.fields.get("file").cloned())
+                .unwrap_or_default();
+            let mut files = parse_file_field(&current);
+            files.push(crate::util::open::ParsedFile {
+                description: String::new(),
+                path: stored_path,
+                file_type,
+            });
+            let new_value = serialize_file_field(&files);
+            self.push_undo(UndoItem::FieldChanged {
+                entry_key: entry_key.clone(),
+                field_name: "file".to_string(),
+                old_value: if current.is_empty() { None } else { Some(current) },
+            });
+            if let Some(entry) = self.database.entries.get_mut(&entry_key) {
+                entry.fields.insert("file".to_string(), new_value);
+                entry.dirty = true;
+                let snapshot = entry.clone();
+                if let Some(ref mut detail) = self.detail_state {
+                    detail.refresh(&snapshot);
+                }
+            }
+        }
+    }
+
+    /// Edit the path of a specific file attachment.
+    fn confirm_edit_file_attachment(&mut self, entry_key: String, file_idx: usize) {
+        let path_str = self
+            .field_editor_state
+            .as_ref()
+            .map(|e| e.value.trim().to_string())
+            .unwrap_or_default();
+        self.field_editor_state = None;
+        self.mode = InputMode::Detail;
+        if !path_str.is_empty() {
+            let abs_path = PathBuf::from(expand_tilde(&path_str));
+            let file_dir = effective_file_dir(
+                &self.bib_path,
+                self.database.jabref_meta.file_directory.as_deref(),
+            );
+            let stored_path = crate::util::open::make_relative(&file_dir, &abs_path)
+                .to_string_lossy()
+                .into_owned();
+            let current = self
+                .database
+                .entries
+                .get(&entry_key)
+                .and_then(|e| e.fields.get("file").cloned())
+                .unwrap_or_default();
+            let mut files = parse_file_field(&current);
+            if let Some(f) = files.get_mut(file_idx) {
+                let ext = abs_path
                     .extension()
                     .and_then(|e| e.to_str())
                     .map(|e| e.to_uppercase())
                     .unwrap_or_default();
-                // Store a path relative to the JabRef fileDirectory (same convention
-                // used by the import pipeline).  Falls back to absolute if the file
-                // is outside that directory or canonicalization fails.
-                let file_dir = effective_file_dir(
-                    &self.bib_path,
-                    self.database.jabref_meta.file_directory.as_deref(),
-                );
-                let stored_path = crate::util::open::make_relative(&file_dir, &abs_path)
-                    .to_string_lossy()
-                    .into_owned();
-                let current = self.database.entries.get(&entry_key)
-                    .and_then(|e| e.fields.get("file").cloned())
-                    .unwrap_or_default();
-                let mut files = parse_file_field(&current);
-                files.push(crate::util::open::ParsedFile {
-                    description: String::new(),
-                    path: stored_path,
-                    file_type,
-                });
-                let new_value = serialize_file_field(&files);
+                f.path = stored_path;
+                if !ext.is_empty() && f.file_type.is_empty() {
+                    f.file_type = ext;
+                }
+            }
+            let new_value = serialize_file_field(&files);
+            if new_value != current {
                 self.push_undo(UndoItem::FieldChanged {
                     entry_key: entry_key.clone(),
                     field_name: "file".to_string(),
-                    old_value: if current.is_empty() { None } else { Some(current) },
+                    old_value: Some(current),
                 });
                 if let Some(entry) = self.database.entries.get_mut(&entry_key) {
                     entry.fields.insert("file".to_string(), new_value);
@@ -334,83 +401,27 @@ impl App {
                     }
                 }
             }
-            return;
         }
+    }
 
-        // Edit the path of a specific file attachment ─────────────────────────
-        if matches!(self.pending_action, Some(PendingAction::EditFileAttachment { .. })) {
-            let (entry_key, file_idx) = match self.pending_action.take() {
-                Some(PendingAction::EditFileAttachment { entry_key, index }) => (entry_key, index),
-                _ => return,
-            };
-            let path_str = self.field_editor_state.as_ref()
-                .map(|e| e.value.trim().to_string()).unwrap_or_default();
-            self.field_editor_state = None;
-            self.mode = InputMode::Detail;
-            if !path_str.is_empty() {
-                let abs_path = PathBuf::from(expand_tilde(&path_str));
-                let file_dir = effective_file_dir(
-                    &self.bib_path,
-                    self.database.jabref_meta.file_directory.as_deref(),
-                );
-                let stored_path = crate::util::open::make_relative(&file_dir, &abs_path)
-                    .to_string_lossy()
-                    .into_owned();
-                let current = self.database.entries.get(&entry_key)
-                    .and_then(|e| e.fields.get("file").cloned())
-                    .unwrap_or_default();
-                let mut files = parse_file_field(&current);
-                if let Some(f) = files.get_mut(file_idx) {
-                    let ext = abs_path
-                        .extension()
-                        .and_then(|e| e.to_str())
-                        .map(|e| e.to_uppercase())
-                        .unwrap_or_default();
-                    f.path = stored_path;
-                    if !ext.is_empty() && f.file_type.is_empty() {
-                        f.file_type = ext;
-                    }
-                }
-                let new_value = serialize_file_field(&files);
-                if new_value != current {
-                    self.push_undo(UndoItem::FieldChanged {
-                        entry_key: entry_key.clone(),
-                        field_name: "file".to_string(),
-                        old_value: Some(current),
-                    });
-                    if let Some(entry) = self.database.entries.get_mut(&entry_key) {
-                        entry.fields.insert("file".to_string(), new_value);
-                        entry.dirty = true;
-                        let snapshot = entry.clone();
-                        if let Some(ref mut detail) = self.detail_state {
-                            detail.refresh(&snapshot);
-                        }
-                    }
-                }
-            }
-            return;
+    /// Group name input — handled separately from field editing.
+    fn confirm_add_group(&mut self, parent_path: Vec<usize>) {
+        let name = self
+            .field_editor_state
+            .as_ref()
+            .map(|e| e.value.trim().to_string())
+            .unwrap_or_default();
+        self.field_editor_state = None;
+        self.mode = InputMode::Normal;
+        if !name.is_empty() {
+            self.finish_add_group(name, parent_path);
         }
+    }
 
-        // Group name input — handled separately from field editing
-        if matches!(self.pending_action, Some(PendingAction::AddGroup { .. })) {
-            let name = self
-                .field_editor_state
-                .as_ref()
-                .map(|e| e.value.trim().to_string())
-                .unwrap_or_default();
-            let parent_path = match self.pending_action.take() {
-                Some(PendingAction::AddGroup { parent_path }) => parent_path,
-                _ => vec![],
-            };
-            self.field_editor_state = None;
-            self.mode = InputMode::Normal;
-            if !name.is_empty() {
-                self.finish_add_group(name, parent_path);
-            }
-            return;
-        }
-
-        // Two-phase for new fields: first confirm name, then enter value
+    /// The ordinary field-editor path: either advance the two-phase new-field
+    /// flow (name → value) or commit the edited field value.
+    fn confirm_field_edit(&mut self) {
+        // Two-phase for new fields: first confirm name, then enter value.
         if let Some(ref mut editor) = self.field_editor_state {
             if editor.advance_phase() {
                 // Now that the field name is confirmed, enable month mode if applicable.
@@ -430,7 +441,10 @@ impl App {
                 return;
             }
             if let Some(ref key) = self.detail_entry_key.clone() {
-                let existing = self.database.entries.get(key)
+                let existing = self
+                    .database
+                    .entries
+                    .get(key)
                     .and_then(|e| e.fields.get(&editor.field_name).cloned());
                 let existing_str = existing.clone().unwrap_or_default();
                 // Normalize month values to standard 3-letter abbreviations.
@@ -454,7 +468,8 @@ impl App {
                         }
                     }
                     self.regen_citekey();
-                    let current_key = self.detail_entry_key.clone().unwrap_or_else(|| key.clone());
+                    let current_key =
+                        self.detail_entry_key.clone().unwrap_or_else(|| key.clone());
                     self.recheck_dirty(&current_key);
                 }
             }
