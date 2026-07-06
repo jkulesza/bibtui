@@ -369,9 +369,14 @@ impl App {
         // Re-order entries in the raw file if configured.
         self.sort_entries_for_save();
 
-        // Write (normalise blank lines so no more than one blank line appears anywhere)
+        // Write (normalise blank lines so no more than one blank line appears anywhere).
+        // Write atomically: write to a sibling temp file then rename over the
+        // target, so a crash or disk-full mid-write cannot truncate the original.
         let output = normalize_blank_lines(write_bib_file(&self.database.raw_file));
-        match std::fs::write(&self.bib_path, &output) {
+        let tmp_path = self.bib_path.with_extension("bib.tmp");
+        let write_result = std::fs::write(&tmp_path, &output)
+            .and_then(|()| std::fs::rename(&tmp_path, &self.bib_path));
+        match write_result {
             Ok(()) => {
                 self.save_generation = Some(self.undo_stack.len());
                 self.dirty = false;
@@ -382,6 +387,9 @@ impl App {
                 self.status_message = Some(format!("Saved to {}", self.bib_path.display()));
             }
             Err(e) => {
+                // Clean up the temp file so a failed save leaves no debris and
+                // the original file is untouched.
+                let _ = std::fs::remove_file(&tmp_path);
                 self.status_message = Some(format!("Save failed: {}", e));
             }
         }

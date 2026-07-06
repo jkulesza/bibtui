@@ -2864,6 +2864,57 @@ fn test_save_dirty_entry_preserves_concat_and_string_refs() {
 }
 
 #[test]
+fn test_save_is_atomic_and_leaves_no_tmp_file() {
+    let (mut app, tmp) = make_app_no_sort();
+    if let Some(e) = app.database.entries.get_mut("Smith2020") {
+        e.fields.insert("title".to_string(), "Atomic Title".to_string());
+        e.dirty = true;
+    }
+    app.save();
+    // Content was written correctly.
+    let out = std::fs::read_to_string(tmp.path()).unwrap();
+    assert!(out.contains("Atomic Title"), "got: {}", out);
+    // The temp file used for the atomic rename must not remain behind.
+    let tmp_path = tmp.path().with_extension("bib.tmp");
+    assert!(!tmp_path.exists(), "temp file should be gone after a successful save");
+}
+
+#[test]
+fn test_save_failure_preserves_original_file() {
+    // If the rename target cannot be replaced, the original file must survive
+    // intact (no truncation) and no temp file should be left behind.
+    let dir = tempfile::tempdir().unwrap();
+    let bib_path = dir.path().join("lib.bib");
+    std::fs::write(&bib_path, TEST_BIB).unwrap();
+    let original = std::fs::read_to_string(&bib_path).unwrap();
+
+    let mut cfg = default_config();
+    cfg.save.entry_sort_order = "none".to_string();
+    cfg.save.field_order = "jabref".to_string();
+    cfg.save.save_action_regenerate_citekeys = false;
+    cfg.general.backup_on_save = false;
+    let mut app = App::new(bib_path.clone(), cfg).unwrap();
+
+    // Make the atomic rename fail: occupy the temp path with a directory so
+    // both the write and rename over it cannot succeed.
+    let tmp_path = bib_path.with_extension("bib.tmp");
+    std::fs::create_dir(&tmp_path).unwrap();
+
+    if let Some(e) = app.database.entries.get_mut("Smith2020") {
+        e.fields.insert("title".to_string(), "Should Not Persist".to_string());
+        e.dirty = true;
+    }
+    app.save();
+
+    // Original file is unchanged (not truncated).
+    let after = std::fs::read_to_string(&bib_path).unwrap();
+    assert_eq!(after, original, "original file must be untouched on save failure");
+    // The blocking directory is still there; our cleanup must not have removed it.
+    assert!(tmp_path.is_dir());
+    std::fs::remove_dir(&tmp_path).ok();
+}
+
+#[test]
 fn test_save_backup_created_when_enabled() {
     let (mut app, tmp) = make_app_no_sort();
     app.config.general.backup_on_save = true;
