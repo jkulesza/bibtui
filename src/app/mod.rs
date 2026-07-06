@@ -1646,7 +1646,12 @@ impl App {
             "w" | "write" | "save" => self.request_save(false),
             "q" | "quit" => {
                 if self.dirty {
-                    self.status_message = Some("Unsaved changes. Use :q! to force quit".to_string());
+                    self.dialog_state = Some(DialogState::confirm(
+                        "Quit",
+                        "Unsaved changes. Quit without saving?",
+                    ));
+                    self.pending_action = Some(PendingAction::Quit);
+                    self.mode = InputMode::Dialog;
                 } else {
                     self.should_quit = true;
                 }
@@ -1849,6 +1854,10 @@ impl App {
                 self.save();
                 self.should_quit = true;
             }
+            Some(PendingAction::Quit) => {
+                // Quit-confirm dialog: quit without saving.
+                self.should_quit = true;
+            }
             Some(PendingAction::SyncFilenamesOnly) => {
                 self.sync_filenames(true);
                 self.status_message = Some("Filenames synced to citation keys".to_string());
@@ -1875,8 +1884,9 @@ impl App {
                 // These are confirmed through confirm_edit(), not this path
             }
             None => {
-                // Quit confirmation
-                self.should_quit = true;
+                // No pending action — just close the dialog (mode was already
+                // reset above). Quitting requires an explicit
+                // PendingAction::Quit so a stray confirm can never exit the app.
             }
         }
     }

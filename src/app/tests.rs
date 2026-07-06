@@ -210,13 +210,50 @@ fn test_quit_when_clean() {
 }
 
 #[test]
-fn test_quit_when_dirty_shows_message() {
+fn test_quit_when_dirty_shows_confirm_dialog() {
     let (mut app, _tmp) = make_app();
     app.dirty = true;
     app.command_palette_state.input = "q".to_string();
     app.handle_action(Action::ExecuteCommand);
     assert!(!app.should_quit);
-    assert!(app.status_message.is_some());
+    assert!(app.dialog_state.is_some(), "quit-confirm dialog must open");
+    assert!(matches!(app.pending_action, Some(PendingAction::Quit)));
+}
+
+#[test]
+fn test_quit_confirm_dialog_confirm_quits() {
+    let (mut app, _tmp) = make_app();
+    app.dirty = true;
+    app.command_palette_state.input = "q".to_string();
+    app.handle_action(Action::ExecuteCommand);
+    app.handle_action(Action::DialogConfirm);
+    assert!(app.should_quit, "confirming the quit dialog must quit");
+}
+
+#[test]
+fn test_quit_confirm_dialog_cancel_stays() {
+    let (mut app, _tmp) = make_app();
+    app.dirty = true;
+    app.command_palette_state.input = "q".to_string();
+    app.handle_action(Action::ExecuteCommand);
+    app.handle_action(Action::DialogCancel);
+    assert!(!app.should_quit);
+    assert!(app.dialog_state.is_none());
+    assert!(app.pending_action.is_none());
+}
+
+/// Regression: confirming a dialog whose pending_action was cleared (or never
+/// set) must NOT quit the app — it just closes the dialog.
+#[test]
+fn test_dialog_confirm_without_pending_action_does_not_quit() {
+    let (mut app, _tmp) = make_app();
+    app.dialog_state = Some(DialogState::confirm("Title", "Are you sure?"));
+    app.mode = InputMode::Dialog;
+    app.pending_action = None;
+    app.handle_action(Action::DialogConfirm);
+    assert!(!app.should_quit, "a stray confirm must never quit the app");
+    assert!(app.dialog_state.is_none(), "dialog must be closed");
+    assert_eq!(app.mode, InputMode::Normal);
 }
 
 // ── Search ────────────────────────────────────────────────────────────────
@@ -318,7 +355,7 @@ fn test_execute_command_quit_with_dirty() {
     for c in "q".chars() { app.handle_action(Action::CommandChar(c)); }
     app.handle_action(Action::ExecuteCommand);
     assert!(!app.should_quit);
-    assert!(app.status_message.is_some());
+    assert!(app.dialog_state.is_some(), "quit-confirm dialog must open");
 }
 
 #[test]

@@ -248,4 +248,7 @@ pub(super) enum PendingAction {
     RenameColumn { index: usize },
     /// Confirmed the manual filename-sync preview — apply renames now.
     SyncFilenamesOnly,
+    /// Quit-confirm dialog (`:q` with unsaved changes): confirm quits without
+    /// saving.
+    Quit,
 }

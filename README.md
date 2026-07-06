@@ -261,7 +261,7 @@ Open with `:` from the entry list.
 |---------|-------------|
 | `:w` / `:write` / `:save` | Save the file |
 | `:wq` | Save and quit |
-| `:q` | Quit (warns if unsaved changes) |
+| `:q` | Quit (confirmation dialog if unsaved changes) |
 | `:q!` | Force quit without saving |
 | `:sort <field>` | Sort by field (repeat to toggle direction) |
 | `:sort none` | Clear sort and restore file order |
