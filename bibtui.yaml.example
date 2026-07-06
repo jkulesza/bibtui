@@ -162,7 +162,8 @@ save:
   save_action_escape_underscores: true
   # Escape bare ampersands (&) as \& in text and name fields
   save_action_escape_ampersands: true
-  # Decode percent-encoded characters in the 'url' field (e.g. %2F → /)
+  # Trim a single trailing slash from the 'url' field (the path root slash is
+  # kept); percent-encoded characters (e.g. %20) are preserved
   save_action_cleanup_url: true
   # Escape bare % signs as \% and collapse multiple spaces in text fields
   save_action_latex_cleanup: true

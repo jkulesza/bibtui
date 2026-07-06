@@ -176,7 +176,8 @@ pub struct SaveConfig {
     pub save_action_escape_underscores: bool,
     /// Escape bare `&` as `\&` in text fields.
     pub save_action_escape_ampersands: bool,
-    /// Decode percent-encoded characters in `url` fields.
+    /// Trim a single trailing slash from `url` fields (the path root slash is
+    /// kept). Percent-encoded characters (e.g. `%20`) are preserved as-is.
     pub save_action_cleanup_url: bool,
     /// Escape bare `%` as `\%` and collapse multiple spaces in text fields.
     pub save_action_latex_cleanup: bool,

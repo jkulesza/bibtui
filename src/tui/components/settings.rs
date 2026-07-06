@@ -349,7 +349,7 @@ impl SettingsState {
             SettingItem {
                 id: "save_actions.cleanup_url".into(),
                 label: "cleanup_url".into(),
-                description: "Decode percent-encoded characters in the 'url' field on save (e.g. %2F → /).".into(),
+                description: "Trim a single trailing slash from the 'url' field on save (root slash kept); percent-encoding is preserved.".into(),
                 value: SettingValue::Bool(config.save.save_action_cleanup_url),
                 default: SettingValue::Bool(defaults.save.save_action_cleanup_url),
             },
@@ -1454,6 +1454,27 @@ mod tests {
         assert!(found);
         let item = state.items.iter().find(|i| i.id == "general.editor").unwrap();
         assert_eq!(item.value, SettingValue::Str("vim".into()));
+    }
+
+    /// Regression: the cleanup_url description must match the implementation
+    /// (trailing-slash trim only) and not claim percent-decoding.
+    #[test]
+    fn test_cleanup_url_description_matches_behavior() {
+        let cfg = default_config();
+        let state = SettingsState::new(&cfg);
+        let item = state
+            .items
+            .iter()
+            .find(|i| i.id == "save_actions.cleanup_url")
+            .unwrap();
+        assert!(
+            item.description.contains("trailing slash"),
+            "got: {}", item.description
+        );
+        assert!(
+            !item.description.contains("Decode"),
+            "must not claim percent-decoding: {}", item.description
+        );
     }
 
     #[test]
