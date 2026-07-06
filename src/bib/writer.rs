@@ -11,13 +11,11 @@ pub fn write_bib_file(raw: &RawBibFile) -> String {
             RawItem::Preamble(text) => {
                 out.push_str(text);
             }
-            RawItem::BibPreamble(content) => {
-                out.push_str("@Preamble{");
-                out.push_str(content);
-                out.push('}');
+            RawItem::BibPreamble { raw_text, .. } => {
+                out.push_str(raw_text);
             }
-            RawItem::StringDef { name, raw_value } => {
-                out.push_str(&format!("@String{{{} = {}}}", name, raw_value));
+            RawItem::StringDef { raw_text, .. } => {
+                out.push_str(raw_text);
             }
             RawItem::Comment { raw_text } => {
                 out.push_str(raw_text);
@@ -355,7 +353,10 @@ mod tests {
     #[test]
     fn test_write_bib_file_bibpreamble() {
         let raw = RawBibFile {
-            items: vec![RawItem::BibPreamble("\"hello\"".to_string())],
+            items: vec![RawItem::BibPreamble {
+                content: "\"hello\"".to_string(),
+                raw_text: "@Preamble{\"hello\"}".to_string(),
+            }],
         };
         assert_eq!(write_bib_file(&raw), "@Preamble{\"hello\"}");
     }
@@ -366,9 +367,11 @@ mod tests {
             items: vec![RawItem::StringDef {
                 name: "mystr".to_string(),
                 raw_value: "{value}".to_string(),
+                raw_text: "@string{mystr={value}}".to_string(),
             }],
         };
-        assert_eq!(write_bib_file(&raw), "@String{mystr = {value}}");
+        // raw_text is written back verbatim (byte-perfect), not re-rendered.
+        assert_eq!(write_bib_file(&raw), "@string{mystr={value}}");
     }
 
     #[test]

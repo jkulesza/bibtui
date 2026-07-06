@@ -143,18 +143,21 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_bib_preamble(&mut self, _start: usize) -> Result<RawItem> {
+    fn parse_bib_preamble(&mut self, start: usize) -> Result<RawItem> {
         self.skip_whitespace();
         if self.peek() == Some('{') {
             self.advance(1);
             let content = self.take_braced_content()?;
-            Ok(RawItem::BibPreamble(content.to_string()))
+            Ok(RawItem::BibPreamble {
+                content: content.to_string(),
+                raw_text: self.input[start..self.pos].to_string(),
+            })
         } else {
             bail!("Expected '{{' after @Preamble");
         }
     }
 
-    fn parse_string_def(&mut self, _start: usize) -> Result<RawItem> {
+    fn parse_string_def(&mut self, start: usize) -> Result<RawItem> {
         self.skip_whitespace();
         if self.peek() != Some('{') {
             bail!("Expected '{{' after @String");
@@ -165,15 +168,21 @@ impl<'a> Parser<'a> {
         let name = self.take_while(|c| c.is_alphanumeric() || c == '_' || c == '-').to_string();
         self.skip_whitespace();
 
-        if self.peek() == Some('=') {
-            self.advance(1);
+        if self.peek() != Some('=') {
+            bail!(
+                "Expected '=' in @String{{{}}} at line {}",
+                name,
+                self.current_line()
+            );
         }
+        self.advance(1);
         self.skip_whitespace();
 
         let raw_value = self.take_braced_content()?;
         Ok(RawItem::StringDef {
             name,
             raw_value: raw_value.to_string(),
+            raw_text: self.input[start..self.pos].to_string(),
         })
     }
 
@@ -554,12 +563,12 @@ mod tests {
         let input = "@Preamble{{Some preamble text}}\n";
         let raw = parse_bib_file(input).unwrap();
         let preambles: Vec<_> = raw.items.iter()
-            .filter(|i| matches!(i, RawItem::BibPreamble(_)))
+            .filter(|i| matches!(i, RawItem::BibPreamble { .. }))
             .collect();
         assert_eq!(preambles.len(), 1);
-        if let RawItem::BibPreamble(text) = &preambles[0] {
+        if let RawItem::BibPreamble { content, .. } = &preambles[0] {
             // take_braced_content captures the inner {…} including braces
-            assert!(text.contains("Some preamble text"), "got: {}", text);
+            assert!(content.contains("Some preamble text"), "got: {}", content);
         }
     }
 
@@ -571,10 +580,34 @@ mod tests {
             .filter(|i| matches!(i, RawItem::StringDef { .. }))
             .collect();
         assert_eq!(strings.len(), 1);
-        if let RawItem::StringDef { name, raw_value } = &strings[0] {
+        if let RawItem::StringDef { name, raw_value, .. } = &strings[0] {
             assert_eq!(name, "jnl");
             assert!(raw_value.contains("Journal of Testing"), "got: {}", raw_value);
         }
+    }
+
+    #[test]
+    fn test_string_and_preamble_byte_perfect_roundtrip() {
+        // Case, spacing, no-space, and quoted variants must survive verbatim.
+        let cases = [
+            "@string{x = {y}}\n",
+            "@STRING{X = {Y}}\n",
+            "@String{x={y}}\n",
+            "@String{jnl = \"Journal of Testing\"}\n",
+            "@PREAMBLE{   {\\newcommand{\\x}{y}}   }\n",
+        ];
+        for input in cases {
+            let raw = parse_bib_file(input).unwrap();
+            let output = super::super::writer::write_bib_file(&raw);
+            assert_eq!(input, output, "round-trip mismatch for {:?}", input);
+        }
+    }
+
+    #[test]
+    fn test_parse_string_def_missing_equals_errors() {
+        // A missing '=' must error rather than silently mis-parse.
+        let input = "@String{x {y}}\n";
+        assert!(parse_bib_file(input).is_err());
     }
 
     #[test]

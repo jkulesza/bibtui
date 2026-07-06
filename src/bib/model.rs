@@ -12,10 +12,18 @@ pub struct RawBibFile {
 pub enum RawItem {
     /// Text between entries (whitespace, bare `%` comments, semicolons, etc.)
     Preamble(String),
-    /// @Preamble{...}
-    BibPreamble(String),
-    /// @String{name = value}
-    StringDef { name: String, raw_value: String },
+    /// @Preamble{...}. `content` is the parsed inner text; `raw_text` is the
+    /// complete original source span, written back verbatim for byte-perfect
+    /// round-trip.
+    BibPreamble { content: String, raw_text: String },
+    /// @String{name = value}. `name`/`raw_value` are the parsed parts (kept for
+    /// future reference resolution); `raw_text` is the complete original source
+    /// span, written back verbatim for byte-perfect round-trip.
+    StringDef {
+        name: String,
+        raw_value: String,
+        raw_text: String,
+    },
     /// @Comment{...} — includes JabRef metadata blocks
     Comment { raw_text: String },
     /// A regular @Type{key, fields...}
