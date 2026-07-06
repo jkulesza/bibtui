@@ -60,6 +60,23 @@ impl RawFieldValue {
             }
         }
     }
+
+    /// Reconstruct the original BibTeX source text of this value, preserving
+    /// brace vs quote delimiters, bare `@String`/month references, and `#`
+    /// concatenation. Used to write back unchanged fields of a dirty entry
+    /// without re-bracing (which would destroy references and concatenation).
+    pub fn to_source_text(&self) -> String {
+        match self {
+            RawFieldValue::Braced(s) => format!("{{{}}}", s),
+            RawFieldValue::Quoted(s) => format!("\"{}\"", s),
+            RawFieldValue::Bare(s) => s.clone(),
+            RawFieldValue::Concat(parts) => parts
+                .iter()
+                .map(|p| p.to_source_text())
+                .collect::<Vec<_>>()
+                .join(" # "),
+        }
+    }
 }
 
 // ── Semantic layer: for display, search, edit ──
@@ -372,6 +389,39 @@ mod tests {
             RawFieldValue::Bare("bar".to_string()),
         ]);
         assert_eq!(v.to_string_value(), "foo bar");
+    }
+
+    #[test]
+    fn test_raw_field_value_source_text_braced() {
+        assert_eq!(
+            RawFieldValue::Braced("hello".to_string()).to_source_text(),
+            "{hello}"
+        );
+    }
+
+    #[test]
+    fn test_raw_field_value_source_text_quoted() {
+        assert_eq!(
+            RawFieldValue::Quoted("world".to_string()).to_source_text(),
+            "\"world\""
+        );
+    }
+
+    #[test]
+    fn test_raw_field_value_source_text_bare() {
+        assert_eq!(
+            RawFieldValue::Bare("jnlref".to_string()).to_source_text(),
+            "jnlref"
+        );
+    }
+
+    #[test]
+    fn test_raw_field_value_source_text_concat() {
+        let v = RawFieldValue::Concat(vec![
+            RawFieldValue::Bare("ieee_tps".to_string()),
+            RawFieldValue::Braced(", Part B".to_string()),
+        ]);
+        assert_eq!(v.to_source_text(), "ieee_tps # {, Part B}");
     }
 
     #[test]

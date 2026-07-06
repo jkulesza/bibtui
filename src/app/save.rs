@@ -724,13 +724,28 @@ impl App {
         for key in keys_to_sync {
             if let Some(entry) = self.database.entries.get(&key) {
                 if entry.raw_index < self.database.raw_file.items.len() {
-                    let serialized =
-                        serialize_entry(entry, self.config.save.align_fields, sort_fields);
+                    // Reuse the original raw values for fields the user did not
+                    // change (preserves `#` concatenation and @String references).
+                    let original = match &self.database.raw_file.items[entry.raw_index] {
+                        RawItem::Entry(re) if re.citation_key == entry.citation_key => {
+                            Some(re)
+                        }
+                        _ => None,
+                    };
+                    let serialized = serialize_entry(
+                        entry,
+                        self.config.save.align_fields,
+                        sort_fields,
+                        original,
+                    );
+                    let merged_fields = merged_raw_fields(entry, original);
                     self.database.raw_file.items[entry.raw_index] =
                         RawItem::Entry(RawEntry {
                             entry_type: entry.entry_type.display_name().to_string(),
                             citation_key: entry.citation_key.clone(),
-                            fields: Vec::new(), // Not used for passthrough
+                            // Keep raw values so a later save can still tell
+                            // which fields are unchanged.
+                            fields: merged_fields,
                             raw_text: serialized,
                         });
                 } else {
@@ -768,7 +783,7 @@ impl App {
         for key in new_keys {
             if let Some(entry) = self.database.entries.get(&key) {
                 let serialized =
-                    serialize_entry(entry, self.config.save.align_fields, sort_fields);
+                    serialize_entry(entry, self.config.save.align_fields, sort_fields, None);
                 let insert_pos = self
                     .database
                     .raw_file
@@ -789,7 +804,7 @@ impl App {
                     RawItem::Entry(RawEntry {
                         entry_type: entry.entry_type.display_name().to_string(),
                         citation_key: entry.citation_key.clone(),
-                        fields: Vec::new(),
+                        fields: merged_raw_fields(entry, None),
                         raw_text: serialized,
                     }),
                 );

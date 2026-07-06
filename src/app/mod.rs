@@ -23,7 +23,7 @@ use crate::tui::components::validate_results::{Violation, ValidateResultsState};
 use crate::util::citation::format_citation;
 use crate::util::export::{export_csl_json, export_ris};
 use crate::bib::parser::{build_database, parse_bib_file};
-use crate::bib::writer::{normalize_blank_lines, serialize_entry, write_bib_file};
+use crate::bib::writer::{merged_raw_fields, normalize_blank_lines, serialize_entry, write_bib_file};
 use crate::config::schema::{Config, SortConfig};
 use crate::search::engine::SearchEngine;
 use crate::search::filter::filter_by_group;
@@ -1584,7 +1584,7 @@ impl App {
                 format!("key '{}'", entry.citation_key),
             ),
             "bibtex" => (
-                serialize_entry(entry, self.config.save.align_fields, self.config.save.field_order == "alphabetical"),
+                serialize_entry(entry, self.config.save.align_fields, self.config.save.field_order == "alphabetical", None),
                 format!("BibTeX entry for '{}'", entry.citation_key),
             ),
             _ => (

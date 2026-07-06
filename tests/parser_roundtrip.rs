@@ -126,7 +126,7 @@ fn test_dirty_entry_roundtrip() {
     // ── 3. Serialize dirty entry and patch RawBibFile ─────────────────────────
     {
         let smith_entry = &db.entries["Smith2020"];
-        let new_raw_text = bibtui::bib::writer::serialize_entry(smith_entry, true, false);
+        let new_raw_text = bibtui::bib::writer::serialize_entry(smith_entry, true, false, None);
         raw = db.raw_file.clone();
         if let RawItem::Entry(ref mut re) = raw.items[smith_entry.raw_index] {
             re.raw_text = new_raw_text;

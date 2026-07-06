@@ -56,7 +56,18 @@ pub fn normalize_blank_lines(s: String) -> String {
 }
 
 /// Serialize a single entry from semantic data (for modified entries).
-pub fn serialize_entry(entry: &Entry, align: bool, sort_fields: bool) -> String {
+///
+/// When `original` is the raw entry this entry was parsed from, any field whose
+/// semantic value is unchanged is written back using its original source text
+/// (preserving `#` concatenation, `@String` references, and quoted vs braced
+/// style). Only genuinely changed or new fields get the standard braced
+/// formatting.
+pub fn serialize_entry(
+    entry: &Entry,
+    align: bool,
+    sort_fields: bool,
+    original: Option<&RawEntry>,
+) -> String {
     let mut out = String::new();
 
     out.push_str(&format!(
@@ -111,8 +122,10 @@ pub fn serialize_entry(entry: &Entry, align: bool, sort_fields: bool) -> String 
             String::new()
         };
 
-        // Determine how to format the value
-        let formatted_value = format_field_value(key, value);
+        // Determine how to format the value. Fields whose semantic value is
+        // unchanged from the original raw entry keep their original source
+        // text; changed or new fields get standard braced formatting.
+        let formatted_value = raw_value_for_field(key, value, original).to_source_text();
 
         out.push_str(&format!(
             "  {}{} = {},\n",
@@ -122,6 +135,52 @@ pub fn serialize_entry(entry: &Entry, align: bool, sort_fields: bool) -> String 
 
     out.push_str("}\n");
     out
+}
+
+/// Choose the raw value to write for a field: when the semantic value is
+/// unchanged from the original raw entry, the original `RawFieldValue` is
+/// reused verbatim (preserving `#` concatenation, `@String` references, and
+/// quoted style); otherwise the value is braced (bare month tokens stay bare).
+pub fn raw_value_for_field(
+    field_name: &str,
+    value: &str,
+    original: Option<&RawEntry>,
+) -> RawFieldValue {
+    if let Some(orig_field) = original
+        .and_then(|raw| raw.fields.iter().find(|f| f.name == field_name))
+        .filter(|f| f.value.to_string_value() == value)
+    {
+        return orig_field.value.clone();
+    }
+
+    // Month values stay bare if they're standard month abbreviations
+    if field_name == "month" {
+        let lower = value.to_lowercase();
+        if matches!(
+            lower.as_str(),
+            "jan" | "feb" | "mar" | "apr" | "may" | "jun" | "jul" | "aug" | "sep" | "oct"
+                | "nov" | "dec"
+        ) {
+            return RawFieldValue::Bare(lower);
+        }
+    }
+
+    RawFieldValue::Braced(value.to_string())
+}
+
+/// Build the raw field list for a re-serialized entry so that a later save can
+/// still recognize (and preserve) fields the user never changed. Unchanged
+/// fields keep their original `RawFieldValue`; changed or new fields carry the
+/// standard braced value.
+pub fn merged_raw_fields(entry: &Entry, original: Option<&RawEntry>) -> Vec<RawField> {
+    entry
+        .fields
+        .iter()
+        .map(|(key, value)| RawField {
+            name: key.clone(),
+            value: raw_value_for_field(key, value, original),
+        })
+        .collect()
 }
 
 /// Format a field value for writing. Bare tokens (months) stay bare,
@@ -178,7 +237,7 @@ mod tests {
     #[test]
     fn test_serialize_entry_no_align() {
         let entry = make_test_entry();
-        let result = serialize_entry(&entry, false, false);
+        let result = serialize_entry(&entry, false, false, None);
         assert!(result.starts_with("@Article{Smith2020,"), "result: {}", result);
         assert!(result.contains("year = {2020}"), "result: {}", result);
         assert!(result.contains("title = {A Test}"), "result: {}", result);
@@ -187,7 +246,7 @@ mod tests {
     #[test]
     fn test_serialize_entry_align() {
         let entry = make_test_entry();
-        let result = serialize_entry(&entry, true, false);
+        let result = serialize_entry(&entry, true, false, None);
         // max key len is "title" = 5; "year" = 4 gets 1 extra space
         assert!(result.starts_with("@Article{Smith2020,"), "result: {}", result);
         assert!(result.contains("year  ="), "result: {}", result);
@@ -220,7 +279,7 @@ mod tests {
     #[test]
     fn test_serialize_entry_trailing_newline() {
         let entry = make_test_entry();
-        let result = serialize_entry(&entry, false, false);
+        let result = serialize_entry(&entry, false, false, None);
         assert!(result.ends_with("}\n"), "result: {:?}", result);
     }
 
@@ -243,7 +302,7 @@ mod tests {
             raw_index: 0,
             dirty: false,
         };
-        let result = serialize_entry(&entry, false, true);
+        let result = serialize_entry(&entry, false, true, None);
         // Required fields (author, journal, title, year) must appear before optional (pages, volume)
         // and optional before nonstandard (abstract)
         let author_pos = result.find("author").unwrap();
@@ -338,6 +397,92 @@ mod tests {
         assert!(result.starts_with("% header\n"));
         assert!(result.contains("@Article{k,"));
         assert!(result.ends_with("@Comment{x}"));
+    }
+
+    #[test]
+    fn test_serialize_entry_preserves_unchanged_raw_values() {
+        use crate::bib::model::{RawField, RawFieldValue};
+        let mut fields = IndexMap::new();
+        fields.insert("journal".to_string(), "ieee_tps , Part B".to_string());
+        fields.insert("series".to_string(), "mainseries".to_string());
+        fields.insert("note".to_string(), "quoted note".to_string());
+        fields.insert("title".to_string(), "Changed Title".to_string());
+        let entry = Entry {
+            entry_type: EntryType::Article,
+            citation_key: "k".to_string(),
+            fields,
+            group_memberships: vec![],
+            raw_index: 0,
+            dirty: true,
+        };
+        let original = RawEntry {
+            entry_type: "Article".into(),
+            citation_key: "k".into(),
+            fields: vec![
+                RawField {
+                    name: "journal".to_string(),
+                    value: RawFieldValue::Concat(vec![
+                        RawFieldValue::Bare("ieee_tps".to_string()),
+                        RawFieldValue::Braced(", Part B".to_string()),
+                    ]),
+                },
+                RawField {
+                    name: "series".to_string(),
+                    value: RawFieldValue::Bare("mainseries".to_string()),
+                },
+                RawField {
+                    name: "note".to_string(),
+                    value: RawFieldValue::Quoted("quoted note".to_string()),
+                },
+                RawField {
+                    name: "title".to_string(),
+                    value: RawFieldValue::Braced("Old Title".to_string()),
+                },
+            ],
+            raw_text: String::new(),
+        };
+        let result = serialize_entry(&entry, false, false, Some(&original));
+        // Unchanged fields keep their raw source form.
+        assert!(
+            result.contains("journal = ieee_tps # {, Part B},"),
+            "concat must survive: {}", result
+        );
+        assert!(result.contains("series = mainseries,"), "bare reference must survive: {}", result);
+        assert!(result.contains("note = \"quoted note\","), "quoted style must survive: {}", result);
+        // The changed field gets standard braced formatting.
+        assert!(result.contains("title = {Changed Title},"), "got: {}", result);
+    }
+
+    #[test]
+    fn test_merged_raw_fields_keeps_unchanged_and_braces_changed() {
+        use crate::bib::model::{RawField, RawFieldValue};
+        let mut fields = IndexMap::new();
+        fields.insert("journal".to_string(), "abc def".to_string());
+        fields.insert("year".to_string(), "2021".to_string());
+        let entry = Entry {
+            entry_type: EntryType::Article,
+            citation_key: "k".to_string(),
+            fields,
+            group_memberships: vec![],
+            raw_index: 0,
+            dirty: true,
+        };
+        let original = RawEntry {
+            entry_type: "Article".into(),
+            citation_key: "k".into(),
+            fields: vec![RawField {
+                name: "journal".to_string(),
+                value: RawFieldValue::Concat(vec![
+                    RawFieldValue::Bare("abc".to_string()),
+                    RawFieldValue::Braced("def".to_string()),
+                ]),
+            }],
+            raw_text: String::new(),
+        };
+        let merged = merged_raw_fields(&entry, Some(&original));
+        assert_eq!(merged.len(), 2);
+        assert!(matches!(merged[0].value, RawFieldValue::Concat(_)));
+        assert!(matches!(merged[1].value, RawFieldValue::Braced(ref s) if s == "2021"));
     }
 
     #[test]

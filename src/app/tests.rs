@@ -2771,6 +2771,61 @@ fn test_save_writes_dirty_entry_and_preserves_clean_bytes() {
     assert!(!app.dirty);
 }
 
+/// Regression: re-serializing a dirty entry must not destroy `#` concatenation
+/// or bare @String references in fields the user did not change.
+#[test]
+fn test_save_dirty_entry_preserves_concat_and_string_refs() {
+    const CONCAT_BIB: &str = "@String{mainseries = {Main Series}}\n\
+        @String{jnlref = {Journal of Refs}}\n\n\
+        @Article{Concat2020,\n  \
+        author  = {Smith, John},\n  \
+        title   = {A Title},\n  \
+        series  = mainseries # {, Part B},\n  \
+        journal = jnlref,\n  \
+        year    = {2020},\n}\n";
+    let mut tmp = NamedTempFile::new().unwrap();
+    write!(tmp, "{}", CONCAT_BIB).unwrap();
+    tmp.flush().unwrap();
+    let mut cfg = default_config();
+    cfg.save.entry_sort_order = "none".to_string();
+    cfg.save.field_order = "none".to_string();
+    cfg.save.save_action_regenerate_citekeys = false;
+    cfg.general.backup_on_save = false;
+    let mut app = App::new(tmp.path().to_path_buf(), cfg).unwrap();
+
+    // Edit an unrelated field; entry becomes dirty and is re-serialized.
+    if let Some(e) = app.database.entries.get_mut("Concat2020") {
+        e.fields.insert("title".to_string(), "Updated Title".to_string());
+        e.dirty = true;
+    }
+    app.save();
+    let out = std::fs::read_to_string(tmp.path()).unwrap();
+    assert!(out.contains("Updated Title"), "got: {}", out);
+    assert!(
+        out.contains("series  = mainseries # {, Part B},"),
+        "concat field bytes must be unchanged: {}", out
+    );
+    assert!(
+        out.contains("journal = jnlref,"),
+        "bare @String reference must be unchanged: {}", out
+    );
+
+    // A second edit + save must still preserve the untouched raw values.
+    if let Some(e) = app.database.entries.get_mut("Concat2020") {
+        e.fields.insert("title".to_string(), "Second Title".to_string());
+        e.dirty = true;
+    }
+    app.save();
+    let out = std::fs::read_to_string(tmp.path()).unwrap();
+    assert!(out.contains("Second Title"), "got: {}", out);
+    assert!(
+        out.contains("series  = mainseries # {, Part B},"),
+        "concat must survive a second save: {}", out
+    );
+    assert!(out.contains("journal = jnlref,"), "got: {}", out);
+    assert!(parse_bib_file(&out).is_ok());
+}
+
 #[test]
 fn test_save_backup_created_when_enabled() {
     let (mut app, tmp) = make_app_no_sort();
