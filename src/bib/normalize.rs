@@ -174,7 +174,9 @@ pub fn escape_underscores(s: &str) -> String {
     let mut i = 0;
     while i < n {
         let c = chars[i];
-        if c == '$' {
+        if c == '$' && (i == 0 || chars[i - 1] != '\\') {
+            // An escaped dollar sign (\$) is a literal '$' and must not toggle
+            // math mode, mirroring how escape_ampersands checks the prev char.
             in_math = !in_math;
             result.push(c);
         } else if c == '_' && !in_math && (i == 0 || chars[i - 1] != '\\') {
@@ -662,6 +664,15 @@ mod tests {
     #[test]
     fn test_escape_underscores_in_math_mode() {
         assert_eq!(escape_underscores("$x_i$"), "$x_i$");
+        // A real (unescaped) '$' pair still protects its underscore.
+        assert_eq!(escape_underscores("$a_b$"), "$a_b$");
+    }
+
+    #[test]
+    fn test_escape_underscores_escaped_dollar_does_not_toggle_math() {
+        // An escaped dollar (\$) is a literal '$' and must not enter math mode,
+        // so a following underscore is still escaped.
+        assert_eq!(escape_underscores(r"\$5_fee"), r"\$5\_fee");
     }
 
     #[test]
