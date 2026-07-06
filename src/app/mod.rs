@@ -164,7 +164,7 @@ impl App {
             None
         } else {
             Some(format!(
-                "Warning: duplicate citation key(s) in file: {} — only the last copy is editable",
+                "Warning: duplicate citation key(s) in file: {} — later copies renamed with a _dupN suffix (save to persist)",
                 database.duplicate_keys.join(", ")
             ))
         };

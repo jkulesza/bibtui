@@ -87,9 +87,9 @@ pub struct Database {
     pub groups: GroupTree,
     pub jabref_meta: JabRefMeta,
     pub raw_file: RawBibFile,
-    /// Citation keys that appeared more than once in the source file. The raw
-    /// file keeps every copy (byte-perfect passthrough), but the semantic map
-    /// can only hold the last one — the user should be warned.
+    /// Citation keys that appeared more than once in the source file. Later
+    /// copies are renamed with a `_dupN` suffix at load time (and marked dirty
+    /// so the rename persists on save) — the user should be warned.
     pub duplicate_keys: Vec<String>,
 }
 

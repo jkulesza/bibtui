@@ -2973,6 +2973,51 @@ fn test_app_warns_on_duplicate_citation_keys() {
     let msg = app.status_message.clone().unwrap_or_default();
     assert!(msg.contains("duplicate"), "got: {}", msg);
     assert!(msg.contains("k1"), "got: {}", msg);
+    assert!(msg.contains("renamed"), "warning must say copies were renamed: {}", msg);
+    // Both copies are kept; the later one is renamed.
+    assert_eq!(app.database.entries.len(), 2);
+    assert!(app.database.entries.contains_key("k1"));
+    assert!(app.database.entries.contains_key("k1_dup2"));
+}
+
+/// Regression: with duplicate keys in the file, saving must not lose or
+/// double-write entry content (raw_index bookkeeping used to collapse both
+/// raw slots onto one semantic entry).
+#[test]
+fn test_save_with_duplicate_keys_keeps_both_entries() {
+    let mut tmp = NamedTempFile::new().unwrap();
+    write!(
+        tmp,
+        "@Article{{k1,\n  title = {{A}},\n}}\n\n@Article{{k1,\n  title = {{B}},\n}}\n"
+    )
+    .unwrap();
+    tmp.flush().unwrap();
+    let mut cfg = default_config();
+    cfg.save.entry_sort_order = "none".to_string();
+    cfg.save.field_order = "none".to_string();
+    cfg.save.save_action_regenerate_citekeys = false;
+    cfg.general.backup_on_save = false;
+    let mut app = App::new(tmp.path().to_path_buf(), cfg).unwrap();
+
+    app.save();
+    let out = std::fs::read_to_string(tmp.path()).unwrap();
+    assert_eq!(out.matches("@Article{k1,").count(), 1, "got: {}", out);
+    assert_eq!(out.matches("@Article{k1_dup2,").count(), 1, "got: {}", out);
+    assert!(out.contains("{A}"), "first copy's content must survive: {}", out);
+    assert!(out.contains("{B}"), "second copy's content must survive: {}", out);
+
+    // A further edit to the renamed copy must land in its own raw slot.
+    if let Some(e) = app.database.entries.get_mut("k1_dup2") {
+        e.fields.insert("title".to_string(), "B edited".to_string());
+        e.dirty = true;
+    }
+    app.save();
+    let out = std::fs::read_to_string(tmp.path()).unwrap();
+    assert!(out.contains("{A}"), "original must be untouched: {}", out);
+    assert!(out.contains("B edited"), "got: {}", out);
+    assert_eq!(out.matches("@Article{k1,").count(), 1);
+    assert_eq!(out.matches("@Article{k1_dup2,").count(), 1);
+    assert!(parse_bib_file(&out).is_ok());
 }
 
 // ── Group management ─────────────────────────────────────────────────────

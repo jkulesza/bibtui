@@ -432,18 +432,36 @@ pub fn build_database(raw: RawBibFile) -> Database {
                         .collect()
                 };
 
+                // Uniquify duplicate citation keys: later copies are renamed
+                // with a `_dupN` suffix and marked dirty so the rename is
+                // written out on the next save. The original key is recorded
+                // in duplicate_keys so the startup warning fires.
+                let mut citation_key = raw_entry.citation_key.clone();
+                let mut renamed = false;
+                if entries.contains_key(&citation_key) {
+                    duplicate_keys.push(citation_key.clone());
+                    let mut n = 2usize;
+                    loop {
+                        let candidate = format!("{}_dup{}", raw_entry.citation_key, n);
+                        if !entries.contains_key(&candidate) {
+                            citation_key = candidate;
+                            break;
+                        }
+                        n += 1;
+                    }
+                    renamed = true;
+                }
+
                 let entry = Entry {
                     entry_type,
-                    citation_key: raw_entry.citation_key.clone(),
+                    citation_key: citation_key.clone(),
                     fields,
                     group_memberships,
                     raw_index: idx,
-                    dirty: false,
+                    dirty: renamed,
                 };
 
-                if entries.insert(raw_entry.citation_key.clone(), entry).is_some() {
-                    duplicate_keys.push(raw_entry.citation_key.clone());
-                }
+                entries.insert(citation_key, entry);
             }
             RawItem::Comment { raw_text } => {
                 // Parse JabRef metadata from @Comment blocks
@@ -596,10 +614,44 @@ mod tests {
         let input = "@Article{k1,\n  title = {A},\n}\n\n@Article{k1,\n  title = {B},\n}\n";
         let raw = parse_bib_file(input).unwrap();
         let db = build_database(raw);
-        assert_eq!(db.entries.len(), 1);
+        // Both copies survive: the later one is renamed with a _dup suffix.
+        assert_eq!(db.entries.len(), 2);
         assert_eq!(db.duplicate_keys, vec!["k1".to_string()]);
-        // Last copy wins in the semantic map; the raw file keeps both.
-        assert_eq!(db.entries["k1"].fields["title"], "B");
+        assert_eq!(db.entries["k1"].fields["title"], "A");
+        assert_eq!(db.entries["k1_dup2"].fields["title"], "B");
+        // The renamed copy is dirty (rename persists on save) and points at
+        // its own raw slot; the first copy is clean.
+        assert!(!db.entries["k1"].dirty);
+        assert!(db.entries["k1_dup2"].dirty);
+        assert_ne!(db.entries["k1"].raw_index, db.entries["k1_dup2"].raw_index);
+        assert!(matches!(
+            &db.raw_file.items[db.entries["k1_dup2"].raw_index],
+            RawItem::Entry(e) if e.fields[0].value.to_string_value() == "B"
+        ));
+    }
+
+    #[test]
+    fn test_build_database_uniquifies_triplicate_keys() {
+        let input = "@Article{k1,\n  title = {A},\n}\n\n@Article{k1,\n  title = {B},\n}\n\n@Article{k1,\n  title = {C},\n}\n";
+        let raw = parse_bib_file(input).unwrap();
+        let db = build_database(raw);
+        assert_eq!(db.entries.len(), 3);
+        assert_eq!(db.duplicate_keys, vec!["k1".to_string(), "k1".to_string()]);
+        assert_eq!(db.entries["k1"].fields["title"], "A");
+        assert_eq!(db.entries["k1_dup2"].fields["title"], "B");
+        assert_eq!(db.entries["k1_dup3"].fields["title"], "C");
+    }
+
+    #[test]
+    fn test_build_database_dup_suffix_avoids_existing_key() {
+        // A file that already contains k1_dup2 must not be clobbered by the
+        // rename of a duplicate k1.
+        let input = "@Article{k1,\n  title = {A},\n}\n\n@Article{k1_dup2,\n  title = {X},\n}\n\n@Article{k1,\n  title = {B},\n}\n";
+        let raw = parse_bib_file(input).unwrap();
+        let db = build_database(raw);
+        assert_eq!(db.entries.len(), 3);
+        assert_eq!(db.entries["k1_dup2"].fields["title"], "X");
+        assert_eq!(db.entries["k1_dup3"].fields["title"], "B");
     }
 
     #[test]
