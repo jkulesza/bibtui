@@ -139,7 +139,7 @@ impl App {
                 .with_context(|| format!("Failed to parse {}", bib_path.display()))?;
             (raw, false)
         } else {
-            (RawBibFile { items: vec![] }, true)
+            (RawBibFile { items: vec![], ..Default::default() }, true)
         };
         let database = build_database(raw);
 
@@ -171,6 +171,22 @@ impl App {
         let config_warnings = config.validation_warnings();
         if !config_warnings.is_empty() {
             let warning = format!("Config warning: {}", config_warnings.join("; "));
+            status_message = Some(match status_message {
+                Some(msg) => format!("{} | {}", msg, warning),
+                None => warning,
+            });
+        }
+        let parse_warnings = &database.raw_file.warnings;
+        if !parse_warnings.is_empty() {
+            let lines: Vec<String> = parse_warnings
+                .iter()
+                .map(|w| w.line.to_string())
+                .collect();
+            let warning = format!(
+                "Parse warning: skipped {} malformed item(s) at line(s) {} (bytes preserved)",
+                parse_warnings.len(),
+                lines.join(", ")
+            );
             status_message = Some(match status_message {
                 Some(msg) => format!("{} | {}", msg, warning),
                 None => warning,
@@ -229,7 +245,10 @@ impl App {
     /// Create an empty app when no bib file is provided.
     /// The path prompt is shown immediately on first render.
     pub fn new_empty(config: Config) -> Result<Self> {
-        let database = build_database(crate::bib::model::RawBibFile { items: vec![] });
+        let database = build_database(crate::bib::model::RawBibFile {
+            items: vec![],
+            ..Default::default()
+        });
         let theme = Theme::from_config(&config.theme);
         let group_tree_state = GroupTreeState::new(&database.groups);
         let sorted_keys = sort_entries(&database.entries, &config);

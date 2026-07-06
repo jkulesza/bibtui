@@ -3,9 +3,21 @@ use std::fmt;
 
 // ── Raw layer: preserves every byte of the original file ──
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct RawBibFile {
     pub items: Vec<RawItem>,
+    /// Non-fatal problems encountered while parsing. Malformed `@`-items are
+    /// skipped (their bytes preserved as `Preamble`) and recorded here so the
+    /// rest of the file still loads.
+    pub warnings: Vec<ParseWarning>,
+}
+
+/// A recoverable parse problem: the 1-based line where a malformed item began
+/// and a human-readable description.
+#[derive(Debug, Clone)]
+pub struct ParseWarning {
+    pub line: usize,
+    pub message: String,
 }
 
 #[derive(Debug, Clone)]

@@ -345,7 +345,7 @@ mod tests {
             entries,
             groups: crate::bib::model::GroupTree::default(),
             jabref_meta: crate::bib::model::JabRefMeta::default(),
-            raw_file: crate::bib::model::RawBibFile { items: vec![] },
+            raw_file: crate::bib::model::RawBibFile { items: vec![], ..Default::default() },
             duplicate_keys: Vec::new(),
         }
     }

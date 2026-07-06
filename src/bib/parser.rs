@@ -62,6 +62,7 @@ impl<'a> Parser<'a> {
 
     fn parse_file(&mut self) -> Result<RawBibFile> {
         let mut items = Vec::new();
+        let mut warnings = Vec::new();
 
         while !self.at_end() {
             // Consume any text before the next '@'
@@ -75,11 +76,45 @@ impl<'a> Parser<'a> {
             }
 
             // We should be at '@'
-            let item = self.parse_at_item()?;
-            items.push(item);
+            let item_start = self.pos;
+            match self.parse_at_item() {
+                Ok(item) => items.push(item),
+                Err(e) => {
+                    // Recover: skip the malformed item's bytes (preserving them
+                    // as Preamble for byte-perfect round-trip) and continue at
+                    // the next line that starts with '@'.
+                    let line = self.line_at(item_start);
+                    self.pos = item_start;
+                    let skipped = self.skip_to_next_at_line();
+                    items.push(RawItem::Preamble(skipped));
+                    warnings.push(ParseWarning {
+                        line,
+                        message: e.to_string(),
+                    });
+                }
+            }
         }
 
-        Ok(RawBibFile { items })
+        Ok(RawBibFile { items, warnings })
+    }
+
+    /// Consume from the current position (assumed to be a malformed `@`-item)
+    /// through the rest of its line and any following lines, stopping at the
+    /// next line that begins with '@' (or end of input). Returns the consumed
+    /// span so it can be preserved as `Preamble`.
+    fn skip_to_next_at_line(&mut self) -> String {
+        let start = self.pos;
+        loop {
+            // Consume the remainder of the current line.
+            let _ = self.take_while(|c| c != '\n');
+            if self.peek() == Some('\n') {
+                self.advance(1);
+            }
+            if self.at_end() || self.peek() == Some('@') {
+                break;
+            }
+        }
+        self.input[start..self.pos].to_string()
     }
 
     fn parse_at_item(&mut self) -> Result<RawItem> {
@@ -604,10 +639,15 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_string_def_missing_equals_errors() {
-        // A missing '=' must error rather than silently mis-parse.
+    fn test_parse_string_def_missing_equals_recovers() {
+        // A missing '=' must not silently mis-parse: the item is recorded as a
+        // warning and its bytes are preserved for round-trip rather than being
+        // rewritten into a bogus @String.
         let input = "@String{x {y}}\n";
-        assert!(parse_bib_file(input).is_err());
+        let raw = parse_bib_file(input).unwrap();
+        assert_eq!(raw.warnings.len(), 1);
+        assert!(!raw.items.iter().any(|i| matches!(i, RawItem::StringDef { .. })));
+        assert_eq!(super::super::writer::write_bib_file(&raw), input);
     }
 
     #[test]
@@ -621,15 +661,42 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_unterminated_braces_errors() {
+    fn test_parse_unterminated_braces_recovers_with_warning() {
+        // A malformed entry no longer aborts the parse: its bytes are preserved
+        // and a warning is recorded so the rest of the file still loads.
         let input = "@Article{k, title = {unclosed\n";
-        assert!(parse_bib_file(input).is_err());
+        let raw = parse_bib_file(input).unwrap();
+        assert_eq!(raw.warnings.len(), 1);
+        // Byte-perfect round-trip of the skipped span.
+        assert_eq!(super::super::writer::write_bib_file(&raw), input);
     }
 
     #[test]
-    fn test_parse_unterminated_quoted_errors() {
+    fn test_parse_unterminated_quoted_recovers_with_warning() {
         let input = "@Article{k, title = \"unclosed\n";
-        assert!(parse_bib_file(input).is_err());
+        let raw = parse_bib_file(input).unwrap();
+        assert_eq!(raw.warnings.len(), 1);
+        assert_eq!(super::super::writer::write_bib_file(&raw), input);
+    }
+
+    #[test]
+    fn test_parse_recovers_malformed_entry_between_good_ones() {
+        let input = "@Article{good1,\n  title = {A},\n}\n\
+                     @Article{bad, title = {unclosed\n\
+                     @Article{good2,\n  title = {B},\n}\n";
+        let raw = parse_bib_file(input).unwrap();
+
+        // Both good entries load.
+        let db = build_database(raw.clone());
+        assert!(db.entries.contains_key("good1"), "good1 must load");
+        assert!(db.entries.contains_key("good2"), "good2 must load");
+
+        // Exactly one warning, pointing at the malformed entry's line.
+        assert_eq!(raw.warnings.len(), 1);
+        assert_eq!(raw.warnings[0].line, 4);
+
+        // Output round-trips byte-for-byte.
+        assert_eq!(super::super::writer::write_bib_file(&raw), input);
     }
 
     #[test]

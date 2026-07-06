@@ -254,6 +254,7 @@ mod tests {
     fn test_write_bib_file_preamble_passthrough() {
         let raw = RawBibFile {
             items: vec![RawItem::Preamble("% comment\n".to_string())],
+            ..Default::default()
         };
         let result = write_bib_file(&raw);
         assert_eq!(result, "% comment\n");
@@ -269,6 +270,7 @@ mod tests {
                 fields: vec![],
                 raw_text: raw_text.clone(),
             })],
+            ..Default::default()
         };
         let result = write_bib_file(&raw);
         assert_eq!(result, raw_text);
@@ -357,6 +359,7 @@ mod tests {
                 content: "\"hello\"".to_string(),
                 raw_text: "@Preamble{\"hello\"}".to_string(),
             }],
+            ..Default::default()
         };
         assert_eq!(write_bib_file(&raw), "@Preamble{\"hello\"}");
     }
@@ -369,6 +372,7 @@ mod tests {
                 raw_value: "{value}".to_string(),
                 raw_text: "@string{mystr={value}}".to_string(),
             }],
+            ..Default::default()
         };
         // raw_text is written back verbatim (byte-perfect), not re-rendered.
         assert_eq!(write_bib_file(&raw), "@string{mystr={value}}");
@@ -378,6 +382,7 @@ mod tests {
     fn test_write_bib_file_comment() {
         let raw = RawBibFile {
             items: vec![RawItem::Comment { raw_text: "@Comment{groups stuff}".to_string() }],
+            ..Default::default()
         };
         assert_eq!(write_bib_file(&raw), "@Comment{groups stuff}");
     }
@@ -395,6 +400,7 @@ mod tests {
                 }),
                 RawItem::Comment { raw_text: "@Comment{x}".to_string() },
             ],
+            ..Default::default()
         };
         let result = write_bib_file(&raw);
         assert!(result.starts_with("% header\n"));

@@ -1,16 +1,27 @@
 use bibtui::bib::parser::{build_database, parse_bib_file};
 use bibtui::bib::writer::write_bib_file;
 
-// ── Parser error paths ────────────────────────────────────────────────────────
+// ── Parser error recovery paths ───────────────────────────────────────────────
+//
+// Malformed `@`-items no longer abort the whole file: they are skipped (their
+// bytes preserved as Preamble for round-trip) and recorded as a warning.
 
-#[test]
-fn test_preamble_missing_brace_errors() {
-    assert!(parse_bib_file("@Preamble nope").is_err());
+/// Assert that `input` triggers recovery: parses to Ok, records at least one
+/// warning, and round-trips byte-for-byte.
+fn assert_recovers(input: &str) {
+    let raw = parse_bib_file(input).expect("recoverable input must not hard-fail");
+    assert!(!raw.warnings.is_empty(), "a warning must be recorded for {:?}", input);
+    assert_eq!(write_bib_file(&raw), input, "recovered bytes must round-trip for {:?}", input);
 }
 
 #[test]
-fn test_string_missing_brace_errors() {
-    assert!(parse_bib_file("@String nope").is_err());
+fn test_preamble_missing_brace_recovers() {
+    assert_recovers("@Preamble nope");
+}
+
+#[test]
+fn test_string_missing_brace_recovers() {
+    assert_recovers("@String nope");
 }
 
 #[test]
@@ -37,33 +48,33 @@ fn test_stray_at_in_comment_line_roundtrips() {
 }
 
 #[test]
-fn test_field_missing_equals_errors() {
+fn test_field_missing_equals_recovers() {
     // Field name not followed by '='
-    assert!(parse_bib_file("@Article{key,\n  author {A}\n}").is_err());
+    assert_recovers("@Article{key,\n  author {A}\n}");
 }
 
 #[test]
-fn test_invalid_field_value_char_errors() {
+fn test_invalid_field_value_char_recovers() {
     // '!' is not a valid start character for a field value
-    assert!(parse_bib_file("@Article{key,\n  author = !\n}").is_err());
+    assert_recovers("@Article{key,\n  author = !\n}");
 }
 
 #[test]
-fn test_unterminated_braced_value_errors() {
+fn test_unterminated_braced_value_recovers() {
     // Opening '{' for field value has no matching '}'
-    assert!(parse_bib_file("@Article{key,\n  author = {unclosed").is_err());
+    assert_recovers("@Article{key,\n  author = {unclosed");
 }
 
 #[test]
-fn test_unterminated_quoted_value_errors() {
+fn test_unterminated_quoted_value_recovers() {
     // Opening '"' for field value has no matching '"'
-    assert!(parse_bib_file("@Article{key,\n  author = \"unclosed").is_err());
+    assert_recovers("@Article{key,\n  author = \"unclosed");
 }
 
 #[test]
-fn test_unexpected_eof_in_entry_errors() {
+fn test_unexpected_eof_in_entry_recovers() {
     // Entry body is never closed with '}'
-    assert!(parse_bib_file("@Article{key,\n  author = {A},").is_err());
+    assert_recovers("@Article{key,\n  author = {A},");
 }
 
 // ── String and Preamble happy paths ──────────────────────────────────────────
