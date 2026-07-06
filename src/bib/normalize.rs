@@ -20,14 +20,51 @@ pub fn normalize_month(value: &str) -> String {
     }
 }
 
-/// Normalize page numbers: replace single hyphens with en-dashes (--).
+/// Normalize a page range to use a LaTeX en-dash (`--`).
+///
+/// Only a value that is a single simple range is converted: the whole trimmed
+/// value must be `SIDE SEP SIDE`, where each `SIDE` is an optional single ASCII
+/// letter followed by one or more digits (e.g. `10`, `e105`) and `SEP` is a
+/// hyphen or a Unicode en dash (U+2013) with optional surrounding whitespace.
+///
+/// Values that already contain `--`, or that are not a single simple range
+/// (e.g. section-page styles like `10-1-10-9`, or `100-110-120`), are returned
+/// unchanged so that hyphens inside structured page numbers are preserved.
 pub fn normalize_page_numbers(value: &str) -> String {
     // Already has en-dash: leave as is
     if value.contains("--") {
         return value.to_string();
     }
-    // Single hyphen between numbers: replace with en-dash
-    value.replace('-', "--")
+    let trimmed = value.trim();
+    // Locate the single hyphen / en-dash separator. More than one separator
+    // means this is not a simple range.
+    let seps: Vec<usize> = trimmed
+        .char_indices()
+        .filter(|(_, c)| *c == '-' || *c == '\u{2013}')
+        .map(|(i, _)| i)
+        .collect();
+    if seps.len() == 1 {
+        let sep = seps[0];
+        let sep_len = trimmed[sep..].chars().next().map(char::len_utf8).unwrap_or(1);
+        let left = &trimmed[..sep];
+        let right = &trimmed[sep + sep_len..];
+        if is_page_side(left) && is_page_side(right) {
+            return format!("{}--{}", left.trim(), right.trim());
+        }
+    }
+    value.to_string()
+}
+
+/// True if `s` (after trimming) is an optional single ASCII letter followed by
+/// one or more ASCII digits, e.g. `10`, `109`, or `e105`.
+fn is_page_side(s: &str) -> bool {
+    let s = s.trim();
+    if s.is_empty() {
+        return false;
+    }
+    let bytes = s.as_bytes();
+    let start = if bytes[0].is_ascii_alphabetic() { 1 } else { 0 };
+    start < s.len() && bytes[start..].iter().all(u8::is_ascii_digit)
 }
 
 /// Normalize date fields to ISO 8601 yyyy-MM-dd (or yyyy-MM / yyyy) format.
@@ -599,9 +636,33 @@ mod tests {
     }
 
     #[test]
-    fn test_normalize_page_numbers_multiple_hyphens() {
-        // Multiple single hyphens (e.g., "100-110-120") each get doubled
-        assert_eq!(normalize_page_numbers("100-110-120"), "100--110--120");
+    fn test_normalize_page_numbers_multiple_hyphens_unchanged() {
+        // More than one hyphen is not a simple range and must be left alone
+        // (section-page and multi-hyphen styles must be preserved).
+        assert_eq!(normalize_page_numbers("100-110-120"), "100-110-120");
+    }
+
+    #[test]
+    fn test_normalize_page_numbers_section_page_unchanged() {
+        // Section-page style must not be mangled into "10--1--10--9".
+        assert_eq!(normalize_page_numbers("10-1-10-9"), "10-1-10-9");
+    }
+
+    #[test]
+    fn test_normalize_page_numbers_en_dash_converted() {
+        // A Unicode en dash between digits becomes the LaTeX en-dash "--".
+        assert_eq!(normalize_page_numbers("100\u{2013}110"), "100--110");
+    }
+
+    #[test]
+    fn test_normalize_page_numbers_leading_letter_sides() {
+        // A single leading letter per side is allowed.
+        assert_eq!(normalize_page_numbers("e100-e105"), "e100--e105");
+    }
+
+    #[test]
+    fn test_normalize_page_numbers_whitespace_around_hyphen() {
+        assert_eq!(normalize_page_numbers("100 - 110"), "100--110");
     }
 
     #[test]
