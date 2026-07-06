@@ -982,6 +982,95 @@ fn test_validate_move_up_scrolls_results() {
     assert_eq!(app.validate_results_state.as_ref().unwrap().scroll, 0);
 }
 
+#[test]
+fn test_validate_predicted_values_match_save() {
+    // Build an entry that exercises every save action, enable them all, and
+    // confirm the dry-run's predicted new values equal what a real save writes.
+    let (mut app, _tmp) = make_app();
+
+    let s = &mut app.config.save;
+    s.save_action_unicode_to_latex = true;
+    s.save_action_escape_underscores = true;
+    s.save_action_escape_ampersands = true;
+    s.save_action_latex_cleanup = true;
+    s.save_action_cleanup_url = true;
+    s.save_action_ordinals_to_superscript = true;
+    s.save_action_normalize_date = true;
+    s.save_action_normalize_month = true;
+    s.save_action_normalize_page_numbers = true;
+    s.save_action_normalize_isbn = true;
+    s.save_action_normalize_names_of_persons = true;
+    s.save_action_abbreviate_journal = true;
+    s.journal_field_content = "abbreviated".to_string();
+    s.journal_abbreviations
+        .insert("Journal of Testing".to_string(), "J. Test".to_string());
+
+    let mut fields: IndexMap<String, String> = IndexMap::new();
+    fields.insert("title".to_string(), "Café résumé & the 1st law".to_string());
+    fields.insert("note".to_string(), "value_with_underscore".to_string());
+    fields.insert("url".to_string(), "https://example.com/paper/".to_string());
+    fields.insert("author".to_string(), "Jane Doe and John Smith".to_string());
+    fields.insert("pages".to_string(), "1-10".to_string());
+    fields.insert("isbn".to_string(), "9780306406157".to_string());
+    fields.insert("journal".to_string(), "Journal of Testing".to_string());
+
+    app.database.entries.insert(
+        "Exercise2020".to_string(),
+        Entry {
+            entry_type: EntryType::parse("Article"),
+            citation_key: "Exercise2020".to_string(),
+            fields,
+            group_memberships: Vec::new(),
+            raw_index: usize::MAX,
+            dirty: false,
+        },
+    );
+
+    let violations = app.compute_violations();
+    // The entry must actually exercise the pipeline (incl. abbreviate_journal).
+    assert!(
+        violations.iter().any(|v| v.entry_key == "Exercise2020"),
+        "expected the exercised entry to produce violations"
+    );
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.entry_key == "Exercise2020" && v.action_name == "abbreviate_journal"),
+        "expected an abbreviate_journal violation"
+    );
+
+    // Snapshot the predicted new values, then perform the real save transforms.
+    let predicted: Vec<(String, String)> = violations
+        .iter()
+        .filter(|v| v.entry_key == "Exercise2020")
+        .map(|v| (v.field.clone(), v.new_value.clone()))
+        .collect();
+
+    app.apply_save_actions();
+
+    let entry = &app.database.entries["Exercise2020"];
+    for (field, new_value) in &predicted {
+        let actual = entry.fields.get(field).cloned().unwrap_or_default();
+        assert_eq!(
+            &actual, new_value,
+            "predicted new value for `{}` must match the saved value",
+            field
+        );
+    }
+
+    // Re-validating after the save must report nothing left to change.
+    let after: Vec<_> = app
+        .compute_violations()
+        .into_iter()
+        .filter(|v| v.entry_key == "Exercise2020")
+        .collect();
+    assert!(
+        after.is_empty(),
+        "save should fully apply predicted changes, but {} remained",
+        after.len()
+    );
+}
+
 // ── Name disambiguator ────────────────────────────────────────────────────
 
 #[test]

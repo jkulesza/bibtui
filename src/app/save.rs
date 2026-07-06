@@ -397,164 +397,22 @@ impl App {
 
     /// Dry-run of [`apply_save_actions`]: returns every field that *would* change
     /// without mutating the database.  Violations are listed in the same stable
-    /// order as the real save actions.
+    /// order as the real save actions, and — because both paths share
+    /// [`compute_save_transforms`] — the predicted new values match exactly what
+    /// a subsequent save produces.
     pub(super) fn compute_violations(&self) -> Vec<Violation> {
-        const TEXT: &[&str] = &[
-            "abstract", "addendum", "address", "afterword", "annote",
-            "booktitle", "chapter", "edition", "institution", "journal",
-            "keywords", "language", "note", "organization", "publisher",
-            "school", "series", "subtitle", "title", "titleaddon", "type",
-            "venue",
-        ];
-        const NAMES: &[&str] = &[
-            "author", "editor", "editora", "editorb", "editorc",
-            "bookauthor", "afterword", "translator",
-        ];
-
         let cfg = &self.config.save;
         let mut violations: Vec<Violation> = Vec::new();
 
         for (key, entry) in &self.database.entries {
-            // Simulate each save action on a per-field current value, accumulating
-            // transforms in the same order as apply_save_actions so that the
-            // final (new_value, old_value) pair reflects the net change.
-            // We only report a violation when the final value differs from the
-            // original stored value.
-
-            // Collect the fields we care about and simulate sequentially.
-            let mut field_state: IndexMap<&str, String> = IndexMap::new();
-            let relevant: Vec<&str> = TEXT
-                .iter()
-                .copied()
-                .chain(NAMES.iter().copied())
-                .chain(["url", "date", "month", "pages", "isbn"])
-                .collect();
-
-            for &f in &relevant {
-                if let Some(v) = entry.fields.get(f) {
-                    field_state.insert(f, v.clone());
-                }
-            }
-
-            macro_rules! transform {
-                ($field:expr, $fn:expr) => {{
-                    if let Some(val) = field_state.get_mut($field) {
-                        *val = $fn(val.as_str());
-                    }
-                }};
-            }
-
-            // 1. Unicode → LaTeX
-            if cfg.save_action_unicode_to_latex {
-                for f in TEXT.iter().copied().chain(NAMES.iter().copied()) {
-                    transform!(f, unicode_to_latex);
-                }
-            }
-            // 2. Escape underscores
-            if cfg.save_action_escape_underscores {
-                for f in TEXT.iter().copied() {
-                    transform!(f, escape_underscores);
-                }
-            }
-            // 3. Escape ampersands
-            if cfg.save_action_escape_ampersands {
-                for f in TEXT.iter().copied().chain(NAMES.iter().copied()) {
-                    transform!(f, escape_ampersands);
-                }
-            }
-            // 4. LaTeX cleanup
-            if cfg.save_action_latex_cleanup {
-                for f in TEXT.iter().copied() {
-                    transform!(f, latex_cleanup);
-                }
-            }
-            // 5. URL cleanup
-            if cfg.save_action_cleanup_url {
-                transform!("url", cleanup_url);
-            }
-            // 6. Ordinals to superscript
-            if cfg.save_action_ordinals_to_superscript {
-                for f in TEXT.iter().copied() {
-                    transform!(f, ordinals_to_superscript);
-                }
-            }
-            // 7. Normalise date
-            if cfg.save_action_normalize_date {
-                transform!("date", normalize_date);
-            }
-            // 8. Normalise month
-            if cfg.save_action_normalize_month {
-                transform!("month", normalize_month);
-            }
-            // 9. Normalise page numbers
-            if cfg.save_action_normalize_page_numbers {
-                transform!("pages", normalize_page_numbers);
-            }
-            // 10. Normalise ISBN
-            if cfg.save_action_normalize_isbn {
-                transform!("isbn", normalize_isbn);
-            }
-            // 11. Normalise person names
-            if cfg.save_action_normalize_names_of_persons {
-                for f in NAMES.iter().copied() {
-                    transform!(f, crate::util::author::normalize_author_names);
-                }
-            }
-
-            // Emit one violation per field whose net value changed.
-            for (field, new_val) in &field_state {
-                if let Some(orig) = entry.fields.get(*field) {
-                    if new_val != orig {
-                        violations.push(Violation {
-                            entry_key: key.clone(),
-                            field: field.to_string(),
-                            old_value: orig.clone(),
-                            new_value: new_val.clone(),
-                            action_name: action_label_for_field(field, cfg),
-                        });
-                    }
-                }
-            }
-
-            // 12. Abbreviate journal — simulate sync of journal, journal_full, journal_abbrev
-            if cfg.save_action_abbreviate_journal {
-                let journal_current = field_state.get("journal").cloned()
-                    .or_else(|| entry.fields.get("journal").cloned())
-                    .unwrap_or_default();
-
-                if !journal_current.is_empty() {
-                    let full = entry.fields
-                        .get("journal_full")
-                        .filter(|v| !v.is_empty())
-                        .cloned()
-                        .unwrap_or_else(|| journal_current.clone());
-
-                    let abbrev = crate::util::journal::abbreviate_journal(
-                        &full, &cfg.journal_abbreviations,
-                    );
-                    let preferred = if cfg.journal_field_content == "abbreviated" {
-                        abbrev.clone()
-                    } else {
-                        full.clone()
-                    };
-
-                    for (field_name, new_val, orig_key) in [
-                        ("journal_full",   &full,      "journal_full"),
-                        ("journal_abbrev", &abbrev,    "journal_abbrev"),
-                        ("journal",        &preferred, "journal"),
-                    ] {
-                        let orig = entry.fields.get(orig_key).cloned().unwrap_or_default();
-                        if *new_val != orig {
-                            violations.push(Violation {
-                                entry_key: key.clone(),
-                                field: field_name.to_string(),
-                                old_value: orig,
-                                new_value: new_val.clone(),
-                                action_name: "abbreviate_journal",
-                            });
-                        }
-                    }
-                }
+            for t in compute_save_transforms(cfg, entry) {
+                violations.push(Violation {
+                    entry_key: key.clone(),
+                    field: t.field,
+                    old_value: t.old_value,
+                    new_value: t.new_value,
+                    action_name: t.action_name,
+                });
             }
         }
 
@@ -564,150 +422,24 @@ impl App {
     /// Apply the enabled save actions to every entry in the database.
     ///
     /// Entries whose fields change are marked dirty so they are re-serialised.
-    /// Actions are applied in a stable order: unicode conversion first (so that
-    /// subsequent escaping acts on LaTeX sequences), then escaping, cleanup,
-    /// normalisation, and finally ordinal superscripts.
+    /// The transform ordering is defined by [`compute_save_transforms`], which is
+    /// also what the dry-run validator uses, so validate and save never drift.
     pub(super) fn apply_save_actions(&mut self) {
-        // Text fields that contain natural-language prose / titles.
-        const TEXT: &[&str] = &[
-            "abstract", "addendum", "address", "afterword", "annote",
-            "booktitle", "chapter", "edition", "institution", "journal",
-            "keywords", "language", "note", "organization", "publisher",
-            "school", "series", "subtitle", "title", "titleaddon", "type",
-            "venue",
-        ];
-        // Person-name fields.
-        const NAMES: &[&str] = &[
-            "author", "editor", "editora", "editorb", "editorc",
-            "bookauthor", "afterword", "translator",
-        ];
-
         let cfg = self.config.save.clone();
         let keys: Vec<String> = self.database.entries.keys().cloned().collect();
 
         for key in &keys {
-            let entry = match self.database.entries.get_mut(key) {
-                Some(e) => e,
+            let transforms = match self.database.entries.get(key) {
+                Some(e) => compute_save_transforms(&cfg, e),
                 None => continue,
             };
-            let mut changed = false;
-
-            // Helper: apply a &str → String function to a named field.
-            macro_rules! apply {
-                ($field:expr, $fn:expr) => {{
-                    if let Some(val) = entry.fields.get($field) {
-                        let new_val = $fn(val.as_str());
-                        if new_val != *val {
-                            entry.fields.insert($field.to_string(), new_val);
-                            changed = true;
-                        }
-                    }
-                }};
+            if transforms.is_empty() {
+                continue;
             }
-
-            // 1. Unicode → LaTeX (run first so later escaping sees LaTeX text)
-            if cfg.save_action_unicode_to_latex {
-                for f in TEXT.iter().copied().chain(NAMES.iter().copied()) {
-                    apply!(f, unicode_to_latex);
+            if let Some(entry) = self.database.entries.get_mut(key) {
+                for t in transforms {
+                    entry.fields.insert(t.field, t.new_value);
                 }
-            }
-
-            // 2. Escape underscores
-            if cfg.save_action_escape_underscores {
-                for f in TEXT.iter().copied() {
-                    apply!(f, escape_underscores);
-                }
-            }
-
-            // 3. Escape ampersands
-            if cfg.save_action_escape_ampersands {
-                for f in TEXT.iter().copied().chain(NAMES.iter().copied()) {
-                    apply!(f, escape_ampersands);
-                }
-            }
-
-            // 4. LaTeX cleanup (% escaping, space collapsing)
-            if cfg.save_action_latex_cleanup {
-                for f in TEXT.iter().copied() {
-                    apply!(f, latex_cleanup);
-                }
-            }
-
-            // 5. URL cleanup
-            if cfg.save_action_cleanup_url {
-                apply!("url", cleanup_url);
-            }
-
-            // 6. Ordinals to superscript
-            if cfg.save_action_ordinals_to_superscript {
-                for f in TEXT.iter().copied() {
-                    apply!(f, ordinals_to_superscript);
-                }
-            }
-
-            // 7. Normalise date
-            if cfg.save_action_normalize_date {
-                apply!("date", normalize_date);
-            }
-
-            // 8. Normalise month
-            if cfg.save_action_normalize_month {
-                apply!("month", normalize_month);
-            }
-
-            // 9. Normalise page numbers
-            if cfg.save_action_normalize_page_numbers {
-                apply!("pages", normalize_page_numbers);
-            }
-
-            // 10. Normalise ISBN
-            if cfg.save_action_normalize_isbn {
-                apply!("isbn", normalize_isbn);
-            }
-
-            // 11. Normalise person names
-            if cfg.save_action_normalize_names_of_persons {
-                for f in NAMES.iter().copied() {
-                    apply!(f, crate::util::author::normalize_author_names);
-                }
-            }
-
-            // 11. Abbreviate journal name — sync journal, journal_full, journal_abbrev
-            if cfg.save_action_abbreviate_journal {
-                if let Some(journal_val) = entry.fields.get("journal").cloned() {
-                    if !journal_val.is_empty() {
-                        // journal_full is the source of truth; fall back to journal on first run
-                        let full = entry.fields
-                            .get("journal_full")
-                            .filter(|v| !v.is_empty())
-                            .cloned()
-                            .unwrap_or_else(|| journal_val.clone());
-
-                        let abbrev = crate::util::journal::abbreviate_journal(
-                            &full, &cfg.journal_abbreviations,
-                        );
-                        let preferred = if cfg.journal_field_content == "abbreviated" {
-                            abbrev.clone()
-                        } else {
-                            full.clone()
-                        };
-
-                        let needs_update =
-                            (entry.fields.get("journal_full") != Some(&full))
-                            || (entry.fields.get("journal_abbrev") != Some(&abbrev))
-                            || (entry.fields.get("journal") != Some(&preferred));
-
-                        if needs_update {
-                            entry.fields.insert("journal_full".to_string(), full);
-                            entry.fields.insert("journal_abbrev".to_string(), abbrev);
-                            entry.fields.insert("journal".to_string(), preferred);
-                            changed = true;
-                        }
-                    }
-                }
-            }
-
-            if changed {
                 entry.dirty = true;
             }
         }
@@ -881,6 +613,174 @@ impl App {
             }
         }
     }
+}
+
+/// Text fields that contain natural-language prose / titles.
+const TEXT: &[&str] = &[
+    "abstract", "addendum", "address", "annote",
+    "booktitle", "chapter", "edition", "institution", "journal",
+    "keywords", "language", "note", "organization", "publisher",
+    "school", "series", "subtitle", "title", "titleaddon", "type",
+    "venue",
+];
+
+/// Person-name (name-list) fields.
+const NAMES: &[&str] = &[
+    "author", "editor", "editora", "editorb", "editorc",
+    "bookauthor", "afterword", "translator",
+];
+
+/// A single net field change produced by the enabled save actions.
+pub(super) struct FieldTransform {
+    pub field: String,
+    pub old_value: String,
+    pub new_value: String,
+    /// Short label for the save action responsible for this change.
+    pub action_name: &'static str,
+}
+
+/// Compute the net field changes the enabled save actions would produce for a
+/// single entry, in stable action order (unicode→latex first, then escapes,
+/// cleanup, normalisations, person-name normalisation, and journal abbreviation
+/// last).  This is the single shared pipeline used by both the dry-run
+/// validator ([`App::compute_violations`]) and the real save
+/// ([`App::apply_save_actions`]), so the predicted and applied values agree.
+pub(super) fn compute_save_transforms(
+    cfg: &crate::config::schema::SaveConfig,
+    entry: &Entry,
+) -> Vec<FieldTransform> {
+    // Simulate each save action on a per-field working value, accumulating
+    // changes so the final value reflects the net effect of all actions.
+    let mut field_state: IndexMap<&str, String> = IndexMap::new();
+    let relevant: Vec<&str> = TEXT
+        .iter()
+        .copied()
+        .chain(NAMES.iter().copied())
+        .chain(["url", "date", "month", "pages", "isbn"])
+        .collect();
+
+    for &f in &relevant {
+        if let Some(v) = entry.fields.get(f) {
+            field_state.insert(f, v.clone());
+        }
+    }
+
+    macro_rules! transform {
+        ($field:expr, $fn:expr) => {{
+            if let Some(val) = field_state.get_mut($field) {
+                *val = $fn(val.as_str());
+            }
+        }};
+    }
+
+    // 1. Unicode → LaTeX (run first so later escaping sees LaTeX text)
+    if cfg.save_action_unicode_to_latex {
+        for f in TEXT.iter().copied().chain(NAMES.iter().copied()) {
+            transform!(f, unicode_to_latex);
+        }
+    }
+    // 2. Escape underscores
+    if cfg.save_action_escape_underscores {
+        for f in TEXT.iter().copied() {
+            transform!(f, escape_underscores);
+        }
+    }
+    // 3. Escape ampersands
+    if cfg.save_action_escape_ampersands {
+        for f in TEXT.iter().copied().chain(NAMES.iter().copied()) {
+            transform!(f, escape_ampersands);
+        }
+    }
+    // 4. LaTeX cleanup (% escaping, space collapsing)
+    if cfg.save_action_latex_cleanup {
+        for f in TEXT.iter().copied() {
+            transform!(f, latex_cleanup);
+        }
+    }
+    // 5. URL cleanup
+    if cfg.save_action_cleanup_url {
+        transform!("url", cleanup_url);
+    }
+    // 6. Ordinals to superscript
+    if cfg.save_action_ordinals_to_superscript {
+        for f in TEXT.iter().copied() {
+            transform!(f, ordinals_to_superscript);
+        }
+    }
+    // 7. Normalise date
+    if cfg.save_action_normalize_date {
+        transform!("date", normalize_date);
+    }
+    // 8. Normalise month
+    if cfg.save_action_normalize_month {
+        transform!("month", normalize_month);
+    }
+    // 9. Normalise page numbers
+    if cfg.save_action_normalize_page_numbers {
+        transform!("pages", normalize_page_numbers);
+    }
+    // 10. Normalise ISBN
+    if cfg.save_action_normalize_isbn {
+        transform!("isbn", normalize_isbn);
+    }
+    // 11. Normalise person names
+    if cfg.save_action_normalize_names_of_persons {
+        for f in NAMES.iter().copied() {
+            transform!(f, crate::util::author::normalize_author_names);
+        }
+    }
+
+    // 12. Abbreviate journal — sync journal, journal_full, journal_abbrev.
+    //     Read the post-transform journal value so validate and save agree.
+    if cfg.save_action_abbreviate_journal {
+        let journal_current = field_state
+            .get("journal")
+            .cloned()
+            .or_else(|| entry.fields.get("journal").cloned())
+            .unwrap_or_default();
+
+        if !journal_current.is_empty() {
+            // journal_full is the source of truth; fall back to the current
+            // (post-transform) journal value on first run.
+            let full = entry
+                .fields
+                .get("journal_full")
+                .filter(|v| !v.is_empty())
+                .cloned()
+                .unwrap_or_else(|| journal_current.clone());
+
+            let abbrev =
+                crate::util::journal::abbreviate_journal(&full, &cfg.journal_abbreviations);
+            let preferred = if cfg.journal_field_content == "abbreviated" {
+                abbrev.clone()
+            } else {
+                full.clone()
+            };
+
+            // Write results back into the working state so each field is emitted
+            // exactly once carrying its final value (`journal` overwrites any
+            // earlier text-action result in place).
+            field_state.insert("journal_full", full);
+            field_state.insert("journal_abbrev", abbrev);
+            field_state.insert("journal", preferred);
+        }
+    }
+
+    // Emit one transform per field whose net value differs from the original.
+    let mut transforms = Vec::new();
+    for (field, new_val) in &field_state {
+        let orig = entry.fields.get(*field).cloned().unwrap_or_default();
+        if *new_val != orig {
+            transforms.push(FieldTransform {
+                field: field.to_string(),
+                old_value: orig,
+                new_value: new_val.clone(),
+                action_name: action_label_for_field(field, cfg),
+            });
+        }
+    }
+
+    transforms
 }
 
 /// Return a short label describing which save action is responsible for
