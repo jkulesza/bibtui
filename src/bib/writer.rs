@@ -30,27 +30,43 @@ pub fn write_bib_file(raw: &RawBibFile) -> String {
     out
 }
 
-/// Replace any sequence of 3 or more consecutive newlines with exactly two
-/// (i.e. at most one blank line between items).
+/// Replace any run of 3 or more consecutive newlines with exactly two (i.e. at
+/// most one blank line between items).
+///
+/// A newline unit is either `"\r\n"` or `"\n"`, so CRLF files collapse the same
+/// way as LF files and the CRLF style of the surviving newlines is preserved.
 pub fn normalize_blank_lines(s: String) -> String {
     let bytes = s.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut newline_run = 0usize;
+    let mut i = 0;
 
-    for &b in bytes {
-        if b == b'\n' {
+    while i < bytes.len() {
+        // Detect a newline unit: "\r\n" counts as one, so does a lone "\n".
+        let unit_len = if bytes[i] == b'\r' && i + 1 < bytes.len() && bytes[i + 1] == b'\n' {
+            2
+        } else if bytes[i] == b'\n' {
+            1
+        } else {
+            0
+        };
+
+        if unit_len > 0 {
             newline_run += 1;
             if newline_run <= 2 {
-                out.push(b);
+                out.extend_from_slice(&bytes[i..i + unit_len]);
             }
+            i += unit_len;
         } else {
             newline_run = 0;
-            out.push(b);
+            out.push(bytes[i]);
+            i += 1;
         }
     }
 
-    // Input was valid UTF-8 and we only dropped '\n' bytes, so this never fails.
-    String::from_utf8(out).expect("dropping newline bytes preserves UTF-8 validity")
+    // Input was valid UTF-8 and we only dropped whole newline units, so this
+    // never fails.
+    String::from_utf8(out).expect("dropping newline units preserves UTF-8 validity")
 }
 
 /// Serialize a single entry from semantic data (for modified entries).
@@ -350,6 +366,28 @@ mod tests {
     #[test]
     fn test_normalize_blank_lines_empty_string() {
         assert_eq!(normalize_blank_lines(String::new()), "");
+    }
+
+    #[test]
+    fn test_normalize_blank_lines_crlf_run_collapses() {
+        // A run of 4 CRLF units collapses to exactly two, preserving CRLF.
+        let s = "a\r\n\r\n\r\n\r\nb".to_string();
+        assert_eq!(normalize_blank_lines(s), "a\r\n\r\nb");
+    }
+
+    #[test]
+    fn test_normalize_blank_lines_crlf_single_blank_preserved() {
+        // One CRLF blank line (2 units) is preserved unchanged.
+        let s = "a\r\n\r\nb\r\n".to_string();
+        assert_eq!(normalize_blank_lines(s.clone()), s);
+    }
+
+    #[test]
+    fn test_normalize_blank_lines_crlf_mixed_content_preserved() {
+        // Non-newline content and lone CR are preserved; only 3+ newline runs
+        // collapse.
+        let s = "x\r\n\r\n\r\ny\r\nz".to_string();
+        assert_eq!(normalize_blank_lines(s), "x\r\n\r\ny\r\nz");
     }
 
     #[test]
