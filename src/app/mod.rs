@@ -128,6 +128,23 @@ pub struct App {
     pub opener: Box<dyn Opener>,
 }
 
+/// Entry types offered in the type-picker dialogs (add entry / change type).
+const ENTRY_TYPE_CHOICES: &[&str] = &[
+    "Article",
+    "Book",
+    "InProceedings",
+    "TechReport",
+    "PhdThesis",
+    "MastersThesis",
+    "Misc",
+    "InBook",
+    "InCollection",
+    "Proceedings",
+    "Unpublished",
+    "Booklet",
+    "Manual",
+];
+
 impl App {
     pub fn new(bib_path: PathBuf, config: Config) -> Result<Self> {
         // A path that doesn't exist yet opens a blank library; the file is
@@ -1215,21 +1232,7 @@ impl App {
 
     fn start_change_entry_type(&mut self) {
         let Some(entry_key) = self.detail_entry_key.clone() else { return };
-        let types = vec![
-            "Article".to_string(),
-            "Book".to_string(),
-            "InProceedings".to_string(),
-            "TechReport".to_string(),
-            "PhdThesis".to_string(),
-            "MastersThesis".to_string(),
-            "Misc".to_string(),
-            "InBook".to_string(),
-            "InCollection".to_string(),
-            "Proceedings".to_string(),
-            "Unpublished".to_string(),
-            "Booklet".to_string(),
-            "Manual".to_string(),
-        ];
+        let types: Vec<String> = ENTRY_TYPE_CHOICES.iter().map(|s| s.to_string()).collect();
         // Pre-select the entry's current type in the picker
         let current = self
             .database
@@ -1248,21 +1251,7 @@ impl App {
     }
 
     fn start_add_entry(&mut self) {
-        let types = vec![
-            "Article".to_string(),
-            "Book".to_string(),
-            "InProceedings".to_string(),
-            "TechReport".to_string(),
-            "PhdThesis".to_string(),
-            "MastersThesis".to_string(),
-            "Misc".to_string(),
-            "InBook".to_string(),
-            "InCollection".to_string(),
-            "Proceedings".to_string(),
-            "Unpublished".to_string(),
-            "Booklet".to_string(),
-            "Manual".to_string(),
-        ];
+        let types: Vec<String> = ENTRY_TYPE_CHOICES.iter().map(|s| s.to_string()).collect();
         self.dialog_state = Some(DialogState::type_picker(types));
         self.pending_action = Some(PendingAction::AddEntryType);
         self.mode = InputMode::Dialog;
@@ -1628,7 +1617,7 @@ impl App {
     // ── Citation preview ──
 
     fn show_citation_preview(&mut self) {
-        let key = match self.current_entry_key() {
+        let key = match self.selected_entry_key() {
             Some(k) => k,
             None => return,
         };
@@ -1642,17 +1631,6 @@ impl App {
             style_name: self.config.citation.style.clone(),
         });
         self.mode = InputMode::CitationPreview;
-    }
-
-    /// Return the citation key of the currently selected entry list row.
-    fn current_entry_key(&self) -> Option<String> {
-        let idx = self.entry_list_state.selected();
-        let visible: Vec<&String> = if let Some(ref indices) = self.filtered_indices {
-            indices.iter().filter_map(|&i| self.sorted_keys.get(i)).collect()
-        } else {
-            self.sorted_keys.iter().collect()
-        };
-        visible.get(idx).map(|k| (*k).clone())
     }
 
     // ── Commands ──

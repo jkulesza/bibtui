@@ -42,66 +42,25 @@ impl App {
                 continue;
             }
 
-            let multi = parsed.len() > 1;
+            let plans = plan_filename_renames(&citekey, &parsed, &file_dir);
             let mut changed = false;
 
-            for (i, pf) in parsed.iter_mut().enumerate() {
-                let old_rel = PathBuf::from(&pf.path);
-                let ext = old_rel
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .unwrap_or("pdf")
-                    .to_string();
-
-                let safe_stem = crate::util::import::sanitize_filename_stem(&citekey);
-                let new_filename = if multi {
-                    format!("{}_{}.{}", safe_stem, i + 1, ext)
-                } else {
-                    format!("{}.{}", safe_stem, ext)
-                };
-
-                // Already correctly named?
-                if old_rel.file_name().and_then(|n| n.to_str()) == Some(&new_filename) {
-                    continue;
-                }
-
-                // Resolve to absolute paths.
-                let old_abs = if old_rel.is_absolute() {
-                    old_rel.clone()
-                } else {
-                    file_dir.join(&old_rel)
-                };
-                let new_abs = old_abs
-                    .parent()
-                    .map(|p| p.join(&new_filename))
-                    .unwrap_or_else(|| file_dir.join(&new_filename));
-
-                if old_abs.exists() {
-                    if rename_target_conflicts(&old_abs, &new_abs) {
+            for plan in plans {
+                if plan.old_abs.exists() {
+                    if rename_target_conflicts(&plan.old_abs, &plan.new_abs) {
                         rename_msgs.push(format!(
                             "skipped {}: target {} already exists",
-                            old_abs.display(),
-                            new_abs.display()
+                            plan.old_abs.display(),
+                            plan.new_abs.display()
                         ));
                         continue;
                     }
-                    if let Err(e) = std::fs::rename(&old_abs, &new_abs) {
-                        rename_msgs.push(format!("rename {}: {}", old_abs.display(), e));
+                    if let Err(e) = std::fs::rename(&plan.old_abs, &plan.new_abs) {
+                        rename_msgs.push(format!("rename {}: {}", plan.old_abs.display(), e));
                         continue;
                     }
                 }
-
-                // Update path in the parsed struct, preserving relative vs absolute.
-                pf.path = if old_rel.is_absolute() {
-                    new_abs.to_string_lossy().into_owned()
-                } else {
-                    old_rel
-                        .parent()
-                        .map(|p| p.join(&new_filename))
-                        .unwrap_or_else(|| PathBuf::from(&new_filename))
-                        .to_string_lossy()
-                        .into_owned()
-                };
+                parsed[plan.index].path = plan.new_rel_path;
                 changed = true;
             }
 
@@ -150,67 +109,30 @@ impl App {
             return;
         }
 
-        let multi = parsed.len() > 1;
         let mut changed = false;
         let mut rename_msgs: Vec<String> = Vec::new();
         // Collect (new_abs, old_abs) pairs for undo.
         let mut undo_renames: Vec<(PathBuf, PathBuf)> = Vec::new();
 
-        for (i, pf) in parsed.iter_mut().enumerate() {
-            let old_rel = PathBuf::from(&pf.path);
-            let ext = old_rel
-                .extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or("pdf")
-                .to_string();
-
-            let safe_stem = crate::util::import::sanitize_filename_stem(&citekey);
-            let new_filename = if multi {
-                format!("{}_{}.{}", safe_stem, i + 1, ext)
-            } else {
-                format!("{}.{}", safe_stem, ext)
-            };
-
-            if old_rel.file_name().and_then(|n| n.to_str()) == Some(&new_filename) {
-                continue;
-            }
-
-            let old_abs = if old_rel.is_absolute() {
-                old_rel.clone()
-            } else {
-                file_dir.join(&old_rel)
-            };
-            let new_abs = old_abs
-                .parent()
-                .map(|p| p.join(&new_filename))
-                .unwrap_or_else(|| file_dir.join(&new_filename));
-
-            if old_abs.exists() {
-                if rename_target_conflicts(&old_abs, &new_abs) {
+        let plans = plan_filename_renames(&citekey, &parsed, &file_dir);
+        for plan in plans {
+            if plan.old_abs.exists() {
+                if rename_target_conflicts(&plan.old_abs, &plan.new_abs) {
                     rename_msgs.push(format!(
                         "skipped {}: target {} already exists",
-                        old_abs.display(),
-                        new_abs.display()
+                        plan.old_abs.display(),
+                        plan.new_abs.display()
                     ));
                     continue;
                 }
-                if let Err(e) = std::fs::rename(&old_abs, &new_abs) {
-                    rename_msgs.push(format!("rename {}: {}", old_abs.display(), e));
+                if let Err(e) = std::fs::rename(&plan.old_abs, &plan.new_abs) {
+                    rename_msgs.push(format!("rename {}: {}", plan.old_abs.display(), e));
                     continue;
                 }
-                undo_renames.push((new_abs.clone(), old_abs));
+                undo_renames.push((plan.new_abs.clone(), plan.old_abs));
             }
 
-            pf.path = if old_rel.is_absolute() {
-                new_abs.to_string_lossy().into_owned()
-            } else {
-                old_rel
-                    .parent()
-                    .map(|p| p.join(&new_filename))
-                    .unwrap_or_else(|| PathBuf::from(&new_filename))
-                    .to_string_lossy()
-                    .into_owned()
-            };
+            parsed[plan.index].path = plan.new_rel_path;
             changed = true;
         }
 
@@ -854,6 +776,87 @@ pub(super) fn get_sort_value(entry: &Entry, field: &str) -> String {
         "entrytype" | "type" => entry.entry_type.display_name().to_string(),
         _ => entry.fields.get(field).cloned().unwrap_or_default(),
     }
+}
+
+/// One attachment rename planned by [`plan_filename_renames`].
+struct PlannedRename {
+    /// Index of the attachment in the parsed `file` field.
+    index: usize,
+    /// Absolute path of the file as currently referenced.
+    old_abs: PathBuf,
+    /// Absolute path the file should be renamed to.
+    new_abs: PathBuf,
+    /// New value for `ParsedFile::path`, preserving relative vs absolute form.
+    new_rel_path: String,
+}
+
+/// Plan the renames needed to make an entry's attachments match its citation
+/// key: one file becomes `citekey.ext`, N files become `citekey_1.ext` …
+/// `citekey_N.ext`.  Attachments already correctly named are omitted.  No
+/// filesystem changes are made; callers perform the renames (checking for
+/// target conflicts at rename time via [`rename_target_conflicts`]) and keep
+/// their own undo/status handling.
+fn plan_filename_renames(
+    citekey: &str,
+    parsed: &[crate::util::open::ParsedFile],
+    file_dir: &std::path::Path,
+) -> Vec<PlannedRename> {
+    let multi = parsed.len() > 1;
+    let safe_stem = crate::util::import::sanitize_filename_stem(citekey);
+    let mut plans = Vec::new();
+
+    for (i, pf) in parsed.iter().enumerate() {
+        let old_rel = PathBuf::from(&pf.path);
+        let ext = old_rel
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("pdf")
+            .to_string();
+
+        let new_filename = if multi {
+            format!("{}_{}.{}", safe_stem, i + 1, ext)
+        } else {
+            format!("{}.{}", safe_stem, ext)
+        };
+
+        // Already correctly named?
+        if old_rel.file_name().and_then(|n| n.to_str()) == Some(&new_filename) {
+            continue;
+        }
+
+        // Resolve to absolute paths.
+        let old_abs = if old_rel.is_absolute() {
+            old_rel.clone()
+        } else {
+            file_dir.join(&old_rel)
+        };
+        let new_abs = old_abs
+            .parent()
+            .map(|p| p.join(&new_filename))
+            .unwrap_or_else(|| file_dir.join(&new_filename));
+
+        // New stored path, preserving relative vs absolute form (and the
+        // original subdirectory for relative paths).
+        let new_rel_path = if old_rel.is_absolute() {
+            new_abs.to_string_lossy().into_owned()
+        } else {
+            old_rel
+                .parent()
+                .map(|p| p.join(&new_filename))
+                .unwrap_or_else(|| PathBuf::from(&new_filename))
+                .to_string_lossy()
+                .into_owned()
+        };
+
+        plans.push(PlannedRename {
+            index: i,
+            old_abs,
+            new_abs,
+            new_rel_path,
+        });
+    }
+
+    plans
 }
 
 /// Returns true when renaming `src` to `dest` would clobber an existing,
