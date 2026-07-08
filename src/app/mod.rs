@@ -349,8 +349,9 @@ impl App {
                         needs_redraw = true;
                     }
                     Err(mpsc::TryRecvError::Empty) => {
-                        // Still working; redraw to show "Fetching…" status
-                        needs_redraw = true;
+                        // Still working. The "Fetching…" status was already drawn
+                        // when the fetch started, so avoid a full redraw on every
+                        // 100 ms poll tick; wait for completion or a real event.
                     }
                     Err(mpsc::TryRecvError::Disconnected) => {
                         self.pending_import = None;
@@ -375,7 +376,9 @@ impl App {
                         needs_redraw = true;
                     }
                     Err(mpsc::TryRecvError::Empty) => {
-                        needs_redraw = true;
+                        // Still working; the "Searching for DOI…" status was
+                        // already drawn when the fetch started. Skip the per-tick
+                        // redraw and wait for completion or a real event.
                     }
                     Err(mpsc::TryRecvError::Disconnected) => {
                         self.pending_doi_fetch = None;
