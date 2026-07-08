@@ -42,6 +42,10 @@ fn main() -> Result<()> {
         None => app::App::new_empty(config)?,
     };
 
+    // Restore the terminal if we panic anywhere below, so the user is not left
+    // in raw mode on the alternate screen.
+    tui::install_panic_hook();
+
     // Setup terminal
     let mut terminal = tui::setup_terminal()?;
 

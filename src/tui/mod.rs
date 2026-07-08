@@ -28,6 +28,30 @@ pub fn setup_terminal() -> Result<Term> {
     Ok(terminal)
 }
 
+/// Install a panic hook that restores the terminal before the default panic
+/// handler runs, so a panic anywhere in the app does not leave the user's
+/// terminal stuck in raw mode with the alternate screen active.
+///
+/// The restore is best-effort: any error while disabling raw mode or leaving
+/// the alternate screen is ignored, then the previously installed hook (which
+/// prints the panic message and backtrace) is invoked. Call this once, before
+/// [`setup_terminal`].
+pub fn install_panic_hook() {
+    let previous_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        // Best-effort terminal restore; ignore errors since we are already
+        // unwinding.
+        let _ = disable_raw_mode();
+        let _ = execute!(
+            io::stdout(),
+            LeaveAlternateScreen,
+            DisableMouseCapture,
+            DisableBracketedPaste
+        );
+        previous_hook(info);
+    }));
+}
+
 pub fn restore_terminal(terminal: &mut Term) -> Result<()> {
     disable_raw_mode()?;
     execute!(
