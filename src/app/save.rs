@@ -760,14 +760,72 @@ pub(super) fn sort_entries(entries: &IndexMap<String, Entry>, config: &Config) -
         let va = ea.map(|e| get_sort_value(e, field)).unwrap_or_default();
         let vb = eb.map(|e| get_sort_value(e, field)).unwrap_or_default();
 
+        let ord = compare_sort_values(field, &va, &vb);
         if ascending {
-            va.cmp(&vb)
+            ord
         } else {
-            vb.cmp(&va)
+            ord.reverse()
         }
     });
 
     keys
+}
+
+/// Fields that are compared numerically rather than lexically.
+const NUMERIC_SORT_FIELDS: &[&str] = &["year", "volume", "number", "pages"];
+
+/// Compare two sort values in ascending order.
+///
+/// Numeric-aware behavior applies when the sort field is `year`, `volume`,
+/// `number`, or `pages`, or when both values parse fully as integers. In those
+/// cases values are compared as numbers so that `"9"` sorts before `"10"`.
+///
+/// For `pages`, the leading integer of each value is used (e.g. `"123--130"`
+/// compares as `123`). Ordering within a numeric field is:
+/// 1. empty values first (matching the previous string-based behavior),
+/// 2. values with a numeric key, in numeric order,
+/// 3. values with no leading integer last, in lexical order.
+///
+/// When neither trigger applies, the original case-relevant string comparison
+/// is used.
+pub(super) fn compare_sort_values(field: &str, a: &str, b: &str) -> std::cmp::Ordering {
+    if NUMERIC_SORT_FIELDS.contains(&field) {
+        return numeric_sort_key(field, a).cmp(&numeric_sort_key(field, b));
+    }
+    // For any other field, compare numerically only when both values are
+    // integers; otherwise fall back to the original string comparison.
+    if let (Ok(ia), Ok(ib)) = (a.trim().parse::<i64>(), b.trim().parse::<i64>()) {
+        return ia.cmp(&ib);
+    }
+    a.cmp(b)
+}
+
+/// Build an ascending sort key for a numeric field: `(tier, number, text)`.
+///
+/// Tier 0 is the empty value (sorts first), tier 1 is a value with a numeric
+/// key (compared by `number`), and tier 2 is a value with no leading integer
+/// (sorts last, compared lexically by `text`).
+fn numeric_sort_key(field: &str, value: &str) -> (u8, i64, String) {
+    let v = value.trim();
+    if v.is_empty() {
+        return (0, 0, String::new());
+    }
+    let parsed = if field == "pages" {
+        leading_integer(v)
+    } else {
+        v.parse::<i64>().ok()
+    };
+    match parsed {
+        Some(n) => (1, n, String::new()),
+        None => (2, 0, v.to_string()),
+    }
+}
+
+/// Parse the leading run of ASCII digits as an integer (e.g. `"123--130"` →
+/// `Some(123)`). Returns `None` when the value does not start with a digit.
+fn leading_integer(v: &str) -> Option<i64> {
+    let digits: String = v.chars().take_while(|c| c.is_ascii_digit()).collect();
+    digits.parse::<i64>().ok()
 }
 
 pub(super) fn get_sort_value(entry: &Entry, field: &str) -> String {

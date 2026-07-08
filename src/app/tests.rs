@@ -1649,6 +1649,54 @@ fn test_sort_by_year() {
     assert_eq!(keys[1], "Doe2021");
 }
 
+#[test]
+fn test_compare_sort_values_year_numeric() {
+    // Lexically "10" < "2001" < "9"; numerically 9 < 10 < 2001.
+    let mut vals = vec!["9", "10", "2001"];
+    vals.sort_by(|a, b| compare_sort_values("year", a, b));
+    assert_eq!(vals, vec!["9", "10", "2001"]);
+}
+
+#[test]
+fn test_compare_sort_values_volume_numeric() {
+    let mut vals = vec!["10", "2"];
+    vals.sort_by(|a, b| compare_sort_values("volume", a, b));
+    assert_eq!(vals, vec!["2", "10"]);
+}
+
+#[test]
+fn test_compare_sort_values_pages_leading_integer() {
+    // "99--101" sorts by 99, "100--110" by 100, so 99 comes first even though
+    // "99..." > "100..." lexically.
+    let mut vals = vec!["99--101", "100--110"];
+    vals.sort_by(|a, b| compare_sort_values("pages", a, b));
+    assert_eq!(vals, vec!["99--101", "100--110"]);
+}
+
+#[test]
+fn test_compare_sort_values_mixed_numeric_non_numeric_stability() {
+    use std::cmp::Ordering;
+    // Empty sorts first, numeric values by number, non-numeric values last
+    // (ordered lexically among themselves).
+    let mut vals = vec!["10", "foo", "", "2", "bar"];
+    vals.sort_by(|a, b| compare_sort_values("volume", a, b));
+    assert_eq!(vals, vec!["", "2", "10", "bar", "foo"]);
+    // Numeric beats non-numeric; empty beats both.
+    assert_eq!(compare_sort_values("volume", "2", "foo"), Ordering::Less);
+    assert_eq!(compare_sort_values("volume", "", "2"), Ordering::Less);
+    // Equal numeric keys compare Equal, so a stable sort preserves input order.
+    assert_eq!(compare_sort_values("pages", "100--110", "100--200"), Ordering::Equal);
+}
+
+#[test]
+fn test_compare_sort_values_non_numeric_field_both_integers() {
+    use std::cmp::Ordering;
+    // A non-numeric field still compares numerically when both values are ints.
+    assert_eq!(compare_sort_values("citation_key", "9", "10"), Ordering::Less);
+    // But falls back to string comparison when they are not both integers.
+    assert_eq!(compare_sort_values("citation_key", "b", "a"), Ordering::Greater);
+}
+
 // ── get_sort_value ────────────────────────────────────────────────────────
 
 #[test]
