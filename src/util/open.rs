@@ -32,7 +32,25 @@ impl ParsedFile {
 ///
 /// Format: `Description:Path:Type` with multiple entries separated by `;`.
 /// Colons within fields are escaped as `\:`.
+///
+/// Values not written by JabRef commonly hold a plain path such as
+/// `file = {paper.pdf}`. When the whole value contains no unescaped `:` and
+/// no unescaped `;`, it is treated as one bare path with an empty
+/// description and a type derived from the file extension.
 pub fn parse_file_field(s: &str) -> Vec<ParsedFile> {
+    let trimmed = s.trim();
+    if !trimmed.is_empty() && !has_unescaped_separator(trimmed) {
+        // split_colons never splits here (no unescaped colons); it just
+        // unescapes `\\`, `\;`, and `\:` in the single segment.
+        let path = split_colons(trimmed).into_iter().next().unwrap_or_default();
+        let file_type = Path::new(&path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_uppercase())
+            .unwrap_or_default();
+        return vec![ParsedFile { description: String::new(), path, file_type }];
+    }
+
     let mut files = Vec::new();
 
     for segment in split_semicolons(s) {
@@ -57,6 +75,19 @@ pub fn parse_file_field(s: &str) -> Vec<ParsedFile> {
     }
 
     files
+}
+
+/// True if `s` contains a `:` or `;` not escaped by a backslash.
+fn has_unescaped_separator(s: &str) -> bool {
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            chars.next();
+        } else if c == ':' || c == ';' {
+            return true;
+        }
+    }
+    false
 }
 
 /// Split on `;` that are not escaped by `\`.
@@ -276,6 +307,41 @@ mod tests {
         assert_eq!(files[0].path, "papers/foo.pdf");
         assert_eq!(files[0].file_type, "PDF");
         assert_eq!(files[0].description, "");
+    }
+
+    #[test]
+    fn test_parse_bare_path() {
+        let files = parse_file_field("paper.pdf");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].description, "");
+        assert_eq!(files[0].path, "paper.pdf");
+        assert_eq!(files[0].file_type, "PDF");
+    }
+
+    #[test]
+    fn test_parse_bare_path_with_directory_and_whitespace() {
+        let files = parse_file_field("  papers/My Paper.PdF  ");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].description, "");
+        assert_eq!(files[0].path, "papers/My Paper.PdF");
+        assert_eq!(files[0].file_type, "PDF");
+    }
+
+    #[test]
+    fn test_parse_bare_path_without_extension() {
+        let files = parse_file_field("papers/notes");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "papers/notes");
+        assert_eq!(files[0].file_type, "");
+    }
+
+    #[test]
+    fn test_parse_bare_path_with_escaped_separators() {
+        // Escaped separators do not make the value multi-segment.
+        let files = parse_file_field("a\\:b\\;c.pdf");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "a:b;c.pdf");
+        assert_eq!(files[0].file_type, "PDF");
     }
 
     #[test]
@@ -529,10 +595,13 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_file_field_single_part_skipped() {
-        // Only one colon-split part (no path) → skipped
+    fn test_parse_file_field_single_part_is_bare_path() {
+        // A colon-free single segment is treated as a bare path.
         let files = parse_file_field("just-a-description");
-        assert!(files.is_empty());
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "just-a-description");
+        assert_eq!(files[0].description, "");
+        assert_eq!(files[0].file_type, "");
     }
 
     // ── serialize/parse round trip with separators in components ───────────
