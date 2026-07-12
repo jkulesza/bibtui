@@ -19,11 +19,15 @@ pub struct Violation {
 pub struct ValidateResultsState {
     pub violations: Vec<Violation>,
     pub scroll: usize,
+    /// Inner height of the popup as of the last render; used by the scroll
+    /// handler so paging matches the actual viewport. `None` before the
+    /// first render (callers fall back to a fixed default).
+    pub last_viewport_height: Option<u16>,
 }
 
 impl ValidateResultsState {
     pub fn new(violations: Vec<Violation>) -> Self {
-        ValidateResultsState { violations, scroll: 0 }
+        ValidateResultsState { violations, scroll: 0, last_viewport_height: None }
     }
 
     pub fn scroll_down(&mut self, inner_height: u16, total_lines: usize) {
@@ -72,6 +76,8 @@ pub fn render_validate_results(
         )));
 
     let inner = block.inner(popup_area);
+    // Record the real viewport height for the scroll handler.
+    state.last_viewport_height = Some(inner.height);
     f.render_widget(block, popup_area);
 
     if state.violations.is_empty() {
@@ -346,6 +352,33 @@ mod tests {
         let theme = default_theme();
         term.draw(|f| render_validate_results(f, f.area(), &mut state, &theme)).unwrap();
         assert!(state.scroll < 9999);
+    }
+
+    #[test]
+    fn test_render_records_viewport_height() {
+        let mut term = make_terminal(120, 40);
+        let mut state = ValidateResultsState::new(vec![make_violation("k", "f")]);
+        assert_eq!(state.last_viewport_height, None, "unset before first render");
+        let theme = default_theme();
+        term.draw(|f| render_validate_results(f, f.area(), &mut state, &theme)).unwrap();
+        // Popup height = area 40 - 4 = 36; inner = 36 - 2 border rows = 34.
+        assert_eq!(state.last_viewport_height, Some(34));
+    }
+
+    #[test]
+    fn test_scroll_down_uses_recorded_viewport_height() {
+        // 10 violations render as 40 lines. With a recorded inner height of
+        // 34, max scroll is 6; with the old hardcoded 24 it would be 16.
+        let violations: Vec<Violation> =
+            (0..10).map(|i| make_violation(&format!("k{i}"), "f")).collect();
+        let mut state = ValidateResultsState::new(violations);
+        state.last_viewport_height = Some(34);
+        let total = state.violations.len() * 4;
+        let h = state.last_viewport_height.unwrap_or(24);
+        for _ in 0..100 {
+            state.scroll_down(h, total);
+        }
+        assert_eq!(state.scroll, 6);
     }
 
     #[test]

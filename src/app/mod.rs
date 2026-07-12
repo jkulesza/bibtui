@@ -511,9 +511,11 @@ impl App {
                         nds.move_down();
                     }
                 } else if let Some(ref mut vrs) = self.validate_results_state {
-                    // 24 is a safe inner-height fallback; render clamps anyway
+                    // Use the viewport height recorded by the last render;
+                    // 24 is only the pre-first-render fallback.
+                    let inner_height = vrs.last_viewport_height.unwrap_or(24);
                     let total = vrs.violations.len() * 4;
-                    vrs.scroll_down(24, total);
+                    vrs.scroll_down(inner_height, total);
                 } else {
                     self.move_cursor(1);
                     if self.citation_preview_state.is_some() {

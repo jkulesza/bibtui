@@ -3543,6 +3543,52 @@ fn test_group_roundtrip_through_save() {
         .contains(&"Physics".to_string()));
 }
 
+// ── Validate-results scrolling ───────────────────────────────────────────
+
+#[test]
+fn test_validate_results_scroll_uses_recorded_viewport_height() {
+    let (mut app, _tmp) = make_app();
+    let violations: Vec<Violation> = (0..10)
+        .map(|i| Violation {
+            entry_key: format!("k{i}"),
+            field: "title".to_string(),
+            old_value: "a".to_string(),
+            new_value: "b".to_string(),
+            action_name: "test",
+        })
+        .collect();
+    let mut vrs = ValidateResultsState::new(violations);
+    // Simulate a render having recorded a 34-row viewport.
+    vrs.last_viewport_height = Some(34);
+    app.validate_results_state = Some(vrs);
+    for _ in 0..100 {
+        app.handle_action(Action::MoveDown);
+    }
+    // 10 violations render as 40 lines; max scroll = 40 - 34 = 6 (the old
+    // hardcoded height of 24 would have allowed 16).
+    assert_eq!(app.validate_results_state.as_ref().unwrap().scroll, 6);
+}
+
+#[test]
+fn test_validate_results_scroll_falls_back_before_first_render() {
+    let (mut app, _tmp) = make_app();
+    let violations: Vec<Violation> = (0..10)
+        .map(|i| Violation {
+            entry_key: format!("k{i}"),
+            field: "title".to_string(),
+            old_value: "a".to_string(),
+            new_value: "b".to_string(),
+            action_name: "test",
+        })
+        .collect();
+    app.validate_results_state = Some(ValidateResultsState::new(violations));
+    for _ in 0..100 {
+        app.handle_action(Action::MoveDown);
+    }
+    // No render yet: the 24-row fallback applies; max scroll = 40 - 24 = 16.
+    assert_eq!(app.validate_results_state.as_ref().unwrap().scroll, 16);
+}
+
 // ── Import-result handling ───────────────────────────────────────────────
 
 fn imported_article() -> crate::util::import::ImportedEntry {
