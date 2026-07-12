@@ -2865,6 +2865,90 @@ fn make_group_node(name: &str, group_type: GroupType, children: Vec<GroupNode>) 
 }
 
 #[test]
+fn test_delete_group_offers_to_strip_memberships() {
+    let (mut app, _tmp) = make_app();
+    app.database
+        .groups
+        .root
+        .children
+        .push(make_group_node("X", GroupType::Static, vec![]));
+    app.group_tree_state.refresh(&app.database.groups);
+    for key in ["Smith2020", "Doe2021"] {
+        let entry = app.database.entries.get_mut(key).unwrap();
+        entry.group_memberships = vec!["X".to_string()];
+        entry.fields.insert("groups".to_string(), "X".to_string());
+    }
+
+    app.finish_delete_group(vec![0]);
+
+    // Group node is gone; a follow-up confirm dialog is pending.
+    assert!(app.database.groups.root.children.is_empty());
+    assert!(app.dialog_state.is_some(), "strip-membership dialog open");
+    assert!(matches!(
+        app.pending_action,
+        Some(PendingAction::StripGroupMembership { ref group_name }) if group_name == "X"
+    ));
+    assert_eq!(app.mode, InputMode::Dialog);
+
+    let stack_before = app.undo_stack.len();
+    app.handle_action(Action::DialogConfirm);
+
+    for key in ["Smith2020", "Doe2021"] {
+        let entry = app.database.entries.get(key).unwrap();
+        assert!(entry.group_memberships.is_empty(), "{key} memberships stripped");
+        assert!(entry.fields.get("groups").is_none(), "{key} groups field dropped");
+        assert!(entry.dirty, "{key} marked dirty");
+    }
+    assert_eq!(app.undo_stack.len(), stack_before + 1, "one batch pushed");
+
+    // A single undo restores both entries' memberships and fields.
+    app.undo();
+    for key in ["Smith2020", "Doe2021"] {
+        let entry = app.database.entries.get(key).unwrap();
+        assert_eq!(entry.group_memberships, vec!["X".to_string()]);
+        assert_eq!(entry.fields.get("groups").map(String::as_str), Some("X"));
+    }
+}
+
+#[test]
+fn test_delete_group_strip_cancel_keeps_memberships() {
+    let (mut app, _tmp) = make_app();
+    app.database
+        .groups
+        .root
+        .children
+        .push(make_group_node("X", GroupType::Static, vec![]));
+    app.group_tree_state.refresh(&app.database.groups);
+    let entry = app.database.entries.get_mut("Smith2020").unwrap();
+    entry.group_memberships = vec!["X".to_string()];
+    entry.fields.insert("groups".to_string(), "X".to_string());
+
+    app.finish_delete_group(vec![0]);
+    assert!(app.dialog_state.is_some());
+    app.handle_action(Action::DialogCancel);
+
+    // Cancel keeps the stale membership (previous behavior).
+    let entry = app.database.entries.get("Smith2020").unwrap();
+    assert_eq!(entry.group_memberships, vec!["X".to_string()]);
+    assert_eq!(entry.fields.get("groups").map(String::as_str), Some("X"));
+}
+
+#[test]
+fn test_delete_group_without_members_opens_no_dialog() {
+    let (mut app, _tmp) = make_app();
+    app.database
+        .groups
+        .root
+        .children
+        .push(make_group_node("X", GroupType::Static, vec![]));
+    app.group_tree_state.refresh(&app.database.groups);
+
+    app.finish_delete_group(vec![0]);
+    assert!(app.dialog_state.is_none(), "no follow-up dialog without members");
+    assert!(app.pending_action.is_none());
+}
+
+#[test]
 fn test_collect_group_names_skips_all_entries() {
     let root = make_group_node(
         "All Entries",

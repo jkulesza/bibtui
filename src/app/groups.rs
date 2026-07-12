@@ -131,8 +131,67 @@ impl App {
                 }
                 self.status_message =
                     Some(format!("Group '{}' deleted", removed.group.name));
+                // Deleting the group node does not touch the entries: any entry
+                // whose `groups` field listed the group keeps the now-stale
+                // name.  Offer to strip it.
+                let name = removed.group.name;
+                let affected = self
+                    .database
+                    .entries
+                    .values()
+                    .filter(|e| e.group_memberships.iter().any(|m| m == &name))
+                    .count();
+                if affected > 0 {
+                    self.dialog_state = Some(DialogState::confirm(
+                        "Remove Group Memberships",
+                        &format!(
+                            "Remove '{}' from {} entr{}?",
+                            name,
+                            affected,
+                            if affected == 1 { "y" } else { "ies" }
+                        ),
+                    ));
+                    self.pending_action =
+                        Some(PendingAction::StripGroupMembership { group_name: name });
+                    self.mode = InputMode::Dialog;
+                }
             }
         }
+    }
+
+    /// Remove `group_name` from the `groups` field and memberships of every
+    /// entry that lists it.  All changes are pushed as one undo batch.
+    pub(super) fn strip_group_membership(&mut self, group_name: &str) {
+        let mut undo_items: Vec<UndoItem> = Vec::new();
+        for (key, entry) in self.database.entries.iter_mut() {
+            if !entry.group_memberships.iter().any(|m| m == group_name) {
+                continue;
+            }
+            undo_items.push(UndoItem::GroupMembershipChanged {
+                entry_key: key.clone(),
+                old_memberships: entry.group_memberships.clone(),
+                old_groups_field: entry.fields.get("groups").cloned(),
+            });
+            entry.group_memberships.retain(|m| m != group_name);
+            if entry.group_memberships.is_empty() {
+                entry.fields.shift_remove("groups");
+            } else {
+                entry
+                    .fields
+                    .insert("groups".to_string(), entry.group_memberships.join(","));
+            }
+            entry.dirty = true;
+        }
+        let n = undo_items.len();
+        if n > 0 {
+            self.push_undo(UndoItem::Batch(undo_items));
+        }
+        self.status_message = Some(format!(
+            "Removed '{}' from {} entr{}",
+            group_name,
+            n,
+            if n == 1 { "y" } else { "ies" }
+        ));
     }
 
     pub(super) fn finish_assign_groups(&mut self, entry_key: &str, selected_groups: Vec<String>) {

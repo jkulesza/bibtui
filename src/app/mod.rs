@@ -1827,6 +1827,9 @@ impl App {
             Some(PendingAction::DeleteGroup { path }) => {
                 self.finish_delete_group(path);
             }
+            Some(PendingAction::StripGroupMembership { group_name }) => {
+                self.strip_group_membership(&group_name);
+            }
             Some(PendingAction::AssignGroups { entry_key }) => {
                 if let Some(dialog) = dialog {
                     if let DialogKind::GroupAssign { groups } = &dialog.kind {

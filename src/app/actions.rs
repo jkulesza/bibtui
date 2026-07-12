@@ -252,6 +252,9 @@ pub(super) enum PendingAction {
     RenameColumn { index: usize },
     /// Confirmed the manual filename-sync preview — apply renames now.
     SyncFilenamesOnly,
+    /// Follow-up to a group deletion: confirm removing the deleted group's
+    /// name from every entry whose `groups` field still lists it.
+    StripGroupMembership { group_name: String },
     /// Quit-confirm dialog (`:q` with unsaved changes): confirm quits without
     /// saving.
     Quit,
