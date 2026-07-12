@@ -228,6 +228,7 @@ impl Default for GroupTree {
                 },
                 children: Vec::new(),
                 expanded: true,
+                original_fields: None,
             },
         }
     }
@@ -238,6 +239,12 @@ pub struct GroupNode {
     pub group: Group,
     pub children: Vec<GroupNode>,
     pub expanded: bool,
+    /// Type token and `\;`-split fields of the JabRef grouping line this
+    /// node was parsed from. JabRef 5 lines carry extra tail fields (color,
+    /// icon, description) that are not modeled here; keeping the full split
+    /// vector lets the serializer echo them back verbatim. `None` for groups
+    /// created in bibtui, which serialize in the default short form.
+    pub original_fields: Option<(String, Vec<String>)>,
 }
 
 #[derive(Debug, Clone)]

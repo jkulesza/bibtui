@@ -183,12 +183,15 @@ mod tests {
                                 group: Group { name: "Nuclear".to_string(), group_type: GroupType::Static },
                                 children: vec![],
                                 expanded: true,
+                                original_fields: None,
                             }
                         ],
                         expanded: true,
+                        original_fields: None,
                     }
                 ],
                 expanded: true,
+                original_fields: None,
             },
         }
     }

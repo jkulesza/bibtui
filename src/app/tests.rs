@@ -2861,6 +2861,7 @@ fn make_group_node(name: &str, group_type: GroupType, children: Vec<GroupNode>) 
         },
         children,
         expanded: true,
+        original_fields: None,
     }
 }
 

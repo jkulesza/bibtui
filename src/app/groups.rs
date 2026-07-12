@@ -99,6 +99,7 @@ impl App {
             },
             children: Vec::new(),
             expanded: true,
+            original_fields: None,
         };
         if let Some(parent) =
             find_group_node_mut(&mut self.database.groups.root, &parent_path)

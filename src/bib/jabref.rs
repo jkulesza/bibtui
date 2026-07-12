@@ -9,34 +9,75 @@ pub fn serialize_group_tree(tree: &GroupTree) -> String {
 }
 
 fn serialize_node(node: &GroupNode, depth: usize, lines: &mut Vec<String>) {
-    let line = match &node.group.group_type {
-        GroupType::AllEntries => format!("{} AllEntriesGroup:;", depth),
-        GroupType::Static => {
-            let expanded = if node.expanded { "1" } else { "0" };
-            format!(
-                "{} StaticGroup:{}\\;2\\;{}\\;\\;\\;\\;;",
-                depth, node.group.name, expanded
-            )
+    // Groups parsed from a JabRef file keep their original split fields
+    // (including tail fields like color, icon, and description that we do
+    // not model). Echo those back verbatim, updating only the slots that
+    // bibtui can actually mutate.
+    let line = if let Some((type_str, orig_fields)) = &node.original_fields {
+        let mut fields = orig_fields.clone();
+        let expanded = if node.expanded { "1" } else { "0" };
+        match (&node.group.group_type, type_str.as_str()) {
+            (GroupType::Static, "StaticGroup") => {
+                set_group_field(&mut fields, 0, node.group.name.clone());
+                set_group_field(&mut fields, 2, expanded.to_string());
+            }
+            (
+                GroupType::Keyword { field, search_term, case_sensitive, regex },
+                "KeywordGroup",
+            ) => {
+                set_group_field(&mut fields, 0, node.group.name.clone());
+                set_group_field(&mut fields, 2, field.clone());
+                set_group_field(&mut fields, 3, search_term.clone());
+                set_group_field(
+                    &mut fields,
+                    4,
+                    if *case_sensitive { "1" } else { "0" }.to_string(),
+                );
+                set_group_field(&mut fields, 5, if *regex { "1" } else { "0" }.to_string());
+                set_group_field(&mut fields, 6, expanded.to_string());
+            }
+            // AllEntries and unrecognized group types: write back unchanged.
+            _ => {}
         }
-        GroupType::Keyword {
-            field,
-            search_term,
-            case_sensitive,
-            regex,
-        } => {
-            let cs = if *case_sensitive { "1" } else { "0" };
-            let rx = if *regex { "1" } else { "0" };
-            let expanded = if node.expanded { "1" } else { "0" };
-            format!(
-                "{} KeywordGroup:{}\\;0\\;{}\\;{}\\;{}\\;{}\\;{}\\;\\;\\;\\;;",
-                depth, node.group.name, field, search_term, cs, rx, expanded
-            )
+        format!("{} {}:{};", depth, type_str, fields.join("\\;"))
+    } else {
+        match &node.group.group_type {
+            GroupType::AllEntries => format!("{} AllEntriesGroup:;", depth),
+            GroupType::Static => {
+                let expanded = if node.expanded { "1" } else { "0" };
+                format!(
+                    "{} StaticGroup:{}\\;2\\;{}\\;\\;\\;\\;;",
+                    depth, node.group.name, expanded
+                )
+            }
+            GroupType::Keyword {
+                field,
+                search_term,
+                case_sensitive,
+                regex,
+            } => {
+                let cs = if *case_sensitive { "1" } else { "0" };
+                let rx = if *regex { "1" } else { "0" };
+                let expanded = if node.expanded { "1" } else { "0" };
+                format!(
+                    "{} KeywordGroup:{}\\;0\\;{}\\;{}\\;{}\\;{}\\;{}\\;\\;\\;\\;;",
+                    depth, node.group.name, field, search_term, cs, rx, expanded
+                )
+            }
         }
     };
     lines.push(line);
     for child in &node.children {
         serialize_node(child, depth + 1, lines);
     }
+}
+
+/// Set `fields[idx] = value`, growing the vector with empty fields if needed.
+fn set_group_field(fields: &mut Vec<String>, idx: usize, value: String) {
+    if fields.len() <= idx {
+        fields.resize(idx + 1, String::new());
+    }
+    fields[idx] = value;
 }
 
 /// Parse a JabRef @Comment block and extract metadata into JabRefMeta.
@@ -182,6 +223,7 @@ fn parse_group_line(line: &str) -> GroupNode {
                 },
                 children: Vec::new(),
                 expanded: true,
+                original_fields: None,
             };
         }
     };
@@ -189,6 +231,9 @@ fn parse_group_line(line: &str) -> GroupNode {
     // JabRef uses \; as a field separator within group definitions
     // First unescape: replace \; with a placeholder, split on real ;, then restore
     let fields: Vec<String> = split_jabref_fields(rest);
+    // Keep the verbatim type token and split fields so serialization can
+    // echo back tail fields (color, icon, description, ...) unchanged.
+    let original_fields = Some((type_str.to_string(), fields.clone()));
 
     match type_str {
         "AllEntriesGroup" => GroupNode {
@@ -198,6 +243,7 @@ fn parse_group_line(line: &str) -> GroupNode {
             },
             children: Vec::new(),
             expanded: true,
+            original_fields,
         },
         "StaticGroup" => {
             let name = fields.first().cloned().unwrap_or_default();
@@ -213,6 +259,7 @@ fn parse_group_line(line: &str) -> GroupNode {
                 },
                 children: Vec::new(),
                 expanded,
+                original_fields,
             }
         }
         "KeywordGroup" => {
@@ -246,6 +293,7 @@ fn parse_group_line(line: &str) -> GroupNode {
                 },
                 children: Vec::new(),
                 expanded,
+                original_fields,
             }
         }
         _ => GroupNode {
@@ -255,6 +303,7 @@ fn parse_group_line(line: &str) -> GroupNode {
             },
             children: Vec::new(),
             expanded: true,
+            original_fields,
         },
     }
 }
@@ -358,6 +407,7 @@ mod tests {
                 group: Group { name: "All Entries".to_string(), group_type: GroupType::AllEntries },
                 children: vec![],
                 expanded: true,
+                original_fields: None,
             },
         };
         let out = serialize_group_tree(&tree);
@@ -373,8 +423,10 @@ mod tests {
                     group: Group { name: "MyGroup".to_string(), group_type: GroupType::Static },
                     children: vec![],
                     expanded: false,
+                    original_fields: None,
                 }],
                 expanded: true,
+                original_fields: None,
             },
         };
         let out = serialize_group_tree(&tree);
@@ -398,8 +450,10 @@ mod tests {
                     },
                     children: vec![],
                     expanded: true,
+                    original_fields: None,
                 }],
                 expanded: true,
+                original_fields: None,
             },
         };
         let out = serialize_group_tree(&tree);
@@ -500,14 +554,90 @@ mod tests {
                     },
                     children: vec![],
                     expanded: false,
+                    original_fields: None,
                 }],
                 expanded: true,
+                original_fields: None,
             },
         };
         let out = serialize_group_tree(&tree);
         assert!(out.contains("KeywordGroup:Fission"), "got: {}", out);
         // case_sensitive=1, regex=1, expanded=0
         assert!(out.contains("\\;1\\;1\\;0\\;"), "got: {}", out);
+    }
+
+    // ── original-line fidelity ────────────────────────────────────────────────
+
+    #[test]
+    fn test_static_group_tail_fields_roundtrip_byte_identical() {
+        // JabRef 5 StaticGroup line with color/icon/description tail fields.
+        let line = r"1 StaticGroup:Physics\;2\;1\;0x8a8a8aff\;icon-atom\;My description\;;";
+        let grouping = format!("0 AllEntriesGroup:;\n{}", line);
+        let mut meta = JabRefMeta::default();
+        meta.unknown_meta.insert("grouping".to_string(), grouping.clone());
+        let tree = build_group_tree(&meta);
+        let serialized = serialize_group_tree(&tree);
+        assert_eq!(serialized, grouping, "unchanged tree must round-trip byte-identically");
+    }
+
+    #[test]
+    fn test_static_group_expanded_toggle_changes_only_that_slot() {
+        let line = r"1 StaticGroup:Physics\;2\;1\;0x8a8a8aff\;icon-atom\;My description\;;";
+        let grouping = format!("0 AllEntriesGroup:;\n{}", line);
+        let mut meta = JabRefMeta::default();
+        meta.unknown_meta.insert("grouping".to_string(), grouping);
+        let mut tree = build_group_tree(&meta);
+        tree.root.children[0].expanded = false;
+        let serialized = serialize_group_tree(&tree);
+        let expected = format!(
+            "0 AllEntriesGroup:;\n{}",
+            r"1 StaticGroup:Physics\;2\;0\;0x8a8a8aff\;icon-atom\;My description\;;"
+        );
+        assert_eq!(serialized, expected, "only the expanded slot may change");
+    }
+
+    #[test]
+    fn test_keyword_group_tail_fields_roundtrip_byte_identical() {
+        let line =
+            r"1 KeywordGroup:Nuclear\;0\;keywords\;fission\;0\;0\;1\;0x00ff00ff\;icon-x\;Desc\;;";
+        let grouping = format!("0 AllEntriesGroup:;\n{}", line);
+        let mut meta = JabRefMeta::default();
+        meta.unknown_meta.insert("grouping".to_string(), grouping.clone());
+        let tree = build_group_tree(&meta);
+        let serialized = serialize_group_tree(&tree);
+        assert_eq!(serialized, grouping);
+    }
+
+    #[test]
+    fn test_unknown_group_type_roundtrips_verbatim() {
+        // A group type bibtui does not model must be echoed back unchanged.
+        let line = r"1 SearchGroup:Recent\;0\;year=2024\;0\;0\;1\;\;\;\;;";
+        let grouping = format!("0 AllEntriesGroup:;\n{}", line);
+        let mut meta = JabRefMeta::default();
+        meta.unknown_meta.insert("grouping".to_string(), grouping.clone());
+        let tree = build_group_tree(&meta);
+        let serialized = serialize_group_tree(&tree);
+        assert_eq!(serialized, grouping);
+    }
+
+    #[test]
+    fn test_programmatic_group_uses_default_short_form() {
+        // Groups created in bibtui (no original fields) keep the short form.
+        let tree = GroupTree {
+            root: GroupNode {
+                group: Group { name: "All Entries".to_string(), group_type: GroupType::AllEntries },
+                children: vec![GroupNode {
+                    group: Group { name: "New".to_string(), group_type: GroupType::Static },
+                    children: vec![],
+                    expanded: true,
+                    original_fields: None,
+                }],
+                expanded: true,
+                original_fields: None,
+            },
+        };
+        let out = serialize_group_tree(&tree);
+        assert_eq!(out, "0 AllEntriesGroup:;\n1 StaticGroup:New\\;2\\;1\\;\\;\\;\\;;");
     }
 
     // ── build_group_tree ──────────────────────────────────────────────────────

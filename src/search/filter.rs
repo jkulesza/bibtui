@@ -79,6 +79,7 @@ mod tests {
             group: Group { name: name.to_string(), group_type },
             children: vec![],
             expanded: true,
+            original_fields: None,
         }
     }
 
