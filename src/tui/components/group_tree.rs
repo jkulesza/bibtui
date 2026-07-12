@@ -20,8 +20,7 @@ pub struct FlatGroupItem {
     pub name: String,
     pub has_children: bool,
     pub expanded: bool,
-    /// Path indices to locate this node in the tree (reserved for future tree editing)
-    #[allow(dead_code)]
+    /// Path indices to locate this node in the tree.
     pub path: Vec<usize>,
     pub entry_count: Option<usize>,
 }

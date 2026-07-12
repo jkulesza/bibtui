@@ -6,14 +6,16 @@ impl App {
     pub(super) fn select_group(&mut self) {
         if let Some(item) = self.group_tree_state.selected_item() {
             let name = item.name.clone();
+            let path = item.path.clone();
 
             if self.group_tree_state.active_group.as_ref() == Some(&name) {
                 // Deselect
                 self.group_tree_state.active_group = None;
                 self.filtered_indices = None;
             } else {
-                // Find the group node and filter
-                if let Some(node) = find_group_node(&self.database.groups.root, &name) {
+                // Resolve the node by tree path, not by name, so two
+                // same-named groups in different subtrees filter correctly.
+                if let Some(node) = find_group_node_by_path(&self.database.groups.root, &path) {
                     let entries: Vec<&Entry> = self
                         .sorted_keys
                         .iter()
@@ -279,6 +281,20 @@ pub(super) fn find_group_node<'a>(node: &'a GroupNode, name: &str) -> Option<&'a
         }
     }
     None
+}
+
+/// Immutable path-based lookup: `path` is a list of child indices from the
+/// root (an empty path is the root itself).
+pub(super) fn find_group_node_by_path<'a>(
+    node: &'a GroupNode,
+    path: &[usize],
+) -> Option<&'a GroupNode> {
+    if path.is_empty() {
+        return Some(node);
+    }
+    node.children
+        .get(path[0])
+        .and_then(|child| find_group_node_by_path(child, &path[1..]))
 }
 
 pub(super) fn find_group_node_mut<'a>(

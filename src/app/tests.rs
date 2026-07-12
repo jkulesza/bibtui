@@ -2865,6 +2865,44 @@ fn make_group_node(name: &str, group_type: GroupType, children: Vec<GroupNode>) 
 }
 
 #[test]
+fn test_select_group_resolves_same_named_groups_by_path() {
+    let (mut app, _tmp) = make_app();
+    // Two Keyword groups both named "X" under different parents, with
+    // different match criteria: the first matches Smith2020 (Nature), the
+    // second matches Doe2021 (ACM Press).
+    let x_under_a = make_group_node("X", GroupType::Keyword {
+        field: "journal".to_string(),
+        search_term: "Nature".to_string(),
+        case_sensitive: false,
+        regex: false,
+    }, vec![]);
+    let x_under_b = make_group_node("X", GroupType::Keyword {
+        field: "publisher".to_string(),
+        search_term: "ACM".to_string(),
+        case_sensitive: false,
+        regex: false,
+    }, vec![]);
+    app.database.groups.root.children.push(
+        make_group_node("A", GroupType::Static, vec![x_under_a]));
+    app.database.groups.root.children.push(
+        make_group_node("B", GroupType::Static, vec![x_under_b]));
+    app.group_tree_state.refresh(&app.database.groups);
+
+    // Flat order: root, A, X(A), B, X(B). Select the second "X" (index 4).
+    assert_eq!(app.group_tree_state.flat_items[4].name, "X");
+    assert_eq!(app.group_tree_state.flat_items[4].path, vec![1, 0]);
+    app.group_tree_state.select(4);
+    app.select_group();
+
+    // Filters to B's X (Doe2021), not the first name-match (Smith2020).
+    let indices = app.filtered_indices.clone().expect("filter applied");
+    assert_eq!(indices.len(), 1);
+    // sorted_keys order: Doe2021, Smith2020 — Doe2021 is index 0.
+    let key = &app.sorted_keys[indices[0]];
+    assert_eq!(key, "Doe2021");
+}
+
+#[test]
 fn test_delete_group_offers_to_strip_memberships() {
     let (mut app, _tmp) = make_app();
     app.database
