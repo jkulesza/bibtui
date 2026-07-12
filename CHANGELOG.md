@@ -2,7 +2,45 @@
 
 ### 0.61.0
 
-- **Fix data loss and data-corruption bugs**: fix issues where attachments could be overwritten without warning, corrupt "von" last names, key collisions for duplicate add/duplicate entries, and fail-to-expand tildes
+Structural cleanups and UX polish, completing the full-codebase review begun in 0.60.2.
+
+- **Batch undo**: bulk name disambiguation and regenerate-all-citekeys revert with a single `u` instead of one field or key at a time
+- **Bare paths accepted in the `file` field** (`file = {paper.pdf}`), not just JabRef's `desc:path:TYPE` format
+- **Deleting a group offers to strip its name from member entries** (undoable as one step); declining keeps the old leave-in-place behavior
+- **Same-named groups in different subtrees** now filter correctly: sidebar selection resolves by tree path instead of first name match
+- **JabRef 5 group metadata preserved**: color/icon/description fields and unknown group types (e.g. `SearchGroup`) round-trip verbatim instead of being dropped on any group edit
+- **Imported DOIs keep their exact form**: URL cleanup (trailing-slash trim) applies to `url` only
+- **Validate-results scrolling uses the real viewport height** instead of a hardcoded 24 rows
+- **Validate and save share one pipeline**: the Validate popup's predictions now exactly match what a save produces, by construction
+- **Numeric-aware sorting**: `year`, `volume`, `number`, and `pages` sort numerically ("9" before "10"; page ranges by leading number)
+- **Panic hook restores the terminal**, so a crash no longer leaves the shell in raw mode on the alternate screen
+- **Background DOI/import fetches no longer redraw the UI ~10×/s** while pending
+- **Refactors**: `confirm_edit` if-chain converted to a match with per-action methods; name disambiguation extracted to its own module; duplicated helpers (entry-key lookup, entry-type list, rename planning) consolidated
+- **Test suite grows to 1,556 tests**; clippy remains warning-free
+
+### 0.60.3
+
+Correctness fixes with smaller blast radius, continuing the full-codebase review.
+
+- **`#` concatenation and `@String` references survive edits**: re-serializing a dirty entry reuses original source text for unchanged fields, so `journal = ieee_tps # {, Part B}` is no longer flattened by an unrelated field edit
+- **`@String` and `@Preamble` items round-trip byte-perfectly** (case and spacing preserved); `@String` with a missing `=` now errors instead of silently mis-parsing
+- **Malformed entries no longer abort loading**: the parser skips to the next `@`-item, preserves the bad span byte-for-byte, and reports a warning in the status bar
+- **Duplicate citation keys are uniquified at load** (`_dup2`, …) instead of silently dropping earlier copies; the startup warning reports the renames
+- **Saves are atomic**: written to a temp file and renamed into place, so a crash or full disk mid-save cannot truncate the library
+- **`field_order` defaults to `jabref`** so a default-config save no longer rewrites the whole file; unrecognized `field_order`/`entry_sort_order` config values now produce startup warnings; the example config's `alpha` typo corrected to `alphabetical`
+- **`:q` with unsaved changes opens a confirm dialog**; a dialog confirm with no pending action can no longer quit the app
+- **Normalization edge cases**: escaped `\$` no longer flips math-mode underscore escaping, page normalization only converts simple ranges (and handles en dashes) instead of every hyphen, blank-line collapsing is CRLF-aware
+- **`cleanup_url` documentation corrected** to match its behavior (trims a trailing slash; percent-encoding preserved)
+
+### 0.60.2
+
+Data-loss and data-corruption fixes from a full-codebase review.
+
+- **Filename sync no longer overwrites existing files**: renaming attachments to match citation keys skips (and reports) targets that already exist instead of silently replacing them
+- **Author-name normalization no longer corrupts names**: "von" particles attach to the last name (`van Rossum, Guido`), names with suffixes (`Jr.`, `III`) are left untouched instead of mangled, and brace-protected corporate names (`{U.S. Department of Energy}`) pass through unchanged
+- **`file` field round-trips safely**: `:`, `;`, and `\` in descriptions and paths are escaped on write and unescaped on read
+- **Add/Duplicate Entry no longer overwrite existing entries** on key collision: colliding keys get a numeric suffix (`New_Article_2`, `key_copy_2`)
+- **`~/path` values now work** for the config `bib_file` and CLI argument
 
 ### 0.60.1
 
