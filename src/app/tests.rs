@@ -3590,6 +3590,25 @@ fn test_handle_import_result_collision_gets_suffix() {
 }
 
 #[test]
+fn test_handle_import_result_doi_keeps_trailing_slash() {
+    let (mut app, _tmp) = make_app_no_sort();
+    let mut imported = imported_article();
+    // A trailing slash can be a meaningful part of a DOI; only whitespace
+    // may be trimmed. URLs still get their trailing slash removed.
+    imported.fields.insert("doi".to_string(), " 10.1000/xyz/ ".to_string());
+    imported.fields.insert("url".to_string(), "https://example.org/paper/".to_string());
+    app.handle_import_result(Ok(imported));
+    let entry = app
+        .database
+        .entries
+        .values()
+        .find(|e| e.raw_index == usize::MAX)
+        .unwrap();
+    assert_eq!(entry.fields["doi"], "10.1000/xyz/");
+    assert_eq!(entry.fields["url"], "https://example.org/paper");
+}
+
+#[test]
 fn test_handle_import_result_error_shows_dialog() {
     let (mut app, _tmp) = make_app_no_sort();
     app.handle_import_result(Err(crate::util::import::ImportError::Network(

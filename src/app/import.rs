@@ -85,13 +85,19 @@ impl App {
                     fields.insert("title".to_string(), format!("{{{}}}", titled));
                 }
 
-                // Normalise imported URL fields (percent-decode, strip trailing slash)
-                for url_field in &["url", "doi"] {
-                    if let Some(v) = fields.get(*url_field).cloned() {
-                        let cleaned = cleanup_url(&v);
-                        if cleaned != v {
-                            fields.insert(url_field.to_string(), cleaned);
-                        }
+                // Normalise the imported URL (strip trailing slash). A DOI is
+                // an identifier, not a URL — a trailing slash can be part of
+                // it, so only trim surrounding whitespace there.
+                if let Some(v) = fields.get("url").cloned() {
+                    let cleaned = cleanup_url(&v);
+                    if cleaned != v {
+                        fields.insert("url".to_string(), cleaned);
+                    }
+                }
+                if let Some(v) = fields.get("doi").cloned() {
+                    let trimmed = v.trim();
+                    if trimmed != v {
+                        fields.insert("doi".to_string(), trimmed.to_string());
                     }
                 }
 
