@@ -665,6 +665,9 @@ impl App {
     pub(super) fn regen_all_citekeys_impl(&mut self, push_undo: bool) -> usize {
         let keys: Vec<String> = self.database.entries.keys().cloned().collect();
         let mut renamed = 0usize;
+        // When push_undo is set, collect one undo item per rename and push them
+        // as a single Batch so a single undo reverts every key at once.
+        let mut undo_items: Vec<UndoItem> = Vec::new();
 
         for key in keys {
             let (base_new_key, skip) = {
@@ -691,7 +694,7 @@ impl App {
 
             if let Some(mut entry) = self.database.entries.shift_remove(&key) {
                 if push_undo {
-                    self.push_undo(UndoItem::CitekeyChanged {
+                    undo_items.push(UndoItem::CitekeyChanged {
                         old_key: key.clone(),
                         new_key: new_key.clone(),
                         entry_snapshot: entry.clone(),
@@ -706,6 +709,10 @@ impl App {
                     self.detail_entry_key = Some(new_key);
                 }
             }
+        }
+
+        if push_undo && !undo_items.is_empty() {
+            self.push_undo(UndoItem::Batch(undo_items));
         }
 
         renamed

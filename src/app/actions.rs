@@ -195,6 +195,10 @@ pub(super) enum UndoItem {
         /// (new_abs_path, old_abs_path) — reversed on undo.
         renames: Vec<(std::path::PathBuf, std::path::PathBuf)>,
     },
+    /// A group of changes made together by one command (e.g. disambiguating
+    /// many fields or regenerating all citation keys).  Undo reverts every
+    /// contained item, in reverse order, and counts as a single undo step.
+    Batch(Vec<UndoItem>),
 }
 
 pub(super) const MAX_UNDO: usize = 100;

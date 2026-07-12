@@ -2002,6 +2002,45 @@ impl App {
         };
 
         match item {
+            UndoItem::Batch(items) => {
+                let n = items.len();
+                // Revert contained items in reverse order so nested state is
+                // unwound the same way it was applied.
+                for it in items.into_iter().rev() {
+                    self.undo_apply(it);
+                }
+                self.status_message = Some(format!(
+                    "Undo: {} change{} reverted",
+                    n,
+                    if n == 1 { "" } else { "s" }
+                ));
+            }
+            other => self.undo_apply(other),
+        }
+
+        // Recompute dirty from the save-generation marker now that the stack shrank.
+        self.dirty = self.save_generation != Some(self.undo_stack.len());
+
+        // If we've returned to the exact saved state, clear per-entry dirty flags
+        // too so the entry-list indicator disappears.
+        if !self.dirty {
+            for entry in self.database.entries.values_mut() {
+                entry.dirty = false;
+            }
+        }
+    }
+
+    /// Apply a single undo item's revert without touching the undo stack or the
+    /// dirty/save-generation bookkeeping.  `undo` handles the stack pop, batch
+    /// expansion, and the final dirty recompute.
+    fn undo_apply(&mut self, item: UndoItem) {
+        match item {
+            UndoItem::Batch(items) => {
+                // Nested batches: revert each contained item in reverse order.
+                for it in items.into_iter().rev() {
+                    self.undo_apply(it);
+                }
+            }
             UndoItem::FieldChanged { entry_key, field_name, old_value } => {
                 if let Some(entry) = self.database.entries.get_mut(&entry_key) {
                     match old_value {
@@ -2119,17 +2158,6 @@ impl App {
                 } else {
                     self.status_message = Some(format!("Undo errors: {}", errors.join("; ")));
                 }
-            }
-        }
-
-        // Recompute dirty from the save-generation marker now that the stack shrank.
-        self.dirty = self.save_generation != Some(self.undo_stack.len());
-
-        // If we've returned to the exact saved state, clear per-entry dirty flags
-        // too so the entry-list indicator disappears.
-        if !self.dirty {
-            for entry in self.database.entries.values_mut() {
-                entry.dirty = false;
             }
         }
     }

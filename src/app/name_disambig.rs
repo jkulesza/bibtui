@@ -215,12 +215,9 @@ impl App {
         }
 
         let changed_count = mutations.len();
+        let mut undo_items: Vec<UndoItem> = Vec::with_capacity(changed_count);
         for (key, field, old_val, new_val) in mutations {
-            if self.undo_stack.len() >= MAX_UNDO {
-                self.undo_stack.remove(0);
-                self.save_generation = self.save_generation.and_then(|g: usize| g.checked_sub(1));
-            }
-            self.undo_stack.push(UndoItem::FieldChanged {
+            undo_items.push(UndoItem::FieldChanged {
                 entry_key: key.clone(),
                 field_name: field.clone(),
                 old_value: Some(old_val),
@@ -229,7 +226,10 @@ impl App {
                 entry.fields.insert(field, new_val);
                 entry.dirty = true;
             }
-            self.dirty = true;
+        }
+        if !undo_items.is_empty() {
+            // One batch so a single undo reverts the whole disambiguation.
+            self.push_undo(UndoItem::Batch(undo_items));
         }
 
         self.mode = InputMode::Normal;

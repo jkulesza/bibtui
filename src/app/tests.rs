@@ -1165,6 +1165,67 @@ fn test_apply_name_disambig() {
 }
 
 #[test]
+fn test_disambig_single_undo_restores_all_fields() {
+    let (mut app, _tmp) = make_app();
+    // Three variants of the same author so at least two fields get rewritten
+    // to the canonical (longest) form.
+    for (k, name, idx) in [
+        ("v1", "Smith, J.", 900usize),
+        ("v2", "Smith, Jo.", 901),
+        ("v3", "Smith, John", 902),
+    ] {
+        let mut f = IndexMap::new();
+        f.insert("author".to_string(), name.to_string());
+        app.database.entries.insert(k.to_string(), Entry {
+            entry_type: crate::bib::model::EntryType::Article,
+            citation_key: k.to_string(),
+            fields: f,
+            group_memberships: vec![],
+            raw_index: idx,
+            dirty: false,
+        });
+    }
+    app.handle_action(Action::DisambiguateNames);
+    let stack_before = app.undo_stack.len();
+    app.handle_action(Action::ApplyNameDisambig);
+    // At least two authors changed to the canonical form; exactly one undo item
+    // (a Batch) was pushed.
+    assert_eq!(app.undo_stack.len(), stack_before + 1, "one batch pushed");
+    let v1_after = app.database.entries.get("v1").unwrap().fields.get("author").unwrap().clone();
+    let v2_after = app.database.entries.get("v2").unwrap().fields.get("author").unwrap().clone();
+    assert_eq!(v1_after, "Smith, John");
+    assert_eq!(v2_after, "Smith, John");
+    // A single undo reverts every field at once.
+    app.undo();
+    assert_eq!(app.undo_stack.len(), stack_before, "batch popped as one item");
+    assert_eq!(app.database.entries.get("v1").unwrap().fields.get("author").unwrap(), "Smith, J.");
+    assert_eq!(app.database.entries.get("v2").unwrap().fields.get("author").unwrap(), "Smith, Jo.");
+}
+
+#[test]
+fn test_regen_all_single_undo_restores_all_keys() {
+    let mut tmp = NamedTempFile::new().unwrap();
+    write!(tmp, concat!(
+        "@Article{{oldkey1,\n  author={{Smith, John}},\n  title={{P1}},\n  year={{2020}},\n  journal={{Nature}},\n}}\n",
+        "@Article{{oldkey2,\n  author={{Doe, Jane}},\n  title={{P2}},\n  year={{2021}},\n  journal={{Science}},\n}}\n",
+    )).unwrap();
+    tmp.flush().unwrap();
+    let mut app = App::new(tmp.path().to_path_buf(), default_config()).unwrap();
+    let stack_before = app.undo_stack.len();
+    app.handle_action(Action::RegenAllCitekeys);
+    // Both keys were regenerated away from their originals.
+    assert!(!app.database.entries.contains_key("oldkey1"));
+    assert!(!app.database.entries.contains_key("oldkey2"));
+    assert_eq!(app.undo_stack.len(), stack_before + 1, "one batch pushed");
+    // A single undo restores both original keys.
+    app.undo();
+    assert_eq!(app.undo_stack.len(), stack_before, "batch popped as one item");
+    assert!(app.database.entries.contains_key("oldkey1"), "keys={:?}",
+        app.database.entries.keys().collect::<Vec<_>>());
+    assert!(app.database.entries.contains_key("oldkey2"));
+}
+
+#[test]
 fn test_disambig_remove_variant_closes_when_empty() {
     let (mut app, _tmp) = make_app();
     // Inject exactly two entries with different author names
