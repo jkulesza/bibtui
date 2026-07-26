@@ -1,5 +1,10 @@
 # Changelog
 
+### 0.61.1
+
+- **New `trim_whitespace` save action** strips leading/trailing whitespace from field values (`{University of Texas }` → `{University of Texas}`). Unlike the other text actions it applies to **every** field, not just the title/name lists, so padding on `doi`, `file`, `isbn`, and custom fields is cleaned too. It runs last in the pipeline so it also removes padding the earlier actions leave behind (e.g. `latex_cleanup` collapsing the `"  "` of `"  Foo"` to a single leading space). Only the ends are touched — a wrapped multi-line value keeps its internal newlines and indentation. Enabled by default; disable with `save_action_trim_whitespace: false` or the toggle in the `S` settings editor. The `v` validate dry-run attributes a change to `trim_whitespace` only when the rest of the pipeline left the field alone
+- **15 new tests**: 8 unit cases for the trim itself (leading, trailing, both sides, tabs/newlines, internal whitespace preserved, all-whitespace → empty, idempotence), 5 app-level (padding stripped on save, disabled config preserves padding, validate labels, validate predictions matching what save writes, ordering against space collapsing, end-to-end write to disk), and 2 settings-screen regression tests pinning the positional Save Actions row indices so an item inserted earlier can no longer silently repoint a row
+
 ### 0.61.0
 
 Structural cleanups and UX polish, completing the full-codebase review begun in 0.60.2.

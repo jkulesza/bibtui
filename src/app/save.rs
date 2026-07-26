@@ -688,6 +688,33 @@ pub(super) fn compute_save_transforms(
         }
     }
 
+    // 13. Trim padding whitespace.  Unlike every action above this one applies
+    //     to *all* fields, and it runs last so it also removes padding the
+    //     other actions leave behind (e.g. latex_cleanup collapsing the "  " of
+    //     "  Foo" down to a single leading space).
+    let mut trim_only: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    if cfg.save_action_trim_whitespace {
+        // Fields outside the lists above have not been touched yet; pull them
+        // into the working state so the trim reaches every field.
+        for (field, val) in &entry.fields {
+            if !field_state.contains_key(field.as_str()) {
+                field_state.insert(field.as_str(), val.clone());
+            }
+        }
+        for (field, val) in field_state.iter_mut() {
+            let trimmed = trim_field_whitespace(val);
+            if trimmed != *val {
+                // When the pipeline above left the value alone, padding is the
+                // only thing that changed — attribute it to the trim.
+                let orig = entry.fields.get(*field).map(String::as_str).unwrap_or("");
+                if val.as_str() == orig {
+                    trim_only.insert(*field);
+                }
+                *val = trimmed;
+            }
+        }
+    }
+
     // Emit one transform per field whose net value differs from the original.
     let mut transforms = Vec::new();
     for (field, new_val) in &field_state {
@@ -697,7 +724,11 @@ pub(super) fn compute_save_transforms(
                 field: field.to_string(),
                 old_value: orig,
                 new_value: new_val.clone(),
-                action_name: action_label_for_field(field, cfg),
+                action_name: if trim_only.contains(*field) {
+                    "trim_whitespace"
+                } else {
+                    action_label_for_field(field, cfg)
+                },
             });
         }
     }

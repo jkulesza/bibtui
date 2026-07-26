@@ -440,6 +440,13 @@ impl SettingsState {
                     index: if defaults.save.journal_field_content == "abbreviated" { 1 } else { 0 },
                 },
             },
+            SettingItem {
+                id: "save_actions.trim_whitespace".into(),
+                label: "trim_whitespace".into(),
+                description: "Strip leading/trailing whitespace from every field value on save ({University of Texas } → {University of Texas}).".into(),
+                value: SettingValue::Bool(config.save.save_action_trim_whitespace),
+                default: SettingValue::Bool(defaults.save.save_action_trim_whitespace),
+            },
         ];
 
         // ── Citekey Templates (one item per standard entry type) ──
@@ -499,7 +506,8 @@ impl SettingsState {
         //                                34  abbreviate_journal
         //                                35  regenerate_citekeys
         //  Display (continued):          36  journal_field_content
-        //                                37+ citekey templates
+        //  Save Actions (continued):     37  trim_whitespace
+        //                                38+ citekey templates
         let mut rows: Vec<SettingRow> = vec![
             SettingRow::Section("General"),
             SettingRow::Item(11), // bib_file
@@ -520,6 +528,7 @@ impl SettingsState {
             SettingRow::Item(8),  // field_order
             SettingRow::Item(9),  // sync_filenames
             SettingRow::Section("Save Actions"),
+            SettingRow::Item(37), // trim_whitespace
             SettingRow::Item(23), // escape_underscores
             SettingRow::Item(24), // escape_ampersands
             SettingRow::Item(25), // cleanup_url
@@ -923,6 +932,9 @@ impl SettingsState {
                 }
                 "save_actions.escape_underscores" => {
                     if let SettingValue::Bool(v) = item.value { config.save.save_action_escape_underscores = v; }
+                }
+                "save_actions.trim_whitespace" => {
+                    if let SettingValue::Bool(v) = item.value { config.save.save_action_trim_whitespace = v; }
                 }
                 "save_actions.escape_ampersands" => {
                     if let SettingValue::Bool(v) = item.value { config.save.save_action_escape_ampersands = v; }
@@ -1793,6 +1805,56 @@ mod tests {
         state.toggle_selected();
         let after = state.selected_value_str();
         assert_ne!(before, after);
+    }
+
+    /// The Save Actions rows are wired up by positional item index, so an item
+    /// inserted earlier in `items` would silently repoint a row at the wrong
+    /// setting.  Assert every Save Actions row resolves to a save_actions.* id.
+    #[test]
+    fn test_save_action_rows_point_at_save_action_items() {
+        let cfg = default_config();
+        let state = SettingsState::new(&cfg);
+
+        let start = state.rows.iter()
+            .position(|r| matches!(r, SettingRow::Section("Save Actions")))
+            .expect("Save Actions section must exist");
+        let mut seen = Vec::new();
+        for row in &state.rows[start + 1..] {
+            match row {
+                SettingRow::Item(i) => {
+                    let id = &state.items[*i].id;
+                    assert!(
+                        id.starts_with("save_actions."),
+                        "row Item({}) under Save Actions resolves to '{}'", i, id
+                    );
+                    seen.push(id.clone());
+                }
+                _ => break,
+            }
+        }
+        assert!(
+            seen.contains(&"save_actions.trim_whitespace".to_string()),
+            "trim_whitespace must be listed under Save Actions; got {:?}", seen
+        );
+    }
+
+    #[test]
+    fn test_toggle_trim_whitespace_persists_to_config() {
+        let cfg = default_config();
+        let mut state = SettingsState::new(&cfg);
+        let idx = state.items.iter()
+            .position(|i| i.id == "save_actions.trim_whitespace")
+            .expect("trim_whitespace item must exist");
+        state.cursor = state.rows.iter()
+            .position(|r| matches!(r, SettingRow::Item(i) if *i == idx))
+            .expect("trim_whitespace row must exist");
+
+        assert_eq!(state.selected_value_str(), "true");
+        state.toggle_selected();
+
+        let mut out = default_config();
+        state.apply_to_config(&mut out);
+        assert!(!out.save.save_action_trim_whitespace);
     }
 
     // ── wrap_text ─────────────────────────────────────────────────────────────

@@ -10,7 +10,7 @@ use crate::bib::citekey::generate_citekey;
 use crate::bib::normalize::{
     cleanup_url, escape_ampersands, escape_underscores, latex_cleanup,
     normalize_date, normalize_isbn, normalize_month, normalize_page_numbers,
-    ordinals_to_superscript, unicode_to_latex,
+    ordinals_to_superscript, trim_field_whitespace, unicode_to_latex,
 };
 use crate::bib::jabref::serialize_group_tree;
 use crate::bib::model::*;

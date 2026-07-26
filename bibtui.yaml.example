@@ -158,6 +158,9 @@ save:
   sync_filenames: false
 
   # ── Save actions (applied to all entries on save) ──────────────────────────
+  # Strip leading/trailing whitespace from every field value
+  # ({University of Texas } → {University of Texas})
+  save_action_trim_whitespace: true
   # Escape bare underscores (_) as \_ in text fields (math mode is skipped)
   save_action_escape_underscores: true
   # Escape bare ampersands (&) as \& in text and name fields

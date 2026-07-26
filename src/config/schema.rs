@@ -172,6 +172,9 @@ pub struct SaveConfig {
     /// Single file: `citekey.ext`. Multiple files: `citekey_1.ext`, `citekey_2.ext`, …
     pub sync_filenames: bool,
     // ── Save actions (applied to all entries on save) ────────────────────────
+    /// Strip leading/trailing whitespace from every field value
+    /// (`{University of Texas }` → `{University of Texas}`).
+    pub save_action_trim_whitespace: bool,
     /// Escape bare `_` as `\_` in text fields (skips math mode).
     pub save_action_escape_underscores: bool,
     /// Escape bare `&` as `\&` in text fields.
@@ -218,6 +221,7 @@ impl Default for SaveConfig {
             align_fields: true,
             field_order: "jabref".to_string(),
             sync_filenames: false,
+            save_action_trim_whitespace: true,
             save_action_escape_underscores: true,
             save_action_escape_ampersands: true,
             save_action_cleanup_url: true,

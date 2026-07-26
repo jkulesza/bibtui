@@ -2851,6 +2851,137 @@ fn test_action_label_for_field_no_actions_returns_save_action() {
     assert_eq!(action_label_for_field("title", &empty), "save_action");
 }
 
+// ── trim_whitespace save action ───────────────────────────────────────────
+
+/// Entry whose field values are padded with leading / trailing spaces.
+/// `doi` is deliberately outside the TEXT / NAMES lists so it can only be
+/// changed by the trim action.
+const PADDED_BIB: &str = r#"@Article{Pad2020,
+  author    = {Smith, John},
+  title     = { A Padded Title },
+  publisher = {University of Texas },
+  doi       = { 10.1234/abc},
+  note      = {  },
+  year      = {2020},
+}
+"#;
+
+fn make_padded_app(cfg: Config) -> (App, NamedTempFile) {
+    let mut tmp = NamedTempFile::new().unwrap();
+    write!(tmp, "{}", PADDED_BIB).unwrap();
+    tmp.flush().unwrap();
+    let path = tmp.path().to_path_buf();
+    let app = App::new(path, cfg).unwrap();
+    (app, tmp)
+}
+
+#[test]
+fn test_trim_whitespace_strips_padding_on_save() {
+    let (mut app, _tmp) = make_padded_app(default_config());
+    app.apply_save_actions();
+
+    let entry = &app.database.entries["Pad2020"];
+    assert_eq!(entry.fields["title"], "A Padded Title");
+    assert_eq!(entry.fields["publisher"], "University of Texas");
+    assert_eq!(entry.fields["doi"], "10.1234/abc");
+    // A value that is nothing but padding collapses to empty.
+    assert_eq!(entry.fields["note"], "");
+    // Unpadded values are left alone.
+    assert_eq!(entry.fields["author"], "Smith, John");
+    assert_eq!(entry.fields["year"], "2020");
+    assert!(entry.dirty, "trimmed entry must be marked dirty");
+}
+
+#[test]
+fn test_trim_whitespace_disabled_keeps_padding() {
+    let mut cfg = default_config();
+    cfg.save.save_action_trim_whitespace = false;
+    let (mut app, _tmp) = make_padded_app(cfg);
+    app.apply_save_actions();
+
+    let entry = &app.database.entries["Pad2020"];
+    assert_eq!(entry.fields["title"], " A Padded Title ");
+    assert_eq!(entry.fields["publisher"], "University of Texas ");
+    assert_eq!(entry.fields["doi"], " 10.1234/abc");
+}
+
+#[test]
+fn test_trim_whitespace_is_idempotent() {
+    let (mut app, _tmp) = make_padded_app(default_config());
+    app.apply_save_actions();
+    let first: Vec<(String, String)> = app.database.entries["Pad2020"]
+        .fields.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    app.apply_save_actions();
+    let second: Vec<(String, String)> = app.database.entries["Pad2020"]
+        .fields.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    assert_eq!(first, second);
+    // A second pass finds nothing to change.
+    assert!(app.compute_violations().is_empty());
+}
+
+#[test]
+fn test_trim_whitespace_reported_by_validate() {
+    let (app, _tmp) = make_padded_app(default_config());
+    let violations = app.compute_violations();
+
+    // A field only the trim touches is attributed to the trim action.
+    let doi = violations.iter().find(|v| v.field == "doi")
+        .expect("padded doi should be reported");
+    assert_eq!(doi.old_value, " 10.1234/abc");
+    assert_eq!(doi.new_value, "10.1234/abc");
+    assert_eq!(doi.action_name, "trim_whitespace");
+
+    // A TEXT field the other actions leave alone is attributed to it too.
+    let title = violations.iter().find(|v| v.field == "title")
+        .expect("padded title should be reported");
+    assert_eq!(title.new_value, "A Padded Title");
+    assert_eq!(title.action_name, "trim_whitespace");
+
+    // Unpadded fields are not reported.
+    assert!(!violations.iter().any(|v| v.field == "year"));
+}
+
+#[test]
+fn test_trim_whitespace_violations_match_apply() {
+    // compute_violations is a dry run of apply_save_actions: every reported
+    // new_value must be what the real save actually writes.
+    let (mut app, _tmp) = make_padded_app(default_config());
+    let violations = app.compute_violations();
+    app.apply_save_actions();
+    for v in &violations {
+        assert_eq!(
+            app.database.entries[&v.entry_key].fields[&v.field], v.new_value,
+            "violation for {}.{} did not match the applied value", v.entry_key, v.field
+        );
+    }
+}
+
+#[test]
+fn test_trim_whitespace_written_to_file() {
+    let mut cfg = default_config();
+    cfg.general.backup_on_save = false;
+    cfg.save.save_action_regenerate_citekeys = false;
+    let (mut app, tmp) = make_padded_app(cfg);
+    app.save();
+
+    let written = std::fs::read_to_string(tmp.path()).unwrap();
+    assert!(written.contains("{University of Texas}"), "got:\n{}", written);
+    assert!(written.contains("{A Padded Title}"), "got:\n{}", written);
+    assert!(!written.contains("Texas }"), "got:\n{}", written);
+}
+
+#[test]
+fn test_trim_whitespace_runs_after_space_collapsing() {
+    // latex_cleanup collapses "  " to " ", which can leave a single space of
+    // padding behind; the trim runs last so the field still ends up clean.
+    let mut tmp = NamedTempFile::new().unwrap();
+    write!(tmp, "@Article{{Sp2020,\n  title = {{  Spaced  Title  }},\n  year = {{2020}},\n}}\n").unwrap();
+    tmp.flush().unwrap();
+    let mut app = App::new(tmp.path().to_path_buf(), default_config()).unwrap();
+    app.apply_save_actions();
+    assert_eq!(app.database.entries["Sp2020"].fields["title"], "Spaced Title");
+}
+
 // ── collect_group_names / find_group_node ─────────────────────────────────
 
 fn make_group_node(name: &str, group_type: GroupType, children: Vec<GroupNode>) -> GroupNode {

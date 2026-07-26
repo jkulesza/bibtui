@@ -33,6 +33,7 @@ A terminal UI BibTeX manager written in Rust. Designed as a lightweight, keyboar
 - Import books by ISBN-10 or ISBN-13 (`I` or `:import <isbn>`): fetches metadata from OpenLibrary; accepts any common notation (bare digits, hyphens, spaces, mixed); stores ISBN-13 when available, falls back to ISBN-10
 - Per-file attachment management in the detail view: each attached file appears as its own navigable row; `e`/`Enter` edits the path, `f` adds a new attachment, `d` removes an individual file
 - URL fields preserve percent-encoding (e.g. `%20`) on save
+- Leading/trailing whitespace is stripped from every field value on save (`{University of Texas }` → `{University of Texas}`); disable with `save_action_trim_whitespace: false`
 - Duplicate citation keys are detected at load: later copies are renamed with a `_dupN` suffix (persisted on the next save) and a startup warning lists the affected keys
 - `w` fetches DOI/URL from Crossref via metadata (title, author, year) when none is present, in both the entry list and detail view; only sets `url` when it is distinct from the DOI; when multiple links are available (DOI, URL, ISBN) a picker dialog is shown
 - `w` opens an OpenLibrary search (`openlibrary.org/search?isbn=…`) for entries with an `isbn` field but no DOI or URL
@@ -341,6 +342,8 @@ save:
                                           # nonstandard subgroups on every save
   sync_filenames: false                   # rename attached files to match citation key on save
                                           # (preview dialog shown before applying)
+  save_action_trim_whitespace: true       # strip leading/trailing whitespace from every field
+                                          # value ({University of Texas } → {University of Texas})
   save_action_abbreviate_journal: false   # populate journal_abbrev (ISO 4) and journal_full
                                           # companion fields on save; rewrite journal per
                                           # journal_field_content (display/settings)

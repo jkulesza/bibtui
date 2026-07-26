@@ -1,3 +1,15 @@
+/// Strip leading and trailing whitespace from a field value.
+///
+/// Padding inside the field delimiters is not significant in BibTeX but leaks
+/// into rendered output and into citation-key / filename generation, so
+/// `{University of Texas }` becomes `{University of Texas}`.
+///
+/// Only the ends are touched — internal whitespace, including the newlines and
+/// indentation of a wrapped multi-line value, is left alone.
+pub fn trim_field_whitespace(value: &str) -> String {
+    value.trim().to_string()
+}
+
 /// Normalize month fields to standard BibTeX three-letter abbreviations.
 pub fn normalize_month(value: &str) -> String {
     let lower = value.to_lowercase();
@@ -555,6 +567,54 @@ pub fn normalize_isbn(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── trim_field_whitespace ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_trim_field_whitespace_trailing() {
+        assert_eq!(trim_field_whitespace("University of Texas "), "University of Texas");
+    }
+
+    #[test]
+    fn test_trim_field_whitespace_leading() {
+        assert_eq!(trim_field_whitespace(" University of Texas"), "University of Texas");
+    }
+
+    #[test]
+    fn test_trim_field_whitespace_both_sides() {
+        assert_eq!(trim_field_whitespace("   Los Alamos   "), "Los Alamos");
+    }
+
+    #[test]
+    fn test_trim_field_whitespace_tabs_and_newlines() {
+        assert_eq!(trim_field_whitespace("\n\tA Title\t\n"), "A Title");
+    }
+
+    #[test]
+    fn test_trim_field_whitespace_internal_preserved() {
+        // Only the ends are trimmed; a wrapped multi-line value keeps its
+        // internal newline and indentation.
+        assert_eq!(
+            trim_field_whitespace("  First line\n  second line  "),
+            "First line\n  second line"
+        );
+    }
+
+    #[test]
+    fn test_trim_field_whitespace_no_padding_unchanged() {
+        assert_eq!(trim_field_whitespace("Los Alamos"), "Los Alamos");
+    }
+
+    #[test]
+    fn test_trim_field_whitespace_all_whitespace_becomes_empty() {
+        assert_eq!(trim_field_whitespace("   "), "");
+    }
+
+    #[test]
+    fn test_trim_field_whitespace_idempotent() {
+        let once = trim_field_whitespace("  padded  ");
+        assert_eq!(trim_field_whitespace(&once), once);
+    }
 
     // ── normalize_month ───────────────────────────────────────────────────────
 
