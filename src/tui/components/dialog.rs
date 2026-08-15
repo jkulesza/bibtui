@@ -1,6 +1,6 @@
 use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap};
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Padding, Paragraph, Wrap};
 use ratatui::Frame;
 
 use crate::tui::theme::Theme;
@@ -205,49 +205,79 @@ fn fit_rename(old: &str, new: &str, budget: usize) -> (String, String) {
     (truncate_to(old, old_alloc), truncate_to(new, new_alloc))
 }
 
-pub fn render_dialog(f: &mut Frame, area: Rect, state: &mut DialogState, theme: &Theme) {
-    let dialog_width = match &state.kind {
+/// Columns a block title needs: `" {title} "` plus the two border columns.
+fn title_width(title: &str) -> usize {
+    title.chars().count() + 4
+}
+
+/// Width the dialog should occupy, in columns.
+///
+/// Every kind grows to fit its own content — title, message, or the widest
+/// list row — then is clamped to a sensible minimum and to the terminal width.
+fn dialog_width(kind: &DialogKind, area_width: u16) -> u16 {
+    let max_width = area_width.saturating_sub(4);
+    let needed = match kind {
+        DialogKind::Confirm { title, message } => {
+            // Message is rendered flush inside the borders: message + 2 borders,
+            // plus 2 columns of breathing room.
+            title_width(title).max(message.chars().count() + 4)
+        }
+        DialogKind::TypePicker { title, options } => {
+            // Rows render as "  {option}": 2 indent + 2 borders + 2 spare.
+            let widest = options.iter().map(|o| o.chars().count()).max().unwrap_or(0);
+            title_width(title).max(widest + 6)
+        }
         DialogKind::FileSyncPreview { renames } => {
-            // Grow to fit the widest "  old → new" line, then cap at terminal width.
             // "  " (2) + old + " → " (3) + new + 2 borders = content + 7
-            let widest = renames
+            renames
                 .iter()
                 .map(|(old, new)| old.chars().count() + new.chars().count() + 7)
                 .max()
-                .unwrap_or(30);
-            (widest as u16).max(44).min(area.width.saturating_sub(4))
+                .unwrap_or(30)
         }
-        DialogKind::GroupAssign { .. } => 50u16.min(area.width.saturating_sub(4)),
-        DialogKind::FileDeleteSelect { files, .. } => {
-            // Wide enough for "[x] {longest filename}" + 6 padding, min 44
+        DialogKind::GroupAssign { .. } => 50,
+        DialogKind::FileDeleteSelect { title, files } => {
+            // Rows render as "  [x] {filename}": 6 prefix + 2 borders + 2 spare.
             let widest = files.iter().map(|(n, _)| n.chars().count()).max().unwrap_or(0);
-            ((widest + 10) as u16).max(44).min(area.width.saturating_sub(4))
+            title_width(title).max(widest + 10)
         }
-        DialogKind::Message { .. } => 70u16.min(area.width.saturating_sub(4)),
-        _ => 40u16.min(area.width.saturating_sub(4)),
+        DialogKind::Message { .. } => 70,
     };
-    let dialog_height = match &state.kind {
-        DialogKind::Confirm { .. } => 5,
-        DialogKind::TypePicker { options, .. } => {
-            (options.len() as u16 + 4).min(area.height.saturating_sub(4))
+    let min_width = match kind {
+        DialogKind::Confirm { .. } | DialogKind::TypePicker { .. } => 40,
+        _ => 44,
+    };
+    (needed as u16).max(min_width).min(max_width)
+}
+
+/// Height the dialog should occupy, in rows, given its already-computed width.
+fn dialog_height(kind: &DialogKind, width: u16, area_height: u16) -> u16 {
+    let max_height = area_height.saturating_sub(4);
+    match kind {
+        DialogKind::Confirm { message, .. } => {
+            // inner width = width minus 2 border columns and 2 padding columns
+            let inner_w = (width as usize).saturating_sub(4).max(1);
+            let content_lines = word_wrap_line_count(message, inner_w) as u16;
+            // 2 borders + message + 1 blank separator + 1 [y]es/[n]o line
+            (content_lines + 4).max(5).min(max_height)
         }
-        DialogKind::GroupAssign { groups } => {
-            (groups.len() as u16 + 5).min(area.height.saturating_sub(4))
-        }
-        DialogKind::FileSyncPreview { renames } => {
-            (renames.len() as u16 + 4).min(area.height.saturating_sub(4))
-        }
-        DialogKind::FileDeleteSelect { files, .. } => {
-            (files.len() as u16 + 5).min(area.height.saturating_sub(4))
-        }
+        // One row per option plus the two border rows — no dead space below.
+        DialogKind::TypePicker { options, .. } => (options.len() as u16 + 2).min(max_height),
+        DialogKind::GroupAssign { groups } => (groups.len() as u16 + 5).min(max_height),
+        DialogKind::FileSyncPreview { renames } => (renames.len() as u16 + 4).min(max_height),
+        DialogKind::FileDeleteSelect { files, .. } => (files.len() as u16 + 5).min(max_height),
         DialogKind::Message { message, .. } => {
-            // inner width = dialog_width minus 2 border columns
-            let inner_w = (dialog_width as usize).saturating_sub(2).max(1);
+            let inner_w = (width as usize).saturating_sub(2).max(1);
             let content_lines = word_wrap_line_count(message, inner_w) as u16;
             // 2 borders + content + 1 blank separator + 1 hint line
-            (content_lines + 4).max(5).min(area.height.saturating_sub(4))
+            (content_lines + 4).max(5).min(max_height)
         }
-    };
+    }
+}
+
+pub fn render_dialog(f: &mut Frame, area: Rect, state: &mut DialogState, theme: &Theme) {
+    let dialog_width = dialog_width(&state.kind, area.width);
+    let dialog_height = dialog_height(&state.kind, dialog_width, area.height);
 
     let x = area.x + (area.width.saturating_sub(dialog_width)) / 2;
     let y = area.y + (area.height.saturating_sub(dialog_height)) / 2;
@@ -260,6 +290,7 @@ pub fn render_dialog(f: &mut Frame, area: Rect, state: &mut DialogState, theme: 
             let block = Block::default()
                 .borders(Borders::ALL)
                 .border_style(theme.border)
+                .padding(Padding::horizontal(1))
                 .title(format!(" {} ", title));
 
             let inner = block.inner(dialog_area);
@@ -274,7 +305,7 @@ pub fn render_dialog(f: &mut Frame, area: Rect, state: &mut DialogState, theme: 
                     Span::styled("[n]o", theme.label),
                 ]),
             ];
-            let para = Paragraph::new(lines);
+            let para = Paragraph::new(lines).wrap(Wrap { trim: true });
             f.render_widget(para, inner);
         }
         DialogKind::TypePicker { title, options } => {
@@ -283,9 +314,11 @@ pub fn render_dialog(f: &mut Frame, area: Rect, state: &mut DialogState, theme: 
                 .border_style(theme.border)
                 .title(format!(" {} ", title));
 
+            // Rows are "  {option}"; anything past the inner width is elided.
+            let budget = (dialog_area.width as usize).saturating_sub(4);
             let items: Vec<ListItem> = options
                 .iter()
-                .map(|opt| ListItem::new(Line::from(format!("  {}", opt))))
+                .map(|opt| ListItem::new(Line::from(format!("  {}", truncate_to(opt, budget)))))
                 .collect();
 
             let list = List::new(items)
@@ -328,11 +361,17 @@ pub fn render_dialog(f: &mut Frame, area: Rect, state: &mut DialogState, theme: 
                     theme.label,
                 )));
 
+            // Rows are "  [x] {name}"; anything past the inner width is elided.
+            let budget = (dialog_area.width as usize).saturating_sub(8);
             let items: Vec<ListItem> = files
                 .iter()
                 .map(|(name, delete)| {
                     let mark = if *delete { "[x]" } else { "[ ]" };
-                    ListItem::new(Line::from(format!("  {} {}", mark, name)))
+                    ListItem::new(Line::from(format!(
+                        "  {} {}",
+                        mark,
+                        truncate_to(name, budget)
+                    )))
                 })
                 .collect();
 
@@ -744,5 +783,110 @@ mod tests {
         let (old, new) = fit_rename("old.pdf", "new.pdf", 0);
         assert!(old.is_empty());
         assert!(new.is_empty());
+    }
+
+    // ── dialog sizing ──
+
+    #[test]
+    fn test_confirm_width_keeps_minimum_for_short_message() {
+        let d = DialogState::confirm("Delete Entry", "Delete 'Ab20'?");
+        assert_eq!(dialog_width(&d.kind, 200), 40);
+    }
+
+    #[test]
+    fn test_confirm_width_grows_to_fit_long_message() {
+        let msg = format!("Delete '{}'?", "k".repeat(80));
+        let d = DialogState::confirm("Delete Entry", &msg);
+        // message + 2 borders + 2 spare
+        assert_eq!(dialog_width(&d.kind, 200) as usize, msg.chars().count() + 4);
+    }
+
+    #[test]
+    fn test_confirm_width_capped_by_terminal() {
+        let msg = format!("Delete '{}'?", "k".repeat(200));
+        let d = DialogState::confirm("Delete Entry", &msg);
+        assert_eq!(dialog_width(&d.kind, 80), 76);
+    }
+
+    #[test]
+    fn test_confirm_width_grows_to_fit_long_title() {
+        let title = "T".repeat(60);
+        let d = DialogState::confirm(&title, "ok?");
+        assert_eq!(dialog_width(&d.kind, 200), 64);
+    }
+
+    #[test]
+    fn test_confirm_height_grows_when_message_wraps() {
+        // A message far wider than the terminal must wrap onto extra lines.
+        let msg = format!("Delete '{}'?", "k".repeat(200));
+        let d = DialogState::confirm("Delete Entry", &msg);
+        let w = dialog_width(&d.kind, 80);
+        assert!(dialog_height(&d.kind, w, 40) > 5);
+    }
+
+    #[test]
+    fn test_confirm_height_is_five_for_short_message() {
+        let d = DialogState::confirm("Delete Entry", "Delete 'Ab20'?");
+        let w = dialog_width(&d.kind, 200);
+        assert_eq!(dialog_height(&d.kind, w, 40), 5);
+    }
+
+    #[test]
+    fn test_type_picker_width_fits_longest_option() {
+        // The delete-with-file dialog: "Delete entry + {filename}".
+        let fname = "Some Very Long Attached Filename 2020.pdf";
+        let d = DialogState::type_picker_titled(
+            "Delete 'Smith2020'",
+            vec![
+                format!("Delete entry + {}", fname),
+                "Delete entry only".to_string(),
+                "Cancel".to_string(),
+            ],
+        );
+        let w = dialog_width(&d.kind, 200);
+        // 2 indent + option + 2 borders + 2 spare
+        assert_eq!(w as usize, "Delete entry + ".len() + fname.len() + 6);
+        // The full filename fits inside the borders.
+        assert!((w as usize) - 4 >= "Delete entry + ".len() + fname.len());
+    }
+
+    #[test]
+    fn test_type_picker_width_capped_by_terminal() {
+        let d = DialogState::type_picker_titled(
+            "Delete 'X'",
+            vec![format!("Delete entry + {}", "f".repeat(300))],
+        );
+        assert_eq!(dialog_width(&d.kind, 100), 96);
+    }
+
+    #[test]
+    fn test_type_picker_width_keeps_minimum_for_short_options() {
+        let d = DialogState::type_picker(vec!["Article".into(), "Book".into()]);
+        assert_eq!(dialog_width(&d.kind, 200), 40);
+    }
+
+    #[test]
+    fn test_file_delete_select_width_fits_title() {
+        let title = format!("Delete '{}'", "k".repeat(60));
+        let d = DialogState::file_delete_select(&title, vec![("a.pdf".into(), true)]);
+        assert_eq!(dialog_width(&d.kind, 200) as usize, title.chars().count() + 4);
+    }
+
+    #[test]
+    fn test_file_delete_select_width_fits_longest_filename() {
+        let name = "Another Quite Long Attachment Name.pdf";
+        let d = DialogState::file_delete_select(
+            "Delete 'X'",
+            vec![(name.to_string(), true), ("b.pdf".into(), true)],
+        );
+        assert_eq!(dialog_width(&d.kind, 200) as usize, name.len() + 10);
+    }
+
+    #[test]
+    fn test_dialog_width_survives_tiny_terminal() {
+        let d = DialogState::confirm("Delete Entry", "Delete 'Ab20'?");
+        // Narrower than the 4-column margin: must not panic or underflow.
+        assert_eq!(dialog_width(&d.kind, 2), 0);
+        assert_eq!(dialog_height(&d.kind, 0, 2), 0);
     }
 }

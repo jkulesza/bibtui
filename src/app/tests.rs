@@ -4070,6 +4070,61 @@ fn test_render_dialog_variants() {
 }
 
 #[test]
+fn test_render_delete_dialog_shows_full_filename() {
+    // Issue #56: the delete confirmation was pinned to 40 columns, clipping
+    // the attached filename. On a wide terminal it must be fully visible.
+    let fname = "A Rather Long Attached Document Name 2020.pdf";
+    let (mut app, _tmp) = make_app();
+    app.dialog_state = Some(DialogState::type_picker_titled(
+        "Delete 'Smith2020'",
+        vec![
+            format!("Delete entry + {}", fname),
+            "Delete entry only".to_string(),
+            "Cancel".to_string(),
+        ],
+    ));
+    app.mode = InputMode::Dialog;
+    let content = render_to_string(&mut app, 120, 30);
+    assert!(
+        content.contains(&format!("Delete entry + {}", fname)),
+        "delete dialog should show the whole filename, got:\n{}",
+        content
+    );
+    assert!(content.contains("Delete 'Smith2020'"), "title should be intact");
+}
+
+#[test]
+fn test_render_delete_confirm_shows_full_citekey() {
+    // Long citation keys must not be clipped out of the yes/no confirm either.
+    let key = "SomeExtremelyLongCitationKeyThatOverflowsFortyColumns2020";
+    let (mut app, _tmp) = make_app();
+    app.dialog_state = Some(DialogState::confirm(
+        "Delete Entry",
+        &format!("Delete '{}'?", key),
+    ));
+    app.mode = InputMode::Dialog;
+    let content = render_to_string(&mut app, 120, 30);
+    assert!(
+        content.contains(key),
+        "confirm dialog should show the whole citekey, got:\n{}",
+        content
+    );
+    assert!(content.contains("[y]es"), "prompt should still render");
+}
+
+#[test]
+fn test_render_delete_dialog_narrow_terminal_does_not_panic() {
+    let (mut app, _tmp) = make_app();
+    app.dialog_state = Some(DialogState::type_picker_titled(
+        "Delete 'Smith2020'",
+        vec![format!("Delete entry + {}", "f".repeat(200))],
+    ));
+    app.mode = InputMode::Dialog;
+    let _ = render_to_string(&mut app, 30, 10);
+    let _ = render_to_string(&mut app, 5, 3);
+}
+
+#[test]
 fn test_render_narrow_terminal_does_not_panic() {
     let (mut app, _tmp) = make_app();
     let _ = render_to_string(&mut app, 40, 10);
@@ -4083,6 +4138,109 @@ fn test_render_narrow_terminal_does_not_panic() {
 fn test_render_tiny_terminal_does_not_panic() {
     let (mut app, _tmp) = make_app();
     let _ = render_to_string(&mut app, 5, 2);
+}
+
+// ── Main screen render branches ──────────────────────────────────────────
+
+#[test]
+fn test_render_main_screen_with_filtered_indices() {
+    // A search filter narrows the list to a subset of sorted_keys.
+    let (mut app, _tmp) = make_app();
+    let smith_idx = app.sorted_keys.iter().position(|k| k == "Smith2020").unwrap();
+    app.filtered_indices = Some(vec![smith_idx]);
+    let content = render_to_string(&mut app, 100, 20);
+    assert!(content.contains("Smith2020"), "filtered entry should render");
+    assert!(!content.contains("Doe2021"), "filtered-out entry should not render");
+    assert!(content.contains("1 entries"), "status bar counts filtered entries");
+}
+
+#[test]
+fn test_render_main_screen_filtered_indices_out_of_range() {
+    // Stale indices past the end of sorted_keys must be skipped, not panic.
+    let (mut app, _tmp) = make_app();
+    app.filtered_indices = Some(vec![0, 99]);
+    let content = render_to_string(&mut app, 100, 20);
+    assert!(content.contains("0 entries") || content.contains("1 entries"));
+}
+
+#[test]
+fn test_render_main_screen_without_groups_sidebar() {
+    let (mut app, _tmp) = make_app();
+    app.show_groups = false;
+    let content = render_to_string(&mut app, 100, 20);
+    assert!(!content.contains("Groups"), "sidebar should be hidden");
+    assert!(content.contains("Smith2020"), "entry list still renders");
+}
+
+#[test]
+fn test_render_main_screen_search_mode_shows_search_bar() {
+    let (mut app, _tmp) = make_app();
+    app.mode = InputMode::Search;
+    app.search_bar_state.query = "smith".to_string();
+    let content = render_to_string(&mut app, 100, 20);
+    assert!(content.contains("smith"), "active search query should render");
+}
+
+#[test]
+fn test_render_main_screen_command_mode_shows_palette() {
+    let (mut app, _tmp) = make_app();
+    app.handle_action(Action::EnterCommand);
+    app.handle_action(Action::CommandChar('s'));
+    let content = render_to_string(&mut app, 100, 20);
+    assert!(content.contains(":s"), "command palette prompt should render");
+}
+
+#[test]
+fn test_render_main_screen_field_editor_overlay() {
+    let (mut app, _tmp) = make_app();
+    app.field_editor_state = Some(FieldEditorState::new("group name", "Physics"));
+    let content = render_to_string(&mut app, 100, 20);
+    assert!(content.contains("Physics"), "field editor overlay should render");
+}
+
+#[test]
+fn test_render_main_screen_citation_preview_overlay() {
+    let (mut app, _tmp) = make_app();
+    app.mode = InputMode::CitationPreview;
+    app.citation_preview_state = Some(CitationPreviewState {
+        citation: "J. Smith, My Paper, Nature, 2020.".to_string(),
+        entry_key: "Smith2020".to_string(),
+        style_name: "ieeetran".to_string(),
+    });
+    let content = render_to_string(&mut app, 100, 20);
+    assert!(content.contains("My Paper"), "citation preview should render");
+}
+
+#[test]
+fn test_render_main_screen_validate_results_overlay() {
+    let (mut app, _tmp) = make_app();
+    app.validate_results_state = Some(ValidateResultsState::new(vec![Violation {
+        entry_key: "Smith2020".to_string(),
+        field: "title".to_string(),
+        old_value: "my paper".to_string(),
+        new_value: "My Paper".to_string(),
+        action_name: "titlecase",
+    }]));
+    let content = render_to_string(&mut app, 100, 20);
+    assert!(content.contains("Smith2020"), "validate overlay should render");
+}
+
+#[test]
+fn test_render_main_screen_name_disambig_overlay() {
+    let (mut app, _tmp) = make_app();
+    app.handle_action(Action::DisambiguateNames);
+    let content = render_to_string(&mut app, 100, 20);
+    // With no similar names the overlay still renders its frame.
+    assert!(app.name_disambig_state.is_some());
+    assert!(!content.is_empty());
+}
+
+#[test]
+fn test_render_main_screen_help_overlay() {
+    let (mut app, _tmp) = make_app();
+    app.handle_action(Action::ShowHelp);
+    let content = render_to_string(&mut app, 100, 30);
+    assert!(content.contains("Help") || content.contains("help"));
 }
 
 // ── Clipboard / opener mocks (finding 2.6) ───────────────────────────────
@@ -4419,3 +4577,5 @@ fn test_edit_put_clipboard_multiline_collapsed() {
         "xLine One Line Two"
     );
 }
+
+
