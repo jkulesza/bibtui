@@ -148,6 +148,7 @@ The detail header shows the entry type and its currently assigned groups.
 | `F` | Sync attached filename(s) to current citation key (undoable) |
 | `d` | Delete selected field |
 | `T` | Convert selected field to title case |
+| `t` | Change entry type (e.g. Article → InProceedings; undoable) |
 | `a` | Normalize person-name fields (`author`, `editor`, etc.) to "Last, First" form |
 | `o` | Open attached file(s) in OS default viewer |
 | `w` | Open DOI / URL in default browser; if none exists, fetches DOI from metadata via Crossref |

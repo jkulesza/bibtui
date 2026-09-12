@@ -165,6 +165,7 @@ fn render_detail_help(f: &mut Frame, area: Rect, theme: &Theme) {
                 ("d",               "delete field / file"),
                 ("T",               "title-case field"),
                 ("N",               "normalize names"),
+                ("t",               "change entry type"),
                 ("c",               "regenerate cite key"),
                 ("F",               "sync filename to cite key"),
                 ("Tab",             "assign groups"),

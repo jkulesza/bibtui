@@ -826,6 +826,60 @@ fn test_add_entry_of_type_twice_keeps_both() {
 }
 
 #[test]
+fn test_change_entry_type_opens_type_picker_preselected() {
+    let (mut app, _tmp) = make_app();
+    app.detail_entry_key = Some("Smith2020".to_string()); // an Article
+    app.handle_action(Action::ChangeEntryType);
+    assert_eq!(app.mode, InputMode::Dialog);
+    let dialog = app.dialog_state.as_ref().unwrap();
+    assert!(matches!(
+        dialog.kind,
+        crate::tui::components::dialog::DialogKind::TypePicker { .. }
+    ));
+    if let crate::tui::components::dialog::DialogKind::TypePicker { options, .. } = &dialog.kind {
+        let selected = options.get(dialog.selected()).unwrap();
+        assert_eq!(selected, "Article");
+    }
+}
+
+#[test]
+fn test_apply_entry_type_change() {
+    let (mut app, _tmp) = make_app();
+    let key = "Smith2020".to_string();
+    assert_eq!(
+        app.database.entries[&key].entry_type.display_name(),
+        "Article"
+    );
+    app.apply_entry_type_change(&key, "InProceedings");
+    assert_eq!(
+        app.database.entries[&key].entry_type.display_name(),
+        "InProceedings"
+    );
+    assert!(app.database.entries[&key].dirty);
+    assert_eq!(app.mode, InputMode::Detail);
+}
+
+#[test]
+fn test_apply_entry_type_change_same_type_is_noop() {
+    let (mut app, _tmp) = make_app();
+    let key = "Smith2020".to_string();
+    app.apply_entry_type_change(&key, "Article");
+    assert!(!app.database.entries[&key].dirty);
+}
+
+#[test]
+fn test_undo_after_change_entry_type() {
+    let (mut app, _tmp) = make_app();
+    let key = "Smith2020".to_string();
+    app.apply_entry_type_change(&key, "InProceedings");
+    app.undo();
+    assert_eq!(
+        app.database.entries[&key].entry_type.display_name(),
+        "Article"
+    );
+}
+
+#[test]
 fn test_duplicate_entry_twice_keeps_three_distinct_entries() {
     let (mut app, _tmp) = make_app();
     let key = app.sorted_keys[0].clone();

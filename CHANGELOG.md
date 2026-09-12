@@ -1,5 +1,9 @@
 # Changelog
 
+### 0.61.3
+
+- **`t` in the entry Detail view changes the entry's type** (#58), e.g. Article → InProceedings. Opens a type picker pre-selected to the entry's current type; changing it re-categorises required/optional fields in the detail view and is undoable with `u`. This capability already existed as of 0.34.0 but was undocumented — added to the README's Detail view table and the in-app `?` help panel, and covered with new tests (type picker pre-selection, applying a change, no-op on re-selecting the same type, undo)
+
 ### 0.61.2
 
 - **Delete dialog sizes itself to its content** (#56). The confirmation shown when deleting an entry was pinned to 40 columns no matter how wide the terminal was, clipping the attached filename in `Delete entry + {file}` and long citation keys in `Delete '{key}'?`. Both variants now grow to fit their widest row and their title, capped at the terminal width. The multi-file checkbox variant also accounts for its `Delete '{key}'` title, which it previously ignored in favour of filename width alone
