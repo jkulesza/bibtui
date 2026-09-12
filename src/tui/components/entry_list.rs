@@ -180,6 +180,50 @@ fn file_indicator_cell(entry: &Entry, bib_dir: &Path) -> Cell<'static> {
     }
 }
 
+/// Collapse field-name aliases (see `get_field_value`/`get_sort_value`) to a
+/// single canonical name, so e.g. a sort on `"key"` is recognized as already
+/// visible when the `"citekey"` column is shown.
+fn canonical_field_name(field: &str) -> &str {
+    match field {
+        "citation_key" | "key" | "citekey" => "citekey",
+        "entrytype" | "type" => "entrytype",
+        other => other,
+    }
+}
+
+/// Build the columns to render: the configured columns, plus a temporary
+/// column appended on the right showing the active sort field's raw values
+/// when that field isn't already one of the visible columns. This gives
+/// visual confirmation that a sort on an otherwise-hidden field took effect.
+///
+/// The extra column is derived fresh from the current sort state on every
+/// call, so it disappears on its own as soon as the sort changes to a
+/// visible field or is cleared — there's no separate toggle to reset.
+pub fn columns_with_sort_preview(
+    columns: &[ColumnConfig],
+    sort_field: &str,
+    sort_ascending: bool,
+) -> Vec<ColumnConfig> {
+    if sort_field.is_empty() || sort_field == "none" {
+        return columns.to_vec();
+    }
+    let already_shown = columns
+        .iter()
+        .any(|c| canonical_field_name(&c.field) == canonical_field_name(sort_field));
+    if already_shown {
+        return columns.to_vec();
+    }
+    let mut result = columns.to_vec();
+    let arrow = if sort_ascending { '\u{2191}' } else { '\u{2193}' };
+    result.push(ColumnConfig {
+        field: sort_field.to_string(),
+        header: format!("{} {}", sort_field, arrow),
+        width: ColumnWidth::Percent(15),
+        max_width: None,
+    });
+    result
+}
+
 fn get_field_value(entry: &Entry, field: &str, abbreviate_authors_enabled: bool, abbreviate_journal_enabled: bool) -> String {
     match field {
         "dirty" => if entry.dirty { "●".to_string() } else { " ".to_string() },
@@ -233,6 +277,50 @@ fn apply_display_pipeline(value: &str, show_braces: bool, render_latex_enabled: 
 
 #[cfg(test)]
 mod tests {
+    // ── columns_with_sort_preview ────────────────────────────────────────
+
+    #[test]
+    fn test_sort_preview_column_added_for_hidden_field() {
+        let cols = crate::config::defaults::default_columns();
+        let result = columns_with_sort_preview(&cols, "note", true);
+        assert_eq!(result.len(), cols.len() + 1);
+        let last = result.last().unwrap();
+        assert_eq!(last.field, "note");
+        assert!(last.header.contains("note"));
+        assert!(last.header.contains('\u{2191}'), "ascending arrow expected");
+    }
+
+    #[test]
+    fn test_sort_preview_column_shows_descending_arrow() {
+        let cols = crate::config::defaults::default_columns();
+        let result = columns_with_sort_preview(&cols, "note", false);
+        let last = result.last().unwrap();
+        assert!(last.header.contains('\u{2193}'), "descending arrow expected");
+    }
+
+    #[test]
+    fn test_sort_preview_column_omitted_when_field_already_visible() {
+        let cols = crate::config::defaults::default_columns();
+        // "title" is already a default column.
+        let result = columns_with_sort_preview(&cols, "title", true);
+        assert_eq!(result.len(), cols.len());
+    }
+
+    #[test]
+    fn test_sort_preview_column_omitted_for_alias_of_visible_field() {
+        let cols = crate::config::defaults::default_columns();
+        // "key" is an alias of the already-visible "citekey" column.
+        let result = columns_with_sort_preview(&cols, "key", true);
+        assert_eq!(result.len(), cols.len());
+    }
+
+    #[test]
+    fn test_sort_preview_column_omitted_when_sort_is_none() {
+        let cols = crate::config::defaults::default_columns();
+        let result = columns_with_sort_preview(&cols, "none", true);
+        assert_eq!(result.len(), cols.len());
+    }
+
     use super::*;
     use crate::bib::model::{Entry, EntryType};
     use indexmap::IndexMap;

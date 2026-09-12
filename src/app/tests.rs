@@ -1952,6 +1952,40 @@ fn test_sort_command_reruns_search_after_sort_change() {
     let _ = before; // suppress unused warning
 }
 
+#[test]
+fn test_sort_command_preserves_active_group_filter() {
+    // Filtering on a group, then applying a sort, must keep the group
+    // filter active instead of falling back to the full (unfiltered) list.
+    let (mut app, _tmp) = make_app();
+    app.database.groups.root.children.push(
+        make_group_node("Nature Papers", GroupType::Keyword {
+            field: "journal".to_string(),
+            search_term: "Nature".to_string(),
+            case_sensitive: false,
+            regex: false,
+        }, vec![]));
+    app.group_tree_state.refresh(&app.database.groups);
+
+    app.apply_group_filter("Nature Papers");
+    assert_eq!(app.group_tree_state.active_group.as_deref(), Some("Nature Papers"));
+    let before = app.filtered_indices.clone().expect("group filter applied");
+    assert_eq!(before.len(), 1);
+    assert_eq!(app.sorted_keys[before[0]], "Smith2020");
+
+    // Change sort — sorted_keys order changes (year descending puts
+    // Doe2021 first instead of Smith2020).
+    app.handle_action(Action::EnterCommand);
+    for c in "sort year".chars() { app.handle_action(Action::CommandChar(c)); }
+    app.handle_action(Action::ExecuteCommand);
+
+    // The group filter must still be active and still resolve to Smith2020,
+    // not silently reset to showing every entry.
+    assert_eq!(app.group_tree_state.active_group.as_deref(), Some("Nature Papers"));
+    let after = app.filtered_indices.expect("group filter should still be active after sort");
+    assert_eq!(after.len(), 1);
+    assert_eq!(app.sorted_keys[after[0]], "Smith2020");
+}
+
 // ── find_group_node ───────────────────────────────────────────────────────
 
 #[test]

@@ -41,6 +41,16 @@ pub fn render_main_screen(f: &mut Frame, app: &mut App) {
         app.database.jabref_meta.file_directory.as_deref(),
     );
 
+    // Show the active sort field as an extra column on the right when it
+    // isn't already one of the configured columns, so the sort is visually
+    // confirmable. Derived fresh each frame, so it hides itself as soon as
+    // the sort changes to a visible field or is cleared.
+    let display_columns = crate::tui::components::entry_list::columns_with_sort_preview(
+        &app.config.display.columns,
+        &app.config.display.default_sort.field,
+        app.config.display.default_sort.ascending,
+    );
+
     // Main area: optional groups sidebar + entry list
     if app.show_groups {
         let sidebar_width = app.config.display.group_sidebar_width;
@@ -68,7 +78,7 @@ pub fn render_main_screen(f: &mut Frame, app: &mut App) {
             horizontal[1],
             &entries,
             &mut app.entry_list_state,
-            &app.config.display.columns,
+            &display_columns,
             &app.theme,
             is_list_focused,
             app.show_braces,
@@ -83,7 +93,7 @@ pub fn render_main_screen(f: &mut Frame, app: &mut App) {
             main_area,
             &entries,
             &mut app.entry_list_state,
-            &app.config.display.columns,
+            &display_columns,
             &app.theme,
             true,
             app.show_braces,

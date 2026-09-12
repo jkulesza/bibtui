@@ -1689,8 +1689,14 @@ impl App {
                     format!("Sorted by {} {}", self.config.display.default_sort.field, dir)
                 };
                 self.sorted_keys = sort_entries(&self.database.entries, &self.config);
-                // Re-run search so filtered_indices stays consistent with new sorted_keys
-                self.update_search();
+                // Re-run whichever filter is active so filtered_indices stays
+                // consistent with the new sorted_keys, instead of unconditionally
+                // falling back to the (possibly empty) search query.
+                if let Some(group_name) = self.group_tree_state.active_group.clone() {
+                    self.apply_group_filter(&group_name);
+                } else {
+                    self.update_search();
+                }
                 self.entry_list_state.select(0);
                 self.status_message = Some(msg);
             }

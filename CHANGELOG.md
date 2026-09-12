@@ -1,5 +1,10 @@
 # Changelog
 
+### 0.61.5
+
+- **Sorting no longer clears an active group filter** (#57). `:sort` re-sorted the entry list correctly, but its filter refresh only accounted for an active search query — with a group filter (and no search) it reset `filtered_indices` and silently showed every entry. `:sort` now re-applies the active group filter against the newly sorted list instead
+- **Ad-hoc sort-column preview** (#57): sorting by a field that isn't one of the configured columns now shows that field's values in a temporary column on the right, with a ↑/↓ direction indicator in the header, so the sort is visually confirmable. It's derived fresh from the current sort state on every render, so it disappears on its own once the sort changes to a visible field or is cleared
+
 ### 0.61.4
 
 - **Fix stale key labels in the Detail View `?` help panel**: "add field" was shown under `a` instead of `A`, "add file attachment" under `A` instead of `f`, and "normalize names" under `N` (actually bound to jump-to-previous-search-match) instead of `a`. The README's Detail view table already had these right; only the in-app help text had drifted

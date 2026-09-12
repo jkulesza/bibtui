@@ -276,6 +276,12 @@ Open with `:` from the entry list.
 
 Example: `:sort year`, `:sort author`, `:sort title`, `:sort citation_key`, `:sort none`
 
+Sorting keeps an active group filter in place — `:sort` re-applies the filter to the
+newly sorted list instead of falling back to all entries. If the sort field isn't one
+of the configured columns, its values are shown in a temporary column on the right so
+the sort is visually confirmable; the column disappears again once the sort changes to
+a visible field or is cleared.
+
 When `save.sync_filenames` is enabled, saving with `:w` or `:wq` shows a scrollable
 preview of any file renames that will be performed, with `[y]es` / `[n]o` to proceed
 or cancel.
