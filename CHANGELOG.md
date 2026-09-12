@@ -1,5 +1,9 @@
 # Changelog
 
+### 0.61.4
+
+- **Fix stale key labels in the Detail View `?` help panel**: "add field" was shown under `a` instead of `A`, "add file attachment" under `A` instead of `f`, and "normalize names" under `N` (actually bound to jump-to-previous-search-match) instead of `a`. The README's Detail view table already had these right; only the in-app help text had drifted
+
 ### 0.61.3
 
 - **`t` in the entry Detail view changes the entry's type** (#58), e.g. Article → InProceedings. Opens a type picker pre-selected to the entry's current type; changing it re-categorises required/optional fields in the detail view and is undoable with `u`. This capability already existed as of 0.34.0 but was undocumented — added to the README's Detail view table and the in-app `?` help panel, and covered with new tests (type picker pre-selection, applying a change, no-op on re-selecting the same type, undo)
