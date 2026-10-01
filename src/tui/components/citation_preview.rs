@@ -17,7 +17,7 @@ pub fn render_citation_preview(
     state: &CitationPreviewState,
     theme: &Theme,
 ) {
-    let width = (area.width * 3 / 4).min(90).max(40_u16.min(area.width));
+    let width = area.width.saturating_sub(4).max(40_u16.min(area.width));
 
     // Estimate how many lines the wrapped text will need so the box fits snugly.
     let inner_width = width.saturating_sub(2) as usize;

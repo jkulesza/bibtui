@@ -1,5 +1,11 @@
 # Changelog
 
+### 0.61.6
+
+- **Citekey editor uses the full terminal width** (#59): the field editor overlay was capped at 70 columns, truncating long citekey templates. It now spans the terminal width (minus a 2-column margin each side), as does the citekey template reference panel beneath it
+- **Other popups no longer width-capped**: the citation preview, name disambiguation, and validate results popups now use the full terminal width instead of fixed fractions capped at 90–110 columns
+- **Citekey help panel shows examples in full**: the example pattern column is sized to the longest pattern (shrinking only when needed so results like `→ SmithJonesWilliams2020` stay visible), the left column no longer takes a fixed half of the width, and the panel is tall enough to list all examples
+
 ### 0.61.5
 
 - **Sorting no longer clears an active group filter** (#57). `:sort` re-sorted the entry list correctly, but its filter refresh only accounted for an active search query — with a group filter (and no search) it reset `filtered_indices` and silently showed every entry. `:sort` now re-applies the active group filter against the newly sorted list instead

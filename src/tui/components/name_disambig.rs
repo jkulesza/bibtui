@@ -132,7 +132,7 @@ pub fn render_name_disambig(
     state: &mut NameDisambigState,
     theme: &Theme,
 ) {
-    let width = (area.width * 9 / 10).min(110).max(50_u16.min(area.width));
+    let width = area.width.saturating_sub(4).max(50_u16.min(area.width));
     let height = (area.height.saturating_sub(4)).max(8).min(area.height);
 
     let x = area.x + (area.width.saturating_sub(width)) / 2;

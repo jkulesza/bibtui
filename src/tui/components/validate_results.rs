@@ -46,7 +46,7 @@ pub fn render_validate_results(
     state: &mut ValidateResultsState,
     theme: &Theme,
 ) {
-    let width = (area.width * 4 / 5).min(110).max(50_u16.min(area.width));
+    let width = area.width.saturating_sub(4).max(50_u16.min(area.width));
     let height = (area.height.saturating_sub(4)).max(8).min(area.height);
 
     let x = area.x + (area.width.saturating_sub(width)) / 2;
