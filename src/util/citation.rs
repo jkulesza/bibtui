@@ -296,24 +296,52 @@ fn format_authors_ieee(raw: &str) -> String {
     }
 }
 
-/// Format one author name as "F. M. Last".
+/// Generational suffixes that follow the surname ("J. Doe, III").
+fn is_suffix(w: &str) -> bool {
+    let t = w.trim().trim_end_matches('.').to_lowercase();
+    matches!(t.as_str(), "jr" | "sr" | "ii" | "iii" | "iv" | "v" | "vi")
+}
+
+/// Join initials, surname and optional suffix as "F. M. Last[, Suffix]".
+fn assemble_ieee(given: &str, last: &str, suffix: &str) -> String {
+    let initials = build_initials(given);
+    let mut out = if initials.is_empty() { last.to_string() } else { format!("{} {}", initials, last) };
+    if !suffix.is_empty() {
+        out.push_str(", ");
+        out.push_str(suffix);
+    }
+    out
+}
+
+/// Format one author name as "F. M. Last" (with ", Suffix" appended if present).
 fn format_single_ieee(author: &str) -> String {
     let author = disp(author.trim());
-    if let Some(comma) = author.find(',') {
-        let last      = author[..comma].trim();
-        let given     = author[comma + 1..].trim();
-        let initials  = build_initials(given);
-        if initials.is_empty() { last.to_string() } else { format!("{} {}", initials, last) }
+    if author.contains(',') {
+        let parts: Vec<&str> = author.split(',').map(str::trim).collect();
+        match parts.len() {
+            // "Last, Suffix, First" (BibTeX) or "Last, First, Suffix"
+            n if n >= 3 => {
+                if is_suffix(parts[2]) && !is_suffix(parts[1]) {
+                    assemble_ieee(parts[1], parts[0], parts[2])
+                } else {
+                    assemble_ieee(parts[2], parts[0], parts[1])
+                }
+            }
+            _ => assemble_ieee(parts[1], parts[0], ""),
+        }
     } else {
-        let words: Vec<&str> = author.split_whitespace().collect();
+        let mut words: Vec<&str> = author.split_whitespace().collect();
+        let suffix = match words.last() {
+            Some(w) if words.len() > 2 && is_suffix(w) => words.pop().unwrap_or(""),
+            _ => "",
+        };
         match words.len() {
             0 => String::new(),
-            1 => words[0].to_string(),
+            1 => assemble_ieee("", words[0], suffix),
             _ => {
-                let last     = *words.last().expect("words.len() >= 2 in this arm");
-                let given    = words[..words.len() - 1].join(" ");
-                let initials = build_initials(&given);
-                if initials.is_empty() { last.to_string() } else { format!("{} {}", initials, last) }
+                let last  = *words.last().expect("words.len() >= 2 in this arm");
+                let given = words[..words.len() - 1].join(" ");
+                assemble_ieee(&given, last, suffix)
             }
         }
     }
@@ -363,6 +391,17 @@ mod tests {
     #[test]
     fn test_author_first_last() {
         assert_eq!(format_authors_ieee("John Smith"), "J. Smith");
+    }
+
+    #[test]
+    fn test_author_suffix_forms() {
+        assert_eq!(format_authors_ieee("Doe, III, John"), "J. Doe, III");
+        assert_eq!(format_authors_ieee("Doe, John, Jr."), "J. Doe, Jr.");
+        assert_eq!(format_authors_ieee("John Doe III"), "J. Doe, III");
+        assert_eq!(
+            format_authors_ieee("Doe, Jr., John A. and Smith, Alice"),
+            "J. A. Doe, Jr. and A. Smith"
+        );
     }
 
     #[test]

@@ -1,5 +1,9 @@
 # Changelog
 
+### 0.61.7
+
+- **Correctly format name suffixes in IEEEtranN citations** (#60): `Doe, III, John` rendered as "I. J. Doe" in the citation preview and spacebar-copy. Suffixes (Jr., Sr., II–VI) are now recognised in `Last, Suffix, First`, `Last, First, Suffix`, and `First Last Suffix` forms and rendered as "J. Doe, III"
+
 ### 0.61.6
 
 - **Citekey editor uses the full terminal width** (#59): the field editor overlay was capped at 70 columns, truncating long citekey templates. It now spans the terminal width (minus a 2-column margin each side), as does the citekey template reference panel beneath it
