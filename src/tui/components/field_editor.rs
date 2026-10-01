@@ -660,7 +660,7 @@ impl FieldEditorState {
 
     /// Render the floating editor overlay into `area`.
     pub fn render(&self, f: &mut Frame, area: Rect, theme: &Theme) {
-        let editor_width = (area.width.saturating_sub(4)).min(70);
+        let editor_width = area.width.saturating_sub(4);
         let x = area.x + (area.width.saturating_sub(editor_width)) / 2;
         // Month mode needs 4 inner rows (text + grid row 1 + grid row 2 + hint).
         let editor_height: u16 = if self.is_month { 6 } else { 3 };

@@ -41,12 +41,12 @@ pub fn render_settings_screen(f: &mut Frame, app: &mut App) {
         let editing_citekey = app.is_editing_citekey_template();
 
         if editing_citekey {
-            let editor_w = (area.width.saturating_sub(4)).min(70);
+            let editor_w = area.width.saturating_sub(4);
             let editor_x = area.x + (area.width.saturating_sub(editor_w)) / 2;
             let editor_y = area.y + area.height / 2 - 2;
             // Help panel sits immediately below the 4-row field editor.
             let help_y = editor_y + 4;
-            let help_h = area.height.saturating_sub(help_y).min(15);
+            let help_h = area.height.saturating_sub(help_y).min(17);
             if help_h >= 4 {
                 let help_area = Rect::new(editor_x, help_y, editor_w, help_h);
                 render_citekey_help(f, help_area, app);
@@ -77,7 +77,9 @@ fn render_citekey_help(f: &mut Frame, area: Rect, app: &App) {
     }
 
     // Split inner area into two columns: tokens (left) and modifiers (right).
-    let half = inner.width / 2;
+    // Left column only needs enough room for its longest row; the right column
+    // (examples) gets everything else when the terminal is wide.
+    let half = (inner.width / 2).max(46.min(inner.width.saturating_sub(1))).min(inner.width.saturating_sub(1));
     let cols = Layout::horizontal([
         Constraint::Length(half),
         Constraint::Min(1),
@@ -158,7 +160,11 @@ fn render_citekey_help(f: &mut Frame, area: Rect, app: &App) {
         right_lines.push(Line::from(Span::raw("")));
         right_lines.push(Line::from(Span::styled(" Examples", kw)));
         for (pat, result) in example_rows.iter().take(remaining.saturating_sub(1)) {
-            let pat_w = col2_w.saturating_sub(12);
+            // Pattern column is sized to the longest pattern, but shrinks so the
+            // result stays fully visible when space is tight.
+            let longest = example_rows.iter().map(|(p, _)| p.chars().count()).max().unwrap_or(0);
+            let result_w = example_rows.iter().map(|(_, r)| r.chars().count()).max().unwrap_or(0) + 1;
+            let pat_w = longest.min(col2_w.saturating_sub(result_w + 1));
             let pat_trunc: String = pat.chars().take(pat_w).collect();
             right_lines.push(Line::from(vec![
                 Span::styled(format!(" {:<w$}", pat_trunc, w = pat_w), kw),
