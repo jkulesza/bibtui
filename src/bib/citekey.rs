@@ -1599,3 +1599,16 @@ mod tests {
         assert!(!result.contains('"'));
     }
 }
+
+#[cfg(test)]
+mod help_example_tests {
+    use super::*;
+
+    #[test]
+    fn test_help_regex_example_produces_documented_output() {
+        let mut f = IndexMap::new();
+        f.insert("author".to_string(), "Smith, John".to_string());
+        f.insert("year".to_string(), "2024".to_string());
+        assert_eq!(generate_citekey(r#"[auth][year:regex("^..","")]"#, &f), "Smith24");
+    }
+}

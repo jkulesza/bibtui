@@ -1,5 +1,9 @@
 # Changelog
 
+### 0.61.9
+
+- **Fix citekey help regex example**: the Settings citekey template reference showed `[auth][year:regex("^..",...)]`, where `...` was a placeholder rather than valid syntax, so typing it literally silently did nothing. It now shows the working `[auth][year:regex("^..","")]` → `Smith24`, and a test asserts the documented output
+
 ### 0.61.8
 
 - **Dialog list navigation fixed**: `gg`, `G`, `Home`, `End`, `PageUp` and `PageDown` in list dialogs (e.g. Assign Groups) moved the underlying detail-view field instead of the dialog selection. They now move the dialog selection, and a single `g` waits for the second `g` instead of jumping immediately

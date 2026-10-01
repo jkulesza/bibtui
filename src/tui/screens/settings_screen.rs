@@ -139,7 +139,7 @@ fn render_citekey_help(f: &mut Frame, area: Rect, app: &App) {
         ("[journal:abbr]",                  "→ NSE"),
         ("[auth3][year]",                   "→ SmithJonesWilliams2020"),
         ("[title:lower:(8)]",               "→ toward_e"),
-        ("[auth][year:regex(\"^..\",...)]", "→ Smith24"),
+        ("[auth][year:regex(\"^..\",\"\")]", "→ Smith24"),
     ];
 
     let col2_w = (cols[1].width as usize).saturating_sub(1);
