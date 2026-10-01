@@ -1110,7 +1110,11 @@ impl App {
     }
 
     fn move_to_top(&mut self) {
-        if self.focus == Focus::Groups && self.show_groups {
+        if let Some(ref mut dialog) = self.dialog_state {
+            if dialog.option_count() > 0 {
+                dialog.select(0);
+            }
+        } else if self.focus == Focus::Groups && self.show_groups {
             self.group_tree_state.select(0);
         } else if let Some(ref mut detail) = self.detail_state {
             detail.move_to_top();
@@ -1120,7 +1124,12 @@ impl App {
     }
 
     fn move_to_bottom(&mut self) {
-        if self.focus == Focus::Groups && self.show_groups {
+        if let Some(ref mut dialog) = self.dialog_state {
+            let count = dialog.option_count();
+            if count > 0 {
+                dialog.select(count - 1);
+            }
+        } else if self.focus == Focus::Groups && self.show_groups {
             let count = self.group_tree_state.flat_items.len();
             if count > 0 {
                 self.group_tree_state.select(count - 1);

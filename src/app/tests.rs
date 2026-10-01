@@ -4667,3 +4667,18 @@ fn test_edit_put_clipboard_multiline_collapsed() {
 }
 
 
+
+#[test]
+fn test_dialog_move_to_top_bottom_and_page() {
+    let (mut app, _tmp) = make_app();
+    let groups: Vec<(String, bool)> = (0..30).map(|i| (format!("g{i}"), false)).collect();
+    app.dialog_state = Some(DialogState::group_assign(groups));
+    app.handle_action(Action::MoveToBottom);
+    assert_eq!(app.dialog_state.as_ref().unwrap().selected(), 29);
+    app.handle_action(Action::MoveToTop);
+    assert_eq!(app.dialog_state.as_ref().unwrap().selected(), 0);
+    app.handle_action(Action::PageDown);
+    assert_eq!(app.dialog_state.as_ref().unwrap().selected(), 20);
+    app.handle_action(Action::PageUp);
+    assert_eq!(app.dialog_state.as_ref().unwrap().selected(), 0);
+}

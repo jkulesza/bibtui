@@ -292,8 +292,17 @@ fn map_dialog_key(key: KeyEvent, last_key: Option<char>, is_message: bool) -> Op
         KeyCode::Char('b') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             Some(Action::PageUp)
         }
-        KeyCode::Char('g') => Some(Action::MoveToTop),
-        KeyCode::Char('G') => Some(Action::MoveToBottom),
+        KeyCode::Char('g') => {
+            if last_key == Some('g') {
+                Some(Action::MoveToTop)
+            } else {
+                None // Wait for second 'g'
+            }
+        }
+        KeyCode::Char('G') | KeyCode::End => Some(Action::MoveToBottom),
+        KeyCode::Home => Some(Action::MoveToTop),
+        KeyCode::PageDown => Some(Action::PageDown),
+        KeyCode::PageUp => Some(Action::PageUp),
         _ => None,
     }
 }
@@ -838,7 +847,11 @@ mod tests {
         assert_eq!(map_key(key(KeyCode::Char(' ')), &InputMode::Dialog, None, None, false, false), Some(Action::DialogToggle));
         assert_eq!(map_key(ctrl('f'), &InputMode::Dialog, None, None, false, false), Some(Action::PageDown));
         assert_eq!(map_key(ctrl('b'), &InputMode::Dialog, None, None, false, false), Some(Action::PageUp));
-        assert_eq!(map_key(key(KeyCode::Char('g')), &InputMode::Dialog, None, None, false, false), Some(Action::MoveToTop));
+        // Single 'g' waits for the second; 'gg' goes to the top.
+        assert_eq!(map_key(key(KeyCode::Char('g')), &InputMode::Dialog, None, None, false, false), None);
+        assert_eq!(map_key(key(KeyCode::Char('g')), &InputMode::Dialog, None, Some('g'), false, false), Some(Action::MoveToTop));
+        assert_eq!(map_key(key(KeyCode::Home), &InputMode::Dialog, None, None, false, false), Some(Action::MoveToTop));
+        assert_eq!(map_key(key(KeyCode::End), &InputMode::Dialog, None, None, false, false), Some(Action::MoveToBottom));
         assert_eq!(map_key(key(KeyCode::Char('G')), &InputMode::Dialog, None, None, false, false), Some(Action::MoveToBottom));
     }
 

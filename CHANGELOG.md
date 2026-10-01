@@ -1,5 +1,9 @@
 # Changelog
 
+### 0.61.8
+
+- **Dialog list navigation fixed**: `gg`, `G`, `Home`, `End`, `PageUp` and `PageDown` in list dialogs (e.g. Assign Groups) moved the underlying detail-view field instead of the dialog selection. They now move the dialog selection, and a single `g` waits for the second `g` instead of jumping immediately
+
 ### 0.61.7
 
 - **Correctly format name suffixes in IEEEtranN citations** (#60): `Doe, III, John` rendered as "I. J. Doe" in the citation preview and spacebar-copy. Suffixes (Jr., Sr., II–VI) are now recognised in `Last, Suffix, First`, `Last, First, Suffix`, and `First Last Suffix` forms and rendered as "J. Doe, III"
