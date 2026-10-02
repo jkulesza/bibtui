@@ -473,7 +473,7 @@ impl App {
                     // Reuse the original raw values for fields the user did not
                     // change (preserves `#` concatenation and @String references).
                     let original = match &self.database.raw_file.items[entry.raw_index] {
-                        RawItem::Entry(re) if re.citation_key == entry.citation_key => {
+                        RawItem::Entry(re) => {
                             Some(re)
                         }
                         _ => None,

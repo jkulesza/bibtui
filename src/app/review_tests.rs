@@ -485,3 +485,31 @@ fn canceled_save_preview_leaves_files_and_history_untouched() {
     assert!(!app.should_quit);
     assert!(dir.path().join("old.pdf").exists());
 }
+
+#[test]
+fn key_changes_preserve_original_field_expression_variants_across_saves() {
+    for mode in ["manual", "automatic", "duplicate"] {
+        let entry = "@Misc{A, journal=j, title={Hello} # {World}, note=\"quoted\", year={2020}}\n";
+        let input = format!("@String{{j = {{Journal}}}}\n{}{}", entry, if mode == "duplicate" { entry } else { "" });
+        let (mut app, _dir) = review_app(&input);
+        app.config.citekey.templates.insert("misc".into(), "New[year]".into());
+        if mode == "manual" {
+            app.detail_entry_key = Some("A".into());
+            app.regen_citekey();
+        } else if mode == "automatic" {
+            app.config.save.save_action_regenerate_citekeys = true;
+        }
+        for _ in 0..2 {
+            assert!(app.save());
+            let raw = parse_bib_file(&std::fs::read_to_string(&app.bib_path).unwrap()).unwrap();
+            for item in raw.items {
+                if let RawItem::Entry(entry) = item {
+                    let value = |name| &entry.fields.iter().find(|f| f.name == name).unwrap().value;
+                    assert!(matches!(value("journal"), RawFieldValue::Bare(_)), "{mode}");
+                    assert!(matches!(value("title"), RawFieldValue::Concat(_)), "{mode}");
+                    assert!(matches!(value("note"), RawFieldValue::Quoted(_)), "{mode}");
+                }
+            }
+        }
+    }
+}
