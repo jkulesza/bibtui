@@ -126,6 +126,7 @@ pub struct App {
 
     save_io: Box<dyn crate::util::persistence::SaveIo>,
     saved_contents: Option<Vec<u8>>,
+    pending_save: Option<SavePlan>,
 
     // System integrations, swappable for tests
     pub clipboard: Box<dyn Clipboard>,
@@ -221,6 +222,7 @@ impl App {
             opener: Box::new(SystemOpener),
             save_io: Box::new(crate::util::persistence::FileSaveIo),
             saved_contents,
+            pending_save: None,
             bib_path,
             mode: InputMode::Normal,
             focus: Focus::List,
@@ -289,6 +291,7 @@ impl App {
             opener: Box::new(SystemOpener),
             save_io: Box::new(crate::util::persistence::FileSaveIo),
             saved_contents: None,
+            pending_save: None,
             bib_path: PathBuf::new(), // filled in when the user confirms a path
             mode: InputMode::Editing,
             focus: Focus::List,
@@ -939,6 +942,7 @@ impl App {
             Action::CommandTabCompleteReverse => self.do_sort_tab_complete_dir(false),
             Action::DialogConfirm => self.handle_dialog_confirm(),
             Action::DialogCancel => {
+                self.pending_save = None;
                 self.dialog_state = None;
                 self.pending_action = None;
                 self.mode = if self.detail_state.is_some() {

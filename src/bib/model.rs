@@ -3,7 +3,7 @@ use std::fmt;
 
 // ── Raw layer: preserves every byte of the original file ──
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct RawBibFile {
     pub items: Vec<RawItem>,
     /// Non-fatal problems encountered while parsing. Malformed `@`-items are
@@ -14,13 +14,13 @@ pub struct RawBibFile {
 
 /// A recoverable parse problem: the 1-based line where a malformed item began
 /// and a human-readable description.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ParseWarning {
     pub line: usize,
     pub message: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum RawItem {
     /// Text between entries (whitespace, bare `%` comments, semicolons, etc.)
     Preamble(String),
@@ -42,7 +42,7 @@ pub enum RawItem {
     Entry(RawEntry),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RawEntry {
     /// Preserved case, e.g. "Article", "TechReport"
     pub entry_type: String,
@@ -54,13 +54,13 @@ pub struct RawEntry {
     pub raw_text: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RawField {
     pub name: String,
     pub value: RawFieldValue,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum RawFieldValue {
     Braced(String),
     Quoted(String),
@@ -101,7 +101,7 @@ impl RawFieldValue {
 
 // ── Semantic layer: for display, search, edit ──
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Database {
     pub entries: IndexMap<String, Entry>,
     pub groups: GroupTree,
@@ -113,7 +113,7 @@ pub struct Database {
     pub duplicate_keys: Vec<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Entry {
     pub entry_type: EntryType,
     pub citation_key: String,
@@ -213,7 +213,7 @@ impl fmt::Display for EntryType {
 
 // ── Groups ──
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct GroupTree {
     pub root: GroupNode,
 }
@@ -234,7 +234,7 @@ impl Default for GroupTree {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct GroupNode {
     pub group: Group,
     pub children: Vec<GroupNode>,
@@ -247,7 +247,7 @@ pub struct GroupNode {
     pub original_fields: Option<(String, Vec<String>)>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Group {
     pub name: String,
     pub group_type: GroupType,
@@ -267,7 +267,7 @@ pub enum GroupType {
 
 // ── JabRef Metadata ──
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct JabRefMeta {
     pub database_type: Option<String>,
     pub file_directory: Option<String>,

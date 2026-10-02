@@ -7,11 +7,50 @@ use super::*;
 pub(super) enum SaveError {
     #[error("Save refused: bibliography changed outside bibtui; reload it before saving")]
     ExternalChange,
+    #[error("Save failed: {0}")]
+    Plan(String),
 
     #[error("Backup failed: {0}")]
     Backup(std::io::Error),
     #[error("Save failed: {0}")]
     Write(std::io::Error),
+}
+
+
+#[derive(Clone)]
+struct SaveState {
+    database: Database,
+    undo: Vec<UndoItem>,
+    generation: Option<usize>,
+    deleted: Vec<usize>,
+    sorted: Vec<String>,
+    detail_key: Option<String>,
+    dirty: bool,
+}
+
+impl SaveState {
+    fn capture(app: &App) -> Self {
+        Self { database: app.database.clone(), undo: app.undo_stack.clone(),
+            generation: app.save_generation, deleted: app.deleted_raw_indices.clone(),
+            sorted: app.sorted_keys.clone(), detail_key: app.detail_entry_key.clone(), dirty: app.dirty }
+    }
+    fn restore(self, app: &mut App) {
+        app.database = self.database;
+        app.undo_stack = self.undo;
+        app.save_generation = self.generation;
+        app.deleted_raw_indices = self.deleted;
+        app.sorted_keys = self.sorted;
+        app.detail_entry_key = self.detail_key;
+        app.dirty = self.dirty;
+    }
+}
+
+pub(super) struct SavePlan {
+    original: Database,
+    path: PathBuf,
+    staged: SaveState,
+    output: String,
+    renames: Vec<PlannedRename>,
 }
 
 
@@ -187,46 +226,38 @@ impl App {
         }
     }
 
-    /// Begin a save, showing a filename-sync preview dialog first if any files
-    /// would be renamed.  `and_quit` causes the app to exit after saving.
+    /// Preview and execute the same immutable plan based on final field values
+    /// and citation keys. No files or live document state change during planning.
     pub(super) fn request_save(&mut self, and_quit: bool) {
-        let renames = self.compute_sync_renames(false);
-        if renames.is_empty() {
-            if self.save() && and_quit {
-                self.should_quit = true;
+        let plan = match self.prepare_save_plan() {
+            Ok(plan) => plan,
+            Err(error) => {
+                self.status_message = Some(error.to_string());
+                self.dirty = true;
+                return;
             }
+        };
+        let preview: Vec<_> = plan.renames.iter().map(|p| (
+            p.old_abs.display().to_string(), p.new_abs.display().to_string()
+        )).collect();
+        self.pending_save = Some(plan);
+        if preview.is_empty() {
+            if self.save() && and_quit { self.should_quit = true; }
         } else {
-            self.dialog_state = Some(DialogState::file_sync_preview(renames));
-            self.pending_action = Some(if and_quit {
-                PendingAction::SaveAndQuit
-            } else {
-                PendingAction::Save
-            });
+            self.dialog_state = Some(DialogState::file_sync_preview(preview));
+            self.pending_action = Some(if and_quit { PendingAction::SaveAndQuit } else { PendingAction::Save });
             self.mode = InputMode::Dialog;
         }
     }
 
     pub(super) fn save(&mut self) -> bool {
-        // Save transformations are staged in memory. On failure restore every
-        // persistence-related field, including raw indices and deletion queues.
-        let previous_database = self.database.clone();
-        let previous_undo = self.undo_stack.clone();
-        let previous_generation = self.save_generation;
-        let previous_deleted = self.deleted_raw_indices.clone();
-        let previous_sorted = self.sorted_keys.clone();
-        let previous_detail = self.detail_entry_key.clone();
-        match self.try_save() {
+        let plan = self.pending_save.take().map(Ok).unwrap_or_else(|| self.prepare_save_plan());
+        match plan.and_then(|plan| self.execute_save_plan(plan)) {
             Ok(()) => {
                 self.status_message = Some(format!("Saved to {}", self.bib_path.display()));
                 true
             }
             Err(error) => {
-                self.database = previous_database;
-                self.undo_stack = previous_undo;
-                self.save_generation = previous_generation;
-                self.deleted_raw_indices = previous_deleted;
-                self.sorted_keys = previous_sorted;
-                self.detail_entry_key = previous_detail;
                 self.dirty = true;
                 self.status_message = Some(error.to_string());
                 false
@@ -236,60 +267,138 @@ impl App {
 
     fn verify_saved_contents(&self) -> std::result::Result<(), SaveError> {
         let current = self.save_io.read(&self.bib_path).map_err(SaveError::Write)?;
-        if current != self.saved_contents {
-            return Err(SaveError::ExternalChange);
+        if current != self.saved_contents { return Err(SaveError::ExternalChange); }
+        Ok(())
+    }
+
+    fn prepare_save_plan(&mut self) -> std::result::Result<SavePlan, SaveError> {
+        self.verify_saved_contents()?;
+        let before = SaveState::capture(self);
+        self.apply_save_actions();
+        if self.config.save.save_action_regenerate_citekeys && self.regen_all_citekeys_impl(true) > 0 {
+            self.sorted_keys = sort_entries(&self.database.entries, &self.config);
+        }
+        let file_dir = effective_file_dir(&self.bib_path, self.database.jabref_meta.file_directory.as_deref());
+        let mut renames = Vec::new();
+        let mut undo = Vec::new();
+        if self.config.save.sync_filenames {
+            for (key, entry) in &mut self.database.entries {
+                let Some(old_value) = entry.fields.get("file").cloned() else { continue };
+                let mut files = parse_file_field(&old_value);
+                let plans = plan_filename_renames(&entry.citation_key, &files, &file_dir);
+                if plans.is_empty() { continue; }
+                let undo_renames = plans.iter().map(|p| (p.new_abs.clone(), p.old_abs.clone())).collect();
+                for plan in &plans { files[plan.index].path = plan.new_rel_path.clone(); }
+                entry.fields.insert("file".into(), serialize_file_field(&files));
+                entry.dirty = true;
+                undo.push(UndoItem::FilenamesSynced { entry_key: key.clone(), old_file_value: old_value, renames: undo_renames });
+                renames.extend(plans);
+            }
+        }
+        if !undo.is_empty() { self.push_undo(UndoItem::Batch(undo)); }
+        self.sync_dirty_entries();
+        self.sort_entries_for_save();
+        let output = normalize_blank_lines(write_bib_file(&self.database.raw_file));
+        let plan = SavePlan {
+            original: before.database.clone(), path: self.bib_path.clone(),
+            staged: SaveState::capture(self), output, renames,
+        };
+        before.restore(self);
+        self.validate_save_renames(&plan)?;
+        Ok(plan)
+    }
+
+    fn validate_save_renames(&self, plan: &SavePlan) -> std::result::Result<(), SaveError> {
+        use std::collections::{HashMap, HashSet};
+        if plan.renames.is_empty() { return Ok(()); }
+        let file_dir = effective_file_dir(&self.bib_path, self.database.jabref_meta.file_directory.as_deref());
+        let mut owners: HashMap<PathBuf, usize> = HashMap::new();
+        for entry in self.database.entries.values() {
+            if let Some(value) = entry.fields.get("file") {
+                for file in parse_file_field(value) {
+                    let path = crate::util::open::resolve_file_path(&file.path, &file_dir);
+                    let path = path.canonicalize().unwrap_or(path);
+                    *owners.entry(path).or_default() += 1;
+                }
+            }
+        }
+        let mut targets = HashSet::new();
+        for rename in &plan.renames {
+            let source = rename.old_abs.canonicalize().map_err(|error| SaveError::Plan(format!("attachment {}: {}", rename.old_abs.display(), error)))?;
+            if owners.get(&source).copied().unwrap_or(0) > 1 {
+                return Err(SaveError::Plan(format!("shared attachment {} cannot be renamed to multiple citation keys", source.display())));
+            }
+            if !targets.insert(rename.new_abs.clone()) || std::fs::symlink_metadata(&rename.new_abs).is_ok() {
+                return Err(SaveError::Plan(format!("attachment target {} already exists or is used twice", rename.new_abs.display())));
+            }
         }
         Ok(())
     }
 
-    fn try_save(&mut self) -> std::result::Result<(), SaveError> {
-        self.verify_saved_contents()?;
-        // Rename attached files to match citation keys before serialising.
-        self.sync_filenames(false);
-
-        // Apply save actions (field normalisations) to all entries.
-        self.apply_save_actions();
-
-        // Regenerate all citation keys from templates (after field normalisations
-        // so the keys are based on the final, normalised field values).
-        if self.config.save.save_action_regenerate_citekeys {
-            // Record automatic renames as a batch so older undo records are
-            // reached only after their original keys have been restored.
-            let n = self.regen_all_citekeys_impl(true);
-            if n > 0 {
-                self.sorted_keys = sort_entries(&self.database.entries, &self.config);
-            }
+    fn execute_save_plan(&mut self, plan: SavePlan) -> std::result::Result<(), SaveError> {
+        if self.database != plan.original || self.bib_path != plan.path {
+            return Err(SaveError::Plan("library changed during the preview; save again to review a new plan".into()));
         }
-
-        // Backup — only when the file already exists (skip for brand-new libraries).
-        if self.config.general.backup_on_save && self.bib_path.exists() {
-            let backup_path = self.bib_path.with_extension("bib.bak");
-            if let Err(e) = self.save_io.backup(&self.bib_path, &backup_path) {
-                return Err(SaveError::Backup(e));
-            }
-        }
-
-        // Update raw file for dirty entries
-        self.sync_dirty_entries();
-
-        // Re-order entries in the raw file if configured.
-        self.sort_entries_for_save();
-
-        // Write (normalise blank lines so no more than one blank line appears anywhere).
-        // Write atomically: write to a sibling temp file then rename over the
-        // target, so a crash or disk-full mid-write cannot truncate the original.
-        let output = normalize_blank_lines(write_bib_file(&self.database.raw_file));
-        // Recheck after preparation/backup too. This detects external changes,
-        // but is not an interprocess lock against a writer racing the rename.
         self.verify_saved_contents()?;
-        self.save_io.persist(&self.bib_path, output.as_bytes()).map_err(SaveError::Write)?;
-        self.saved_contents = Some(output.into_bytes());
+        self.validate_save_renames(&plan)?;
+        // Output is fully serialized before either backup or attachment mutation.
+        if self.config.general.backup_on_save && self.saved_contents.is_some() {
+            self.save_io.backup(&self.bib_path, &self.bib_path.with_extension("bib.bak")).map_err(SaveError::Backup)?;
+        }
+        self.verify_saved_contents()?;
+        let mut completed = Vec::new();
+        let result = (|| {
+            for rename in &plan.renames {
+                self.save_io.rename_attachment(&rename.old_abs, &rename.new_abs).map_err(SaveError::Write)?;
+                completed.push(rename);
+            }
+            self.verify_saved_contents()?;
+            self.save_io.persist(&self.bib_path, plan.output.as_bytes()).map_err(SaveError::Write)
+        })();
+        if let Err(error) = result {
+            let mut recovery_errors = Vec::new();
+            for rename in completed.into_iter().rev() {
+                if let Err(recovery) = self.save_io.rename_attachment(&rename.new_abs, &rename.old_abs) {
+                    self.retain_unreversed_rename(rename);
+                    recovery_errors.push(format!("{} remains at {}: {}", rename.old_abs.display(), rename.new_abs.display(), recovery));
+                }
+            }
+            return Err(if recovery_errors.is_empty() { error } else {
+                SaveError::Plan(format!("{}; attachment recovery failed: {}", error, recovery_errors.join("; ")))
+            });
+        }
+        plan.staged.restore(self);
+        self.saved_contents = Some(plan.output.into_bytes());
         self.save_generation = Some(self.undo_stack.len());
         self.dirty = false;
-        for entry in self.database.entries.values_mut() {
-            entry.dirty = false;
+        for entry in self.database.entries.values_mut() { entry.dirty = false; }
+        if let (Some(key), Some(detail)) = (&self.detail_entry_key, &mut self.detail_state) {
+            if let Some(entry) = self.database.entries.get(key) { detail.refresh(entry); }
         }
         Ok(())
+    }
+
+    fn retain_unreversed_rename(&mut self, rename: &PlannedRename) {
+        let file_dir = effective_file_dir(&self.bib_path, self.database.jabref_meta.file_directory.as_deref());
+        let mut undo = Vec::new();
+        for (key, entry) in &mut self.database.entries {
+            let Some(old_value) = entry.fields.get("file").cloned() else { continue };
+            let mut files = parse_file_field(&old_value);
+            let mut changed = false;
+            for file in &mut files {
+                if crate::util::open::resolve_file_path(&file.path, &file_dir) == rename.old_abs {
+                    file.path = rename.new_rel_path.clone();
+                    changed = true;
+                }
+            }
+            if changed {
+                entry.fields.insert("file".into(), serialize_file_field(&files));
+                entry.dirty = true;
+                undo.push(UndoItem::FilenamesSynced { entry_key: key.clone(), old_file_value: old_value, renames: vec![(rename.new_abs.clone(), rename.old_abs.clone())] });
+            }
+        }
+        if !undo.is_empty() { self.push_undo(UndoItem::Batch(undo)); }
+        self.save_generation = None;
     }
 
     /// Dry-run of [`apply_save_actions`]: returns every field that *would* change
@@ -922,4 +1031,3 @@ fn plan_filename_renames(
 
     plans
 }
-

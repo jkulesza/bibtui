@@ -365,3 +365,123 @@ fn manual_bulk_filename_sync_is_dirty_and_undoable() {
     assert!(dir.path().join("old.pdf").exists());
     assert!(!app.dirty);
 }
+#[test]
+fn review_save_filename_must_match_final_citekey() {
+    let (mut app, dir) = review_app("@Misc{A, year={2020}, file={:old.pdf:PDF}}\n");
+    std::fs::write(dir.path().join("old.pdf"), "attachment").unwrap();
+    app.config.save.sync_filenames = true;
+    app.config.save.save_action_regenerate_citekeys = true;
+    app.config
+        .citekey
+        .templates
+        .insert("misc".into(), "New[year]".into());
+    app.save();
+    let e = app.database.entries.values().next().unwrap();
+    assert_eq!(
+        parse_file_field(&e.fields["file"])[0].path,
+        format!("{}.pdf", e.citation_key)
+    );
+}
+
+
+#[test]
+fn save_preview_uses_final_keys_without_mutating_live_state() {
+    let (mut app, dir) = review_app("@Misc{A, year={2020}, file={:old.pdf:PDF}}\n");
+    std::fs::write(dir.path().join("old.pdf"), "attachment").unwrap();
+    app.config.save.sync_filenames = true;
+    app.config.save.save_action_regenerate_citekeys = true;
+    app.config.citekey.templates.insert("misc".into(), "New[year]".into());
+    app.request_save(false);
+    let DialogKind::FileSyncPreview { renames } = &app.dialog_state.as_ref().unwrap().kind else { panic!("expected preview") };
+    assert!(renames[0].1.ends_with("New2020.pdf"));
+    assert!(app.database.entries.contains_key("A"));
+    assert!(dir.path().join("old.pdf").exists());
+    app.handle_dialog_confirm();
+    assert!(dir.path().join("New2020.pdf").exists());
+    assert!(app.database.entries.contains_key("New2020"));
+    assert_eq!(app.saved_contents, Some(std::fs::read(&app.bib_path).unwrap()));
+}
+
+#[test]
+fn save_failure_reverses_attachment_moves_and_preserves_database() {
+    let (mut app, dir) = review_app("@Misc{A, file={:old.pdf:PDF}}\n");
+    std::fs::write(dir.path().join("old.pdf"), "attachment").unwrap();
+    app.config.save.sync_filenames = true;
+    let before = app.database.clone();
+    app.save_io = Box::new(FailingSaveIo);
+    assert!(!app.save());
+    assert_eq!(app.database, before);
+    assert!(dir.path().join("old.pdf").exists());
+    assert!(!dir.path().join("A.pdf").exists());
+    app.save_io = Box::new(crate::util::persistence::FileSaveIo);
+    assert!(app.save());
+    assert!(dir.path().join("A.pdf").exists());
+}
+
+#[test]
+fn backup_failure_precedes_attachment_moves() {
+    let (mut app, dir) = review_app("@Misc{A, file={:old.pdf:PDF}}\n");
+    std::fs::write(dir.path().join("old.pdf"), "attachment").unwrap();
+    std::fs::create_dir(app.bib_path.with_extension("bib.bak")).unwrap();
+    app.config.general.backup_on_save = true;
+    app.config.save.sync_filenames = true;
+    assert!(!app.save());
+    assert!(dir.path().join("old.pdf").exists());
+    assert!(!dir.path().join("A.pdf").exists());
+}
+
+#[test]
+fn shared_attachments_and_changed_previews_are_rejected_before_moves() {
+    let (mut app, dir) = review_app("@Misc{A, file={:old.pdf:PDF}}\n@Misc{B, file={:old.pdf:PDF}}\n");
+    std::fs::write(dir.path().join("old.pdf"), "attachment").unwrap();
+    app.config.save.sync_filenames = true;
+    assert!(!app.save());
+    assert!(app.status_message.as_deref().unwrap().contains("shared attachment"));
+    app.database.entries.get_mut("B").unwrap().fields.shift_remove("file");
+    app.request_save(false);
+    review_edit(&mut app, "A", "title", "Arrived during preview");
+    app.handle_dialog_confirm();
+    assert!(app.status_message.as_deref().unwrap().contains("during the preview"));
+    assert!(dir.path().join("old.pdf").exists());
+    assert_eq!(app.database.entries["A"].fields["title"], "Arrived during preview");
+}
+
+#[test]
+fn failed_save_reports_unreversed_attachment_and_keeps_recoverable_path() {
+    struct RecoveryFailure;
+    impl crate::util::persistence::SaveIo for RecoveryFailure {
+        fn persist(&self, path: &std::path::Path, _: &[u8]) -> std::io::Result<()> {
+            std::fs::write(path.parent().unwrap().join("old.pdf"), "unrelated")?;
+            Err(std::io::Error::other("replacement failed"))
+        }
+    }
+    let (mut app, dir) = review_app("@Misc{A, file={:old.pdf:PDF}}\n");
+    std::fs::write(dir.path().join("old.pdf"), "attachment").unwrap();
+    app.config.save.sync_filenames = true;
+    app.save_io = Box::new(RecoveryFailure);
+    assert!(!app.save());
+    assert!(app.status_message.as_deref().unwrap().contains("recovery failed"));
+    assert_eq!(parse_file_field(&app.database.entries["A"].fields["file"])[0].path, "A.pdf");
+    assert_eq!(std::fs::read_to_string(dir.path().join("old.pdf")).unwrap(), "unrelated");
+    assert_eq!(std::fs::read_to_string(dir.path().join("A.pdf")).unwrap(), "attachment");
+    assert!(app.dirty);
+    app.save_io = Box::new(crate::util::persistence::FileSaveIo);
+    assert!(app.save());
+    let loaded = App::new(app.bib_path.clone(), app.config.clone()).unwrap();
+    assert_eq!(loaded.database.entries["A"].fields["file"], app.database.entries["A"].fields["file"]);
+}
+
+#[test]
+fn canceled_save_preview_leaves_files_and_history_untouched() {
+    let (mut app, dir) = review_app("@Misc{A, file={:old.pdf:PDF}}\n");
+    std::fs::write(dir.path().join("old.pdf"), "attachment").unwrap();
+    app.config.save.sync_filenames = true;
+    let before = app.database.clone();
+    app.request_save(true);
+    app.handle_action(Action::DialogCancel);
+    assert!(app.pending_save.is_none());
+    assert_eq!(app.database, before);
+    assert!(app.undo_stack.is_empty());
+    assert!(!app.should_quit);
+    assert!(dir.path().join("old.pdf").exists());
+}
