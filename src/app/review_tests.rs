@@ -513,3 +513,40 @@ fn key_changes_preserve_original_field_expression_variants_across_saves() {
         }
     }
 }
+
+#[test]
+fn single_key_change_updates_exact_crossrefs_and_undoes_as_one_step() {
+    let (mut app, _dir) = review_app("@Misc{Parent, year={2020}}\n@Article{Child, crossref={Parent}, note={Parent}}\n@Misc{Other, crossref={ParentSuffix}}\n");
+    app.config.citekey.templates.insert("misc".into(), "New[year]".into());
+    app.detail_entry_key = Some("Parent".into());
+    app.regen_citekey();
+    assert_eq!(app.database.entries["Child"].fields["crossref"], "New2020");
+    assert_eq!(app.database.entries["Child"].fields["note"], "Parent");
+    assert_eq!(app.database.entries["Other"].fields["crossref"], "ParentSuffix");
+    assert_eq!(app.undo_stack.len(), 1);
+    assert!(app.save());
+    app.undo();
+    assert!(app.database.entries.contains_key("Parent"));
+    assert_eq!(app.database.entries["Child"].fields["crossref"], "Parent");
+    assert!(app.save());
+    let reload = App::new(app.bib_path.clone(), app.config.clone()).unwrap();
+    assert_eq!(reload.database.entries["Child"].fields["crossref"], "Parent");
+}
+
+#[test]
+fn bulk_crossrefs_use_simultaneous_mapping_with_collisions() {
+    let (mut app, _dir) = review_app("@Misc{B, title={C}}\n@Misc{A, title={B}}\n@Misc{D, title={C}}\n@Misc{Stable, title={Stable}}\n@Misc{Child, title={Child}, crossref={A}}\n@Misc{Second, title={Second}, crossref={B}}\n@Misc{Third, title={Third}, crossref={D}}\n@Misc{Fourth, title={Fourth}, crossref={Stable}}\n");
+    app.config.citekey.templates.insert("misc".into(), "[title]".into());
+    assert_eq!(app.regen_all_citekeys_impl(true), 3);
+    for (key, target) in [("Child", "B"), ("Second", "C"), ("Third", "C_2"), ("Fourth", "Stable")] {
+        assert_eq!(app.database.entries[key].fields["crossref"], target);
+        assert!(app.database.entries.contains_key(target));
+    }
+    assert!(app.save());
+    app.undo();
+    for (key, target) in [("Child", "A"), ("Second", "B"), ("Third", "D"), ("Fourth", "Stable")] {
+        assert_eq!(app.database.entries[key].fields["crossref"], target);
+        assert!(app.database.entries.contains_key(target));
+    }
+    assert!(app.save());
+}

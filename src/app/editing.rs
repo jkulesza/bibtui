@@ -634,17 +634,11 @@ impl App {
                 let new_key = self.unique_citekey(&base_key, key);
 
                 if new_key != *key {
-                    // Re-key the entry
-                    if let Some(mut entry) = self.database.entries.shift_remove(key) {
-                        self.push_undo(UndoItem::CitekeyChanged {
-                            old_key: key.clone(),
-                            new_key: new_key.clone(),
-                            entry_snapshot: entry.clone(),
-                        });
-                        entry.citation_key = new_key.clone();
-                        entry.dirty = true;
-                        self.database.entries.insert(new_key.clone(), entry);
-                        self.detail_entry_key = Some(new_key);
+                    if let Some(item) = self.rename_entry_key(key, &new_key) {
+                        let mapping = std::collections::HashMap::from([(key.clone(), new_key)]);
+                        let mut undo = vec![item];
+                        undo.extend(self.update_crossrefs(&mapping));
+                        self.push_undo(UndoItem::Batch(undo));
                         self.sorted_keys = sort_entries(&self.database.entries, &self.config);
 
                         if let Some(ref mut detail) = self.detail_state {
@@ -659,6 +653,35 @@ impl App {
         }
     }
 
+    /// Preserve the raw binding while changing the semantic identity.
+    fn rename_entry_key(&mut self, old: &str, new: &str) -> Option<UndoItem> {
+        let mut entry = self.database.entries.shift_remove(old)?;
+        let undo = UndoItem::CitekeyChanged {
+            old_key: old.into(), new_key: new.into(), entry_snapshot: entry.clone(),
+        };
+        entry.citation_key = new.into();
+        entry.dirty = true;
+        self.database.entries.insert(new.into(), entry);
+        if self.detail_entry_key.as_deref() == Some(old) { self.detail_entry_key = Some(new.into()); }
+        Some(undo)
+    }
+
+    /// Apply the complete mapping once to original reference values. In
+    /// particular A -> B and B -> C must not turn references to A into C.
+    fn update_crossrefs(&mut self, mapping: &std::collections::HashMap<String, String>) -> Vec<UndoItem> {
+        let mut undo = Vec::new();
+        for (key, entry) in &mut self.database.entries {
+            if let Some(old) = entry.fields.get("crossref").cloned() {
+                if let Some(new) = mapping.get(&old) {
+                    undo.push(UndoItem::FieldChanged { entry_key: key.clone(), field_name: "crossref".into(), old_value: Some(old) });
+                    entry.fields.insert("crossref".into(), new.clone());
+                    entry.dirty = true;
+                }
+            }
+        }
+        undo
+    }
+
     /// Regenerate citation keys for all entries using their configured templates.
     /// Returns the number of keys changed.  When `push_undo` is true each rename
     /// is pushed to the undo stack.
@@ -668,6 +691,7 @@ impl App {
         // When push_undo is set, collect one undo item per rename and push them
         // as a single Batch so a single undo reverts every key at once.
         let mut undo_items: Vec<UndoItem> = Vec::new();
+        let mut mapping = std::collections::HashMap::new();
 
         for key in keys {
             let (base_new_key, skip) = {
@@ -692,25 +716,15 @@ impl App {
                 continue;
             }
 
-            if let Some(mut entry) = self.database.entries.shift_remove(&key) {
-                if push_undo {
-                    undo_items.push(UndoItem::CitekeyChanged {
-                        old_key: key.clone(),
-                        new_key: new_key.clone(),
-                        entry_snapshot: entry.clone(),
-                    });
-                }
-                entry.citation_key = new_key.clone();
-                entry.dirty = true;
-                self.database.entries.insert(new_key.clone(), entry);
+            if let Some(item) = self.rename_entry_key(&key, &new_key) {
+                mapping.insert(key, new_key);
+                if push_undo { undo_items.push(item); }
                 renamed += 1;
-
-                if self.detail_entry_key.as_deref() == Some(key.as_str()) {
-                    self.detail_entry_key = Some(new_key);
-                }
             }
         }
 
+        let reference_undo = self.update_crossrefs(&mapping);
+        if push_undo { undo_items.extend(reference_undo); }
         if push_undo && !undo_items.is_empty() {
             self.push_undo(UndoItem::Batch(undo_items));
         }

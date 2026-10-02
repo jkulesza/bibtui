@@ -17,3 +17,5 @@ Remaining: R04–R14, P01–P03, Q01–Q02.
 - R04 (part 2): immutable save plans normalize and rekey before planning attachment moves; preview and execution share the plan. Backups precede moves, failed persistence reverses moves, and stale previews/shared attachments are rejected.
 
 - R06: preserve raw-expression baselines through manual, automatic, and duplicate-repair key changes; consecutive-save tests assert parsed variants.
+
+- R07: centralized key mutation and simultaneous exact crossref mapping, recorded together in undo; external citation consequences documented.
