@@ -1887,7 +1887,6 @@ impl App {
             }
             Some(PendingAction::SyncFilenamesOnly) => {
                 self.sync_filenames(true);
-                self.status_message = Some("Filenames synced to citation keys".to_string());
             }
             Some(PendingAction::DismissMessage) => {
                 // Message popup dismissed — nothing to do; mode already reset above.
@@ -2032,21 +2031,12 @@ impl App {
             return;
         };
 
-        match item {
-            UndoItem::Batch(items) => {
-                let n = items.len();
-                // Revert contained items in reverse order so nested state is
-                // unwound the same way it was applied.
-                for it in items.into_iter().rev() {
-                    self.undo_apply(it);
-                }
-                self.status_message = Some(format!(
-                    "Undo: {} change{} reverted",
-                    n,
-                    if n == 1 { "" } else { "s" }
-                ));
-            }
-            other => self.undo_apply(other),
+        let count = match &item { UndoItem::Batch(items) => items.len(), _ => 1 };
+        let succeeded = self.undo_apply(item);
+        if !succeeded {
+            self.save_generation = None;
+        } else if count > 1 {
+            self.status_message = Some(format!("Undo: {} changes reverted", count));
         }
 
         // Recompute dirty from the save-generation marker now that the stack shrank.
@@ -2064,13 +2054,15 @@ impl App {
     /// Apply a single undo item's revert without touching the undo stack or the
     /// dirty/save-generation bookkeeping.  `undo` handles the stack pop, batch
     /// expansion, and the final dirty recompute.
-    fn undo_apply(&mut self, item: UndoItem) {
+    fn undo_apply(&mut self, item: UndoItem) -> bool {
         match item {
             UndoItem::Batch(items) => {
                 // Nested batches: revert each contained item in reverse order.
+                let mut succeeded = true;
                 for it in items.into_iter().rev() {
-                    self.undo_apply(it);
+                    succeeded &= self.undo_apply(it);
                 }
+                return succeeded;
             }
             UndoItem::FieldChanged { entry_key, field_name, old_value } => {
                 if let Some(entry) = self.database.entries.get_mut(&entry_key) {
@@ -2173,31 +2165,10 @@ impl App {
                 self.status_message = Some("Undo: group membership".to_string());
             }
             UndoItem::FilenamesSynced { entry_key, old_file_value, renames } => {
-                let mut errors: Vec<String> = Vec::new();
-                for (new_abs, old_abs) in &renames {
-                    if new_abs.exists() {
-                        if let Err(e) = std::fs::rename(new_abs, old_abs) {
-                            errors.push(format!("rename {}: {}", new_abs.display(), e));
-                        }
-                    }
-                }
-                if let Some(entry) = self.database.entries.get_mut(&entry_key) {
-                    entry.fields.insert("file".to_string(), old_file_value);
-                    entry.dirty = true;
-                    if self.detail_entry_key.as_deref() == Some(entry_key.as_str()) {
-                        let snapshot = entry.clone();
-                        if let Some(ref mut detail) = self.detail_state {
-                            detail.refresh(&snapshot);
-                        }
-                    }
-                }
-                if errors.is_empty() {
-                    self.status_message = Some("Undo: filename sync".to_string());
-                } else {
-                    self.status_message = Some(format!("Undo errors: {}", errors.join("; ")));
-                }
+                return self.undo_filename_sync(&entry_key, old_file_value, renames);
             }
         }
+        true
     }
 
     // ── Settings action handler ───────────────────────────────────────────

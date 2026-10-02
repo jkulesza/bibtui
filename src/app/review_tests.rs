@@ -309,3 +309,59 @@ fn unchanged_external_rewrite_and_repeated_saves_are_allowed() {
     assert!(app.save());
     assert_eq!(app.saved_contents, Some(std::fs::read(&app.bib_path).unwrap()));
 }
+#[test]
+fn review_partial_attachment_failure_must_keep_paths_consistent() {
+    let (mut app, dir) = review_app("@Misc{A, file={:one.pdf:PDF;:two.pdf:PDF}}\n");
+    std::fs::write(dir.path().join("one.pdf"), "one").unwrap();
+    std::fs::write(dir.path().join("two.pdf"), "two").unwrap();
+    std::fs::write(dir.path().join("A_2.pdf"), "occupied").unwrap();
+    app.detail_entry_key = Some("A".into());
+    app.sync_entry_filename();
+    for file in parse_file_field(&app.database.entries["A"].fields["file"]) {
+        assert!(
+            dir.path().join(&file.path).exists(),
+            "attachment now missing: {}",
+            file.path
+        );
+    }
+}
+
+#[test]
+fn review_attachment_undo_must_not_overwrite_new_file() {
+    let (mut app, dir) = review_app("@Misc{A, file={:old.pdf:PDF}}\n");
+    std::fs::write(dir.path().join("old.pdf"), "attachment").unwrap();
+    app.detail_entry_key = Some("A".into());
+    app.sync_entry_filename();
+    std::fs::write(dir.path().join("old.pdf"), "new unrelated contents").unwrap();
+    app.undo();
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("old.pdf")).unwrap(),
+        "new unrelated contents"
+    );
+}
+
+
+#[test]
+fn failed_attachment_undo_keeps_current_path_and_unsaved_indicator() {
+    let (mut app, dir) = review_app("@Misc{A, file={:old.pdf:PDF}}\n");
+    std::fs::write(dir.path().join("old.pdf"), "attachment").unwrap();
+    app.detail_entry_key = Some("A".into());
+    app.sync_entry_filename();
+    std::fs::write(dir.path().join("old.pdf"), "unrelated").unwrap();
+    app.undo();
+    assert_eq!(parse_file_field(&app.database.entries["A"].fields["file"])[0].path, "A.pdf");
+    assert!(app.dirty);
+    assert!(app.status_message.as_deref().unwrap().contains("Undo errors"));
+}
+
+#[test]
+fn manual_bulk_filename_sync_is_dirty_and_undoable() {
+    let (mut app, dir) = review_app("@Misc{A, file={:old.pdf:PDF}}\n");
+    std::fs::write(dir.path().join("old.pdf"), "attachment").unwrap();
+    app.sync_filenames(true);
+    assert!(app.dirty);
+    assert_eq!(app.undo_stack.len(), 1);
+    app.undo();
+    assert!(dir.path().join("old.pdf").exists());
+    assert!(!app.dirty);
+}

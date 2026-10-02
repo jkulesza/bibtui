@@ -16,163 +16,98 @@ pub(super) enum SaveError {
 
 
 impl App {
-    /// Rename attached files to match the citation key, updating the `file` field in place.
-    ///
-    /// - One file  →  `citekey.ext`
-    /// - N files   →  `citekey_1.ext`, `citekey_2.ext`, …
-    ///
-    /// All entries with a `file` field are processed, regardless of dirty state.
-    /// The actual file is renamed on disk; if the rename fails the entry is left unchanged.
+    /// Synchronize all attachments, retaining successful changes and reporting
+    /// failures individually. A manual bulk sync is a single undo operation.
     pub(super) fn sync_filenames(&mut self, force: bool) {
-        if !force && !self.config.save.sync_filenames {
-            return;
-        }
-
-        let file_dir = effective_file_dir(
-            &self.bib_path,
-            self.database.jabref_meta.file_directory.as_deref(),
-        );
-
-        let keys: Vec<String> = self
-            .database
-            .entries
-            .iter()
-            .filter(|(_, e)| e.fields.contains_key("file"))
-            .map(|(k, _)| k.clone())
-            .collect();
-
-        let mut rename_msgs: Vec<String> = Vec::new();
-
+        if !force && !self.config.save.sync_filenames { return; }
+        let keys: Vec<String> = self.database.entries.keys().cloned().collect();
+        let mut undo = Vec::new();
+        let mut errors = Vec::new();
         for key in keys {
-            let (citekey, file_val) = {
-                let entry = &self.database.entries[&key];
-                (entry.citation_key.clone(), entry.fields["file"].clone())
-            };
-
-            let mut parsed = parse_file_field(&file_val);
-            if parsed.is_empty() {
-                continue;
-            }
-
-            let plans = plan_filename_renames(&citekey, &parsed, &file_dir);
-            let mut changed = false;
-
-            for plan in plans {
-                if plan.old_abs.exists() {
-                    if rename_target_conflicts(&plan.old_abs, &plan.new_abs) {
-                        rename_msgs.push(format!(
-                            "skipped {}: target {} already exists",
-                            plan.old_abs.display(),
-                            plan.new_abs.display()
-                        ));
-                        continue;
-                    }
-                    if let Err(e) = std::fs::rename(&plan.old_abs, &plan.new_abs) {
-                        rename_msgs.push(format!("rename {}: {}", plan.old_abs.display(), e));
-                        continue;
-                    }
-                }
-                parsed[plan.index].path = plan.new_rel_path;
-                changed = true;
-            }
-
-            if changed {
-                let new_file_val = serialize_file_field(&parsed);
-                if let Some(entry) = self.database.entries.get_mut(&key) {
-                    entry.fields.insert("file".to_string(), new_file_val);
-                    entry.dirty = true;
-                }
-            }
+            let (item, entry_errors) = self.rename_entry_files(&key);
+            if let Some(item) = item { undo.push(item); }
+            errors.extend(entry_errors);
         }
-
-        if !rename_msgs.is_empty() {
-            self.status_message = Some(format!("File rename errors: {}", rename_msgs.join("; ")));
-        }
+        if !undo.is_empty() { self.push_undo(UndoItem::Batch(undo)); }
+        self.status_message = Some(if errors.is_empty() {
+            "Filenames synced to citation keys".to_string()
+        } else { format!("File rename errors: {}", errors.join("; ")) });
     }
 
-    /// Rename attached files for the currently open detail entry to match its
-    /// citation key, regardless of the `sync_filenames` config setting.
     pub(super) fn sync_entry_filename(&mut self) {
-        let key = match self.detail_entry_key.clone() {
-            Some(k) => k,
-            None => return,
-        };
-        let entry = match self.database.entries.get(&key) {
-            Some(e) => e,
-            None => return,
-        };
-        let old_file_value = match entry.fields.get("file") {
-            Some(v) => v.clone(),
-            None => {
-                self.status_message = Some("No file attachment to sync".to_string());
-                return;
-            }
-        };
-        let citekey = entry.citation_key.clone();
-
-        let file_dir = effective_file_dir(
-            &self.bib_path,
-            self.database.jabref_meta.file_directory.as_deref(),
-        );
-
-        let mut parsed = parse_file_field(&old_file_value);
-        if parsed.is_empty() {
-            self.status_message = Some("No file attachment to sync".to_string());
+        let Some(key) = self.detail_entry_key.clone() else { return };
+        if !self.database.entries.get(&key).is_some_and(|e| e.fields.contains_key("file")) {
+            self.status_message = Some("No file attachment to sync".into());
             return;
         }
-
-        let mut changed = false;
-        let mut rename_msgs: Vec<String> = Vec::new();
-        // Collect (new_abs, old_abs) pairs for undo.
-        let mut undo_renames: Vec<(PathBuf, PathBuf)> = Vec::new();
-
-        let plans = plan_filename_renames(&citekey, &parsed, &file_dir);
-        for plan in plans {
-            if plan.old_abs.exists() {
-                if rename_target_conflicts(&plan.old_abs, &plan.new_abs) {
-                    rename_msgs.push(format!(
-                        "skipped {}: target {} already exists",
-                        plan.old_abs.display(),
-                        plan.new_abs.display()
-                    ));
-                    continue;
-                }
-                if let Err(e) = std::fs::rename(&plan.old_abs, &plan.new_abs) {
-                    rename_msgs.push(format!("rename {}: {}", plan.old_abs.display(), e));
-                    continue;
-                }
-                undo_renames.push((plan.new_abs.clone(), plan.old_abs));
-            }
-
-            parsed[plan.index].path = plan.new_rel_path;
-            changed = true;
-        }
-
-        if !rename_msgs.is_empty() {
-            self.status_message = Some(format!("File rename errors: {}", rename_msgs.join("; ")));
-            return;
-        }
-
-        if changed {
-            self.push_undo(UndoItem::FilenamesSynced {
-                entry_key: key.clone(),
-                old_file_value,
-                renames: undo_renames,
-            });
-            let new_file_val = serialize_file_field(&parsed);
-            if let Some(entry) = self.database.entries.get_mut(&key) {
-                entry.fields.insert("file".to_string(), new_file_val);
-                entry.dirty = true;
-            }
-            if let Some(ref mut detail) = self.detail_state {
-                if let Some(entry) = self.database.entries.get(&key) {
-                    detail.refresh(entry);
-                }
-            }
-            self.status_message = Some("File renamed to match citation key".to_string());
+        let (item, errors) = self.rename_entry_files(&key);
+        let changed = item.is_some();
+        if let Some(item) = item { self.push_undo(item); }
+        self.status_message = Some(if !errors.is_empty() {
+            format!("File rename errors: {}", errors.join("; "))
+        } else if changed {
+            "File renamed to match citation key".into()
         } else {
-            self.status_message = Some("File already matches citation key".to_string());
+            "File already matches citation key".into()
+        });
+    }
+
+    fn rename_entry_files(&mut self, key: &str) -> (Option<UndoItem>, Vec<String>) {
+        let Some(entry) = self.database.entries.get(key) else { return (None, vec![]) };
+        let Some(old_file_value) = entry.fields.get("file").cloned() else { return (None, vec![]) };
+        let file_dir = effective_file_dir(&self.bib_path, self.database.jabref_meta.file_directory.as_deref());
+        let mut files = parse_file_field(&old_file_value);
+        let plans = plan_filename_renames(&entry.citation_key, &files, &file_dir);
+        let mut renames = Vec::new();
+        let mut errors = Vec::new();
+        for plan in plans {
+            match self.save_io.rename_attachment(&plan.old_abs, &plan.new_abs) {
+                Ok(()) => {
+                    files[plan.index].path = plan.new_rel_path;
+                    renames.push((plan.new_abs, plan.old_abs));
+                }
+                Err(error) => errors.push(format!("rename {} to {}: {}", plan.old_abs.display(), plan.new_abs.display(), error)),
+            }
         }
+        if renames.is_empty() { return (None, errors); }
+        if let Some(entry) = self.database.entries.get_mut(key) {
+            entry.fields.insert("file".into(), serialize_file_field(&files));
+            entry.dirty = true;
+            if self.detail_entry_key.as_deref() == Some(key) {
+                if let Some(detail) = self.detail_state.as_mut() { detail.refresh(entry); }
+            }
+        }
+        (Some(UndoItem::FilenamesSynced { entry_key: key.into(), old_file_value, renames }), errors)
+    }
+
+    pub(super) fn undo_filename_sync(&mut self, key: &str, old_value: String, renames: Vec<(PathBuf, PathBuf)>) -> bool {
+        let file_dir = effective_file_dir(&self.bib_path, self.database.jabref_meta.file_directory.as_deref());
+        let old_files = parse_file_field(&old_value);
+        let mut files = self.database.entries.get(key).and_then(|e| e.fields.get("file")).map(|v| parse_file_field(v)).unwrap_or_default();
+        let mut errors = Vec::new();
+        for (new_abs, old_abs) in renames.into_iter().rev() {
+            match self.save_io.rename_attachment(&new_abs, &old_abs) {
+                Ok(()) => {
+                    for file in &mut files {
+                        if crate::util::open::resolve_file_path(&file.path, &file_dir) == new_abs {
+                            if let Some(original) = old_files.iter().find(|f| crate::util::open::resolve_file_path(&f.path, &file_dir) == old_abs) {
+                                *file = original.clone();
+                            }
+                        }
+                    }
+                }
+                Err(error) => errors.push(format!("rename {}: {}", new_abs.display(), error)),
+            }
+        }
+        if let Some(entry) = self.database.entries.get_mut(key) {
+            entry.fields.insert("file".into(), if errors.is_empty() { old_value } else { serialize_file_field(&files) });
+            entry.dirty = true;
+            if self.detail_entry_key.as_deref() == Some(key) {
+                if let Some(detail) = self.detail_state.as_mut() { detail.refresh(entry); }
+            }
+        }
+        self.status_message = Some(if errors.is_empty() { "Undo: filename sync".into() } else { format!("Undo errors: {}", errors.join("; ")) });
+        errors.is_empty()
     }
 
     /// Compute the (old_filename, new_filename) pairs that `sync_filenames`
@@ -923,7 +858,7 @@ struct PlannedRename {
 /// key: one file becomes `citekey.ext`, N files become `citekey_1.ext` …
 /// `citekey_N.ext`.  Attachments already correctly named are omitted.  No
 /// filesystem changes are made; callers perform the renames (checking for
-/// target conflicts at rename time via [`rename_target_conflicts`]) and keep
+/// target conflicts atomically when creating the destination) and keep
 /// their own undo/status handling.
 fn plan_filename_renames(
     citekey: &str,
@@ -988,16 +923,3 @@ fn plan_filename_renames(
     plans
 }
 
-/// Returns true when renaming `src` to `dest` would clobber an existing,
-/// unrelated file.  A destination that resolves (via canonicalization) to the
-/// same file as `src` is not a conflict — this permits case-only renames on
-/// case-insensitive filesystems.
-fn rename_target_conflicts(src: &std::path::Path, dest: &std::path::Path) -> bool {
-    if !dest.exists() {
-        return false;
-    }
-    match (src.canonicalize(), dest.canonicalize()) {
-        (Ok(a), Ok(b)) => a != b,
-        _ => true,
-    }
-}

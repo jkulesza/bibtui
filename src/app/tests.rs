@@ -2735,27 +2735,14 @@ fn test_sync_entry_filename_undo_reverts_field_and_renames_back() {
 }
 
 #[test]
-fn test_sync_entry_filename_field_only_when_file_absent() {
-    // File does not exist on disk — field should still be updated, no undo rename.
-    let citekey = "AuthorYear2024";
-    let old_stem = "missing_file";
-    let (mut app, _dir, key, abs) = make_app_with_file(citekey, old_stem);
-    // Remove the file so it doesn't exist on disk.
+fn test_sync_entry_filename_keeps_missing_file_path() {
+    let (mut app, _dir, key, abs) = make_app_with_file("AuthorYear2024", "missing_file");
+    let original = app.database.entries[&key].fields["file"].clone();
     std::fs::remove_file(&abs).unwrap();
-
     app.handle_action(Action::SyncEntryFilename);
-
-    // Field is updated even though the file didn't exist.
-    let file_val = app.database.entries[&key].fields["file"].clone();
-    assert!(file_val.contains(citekey), "file field should be updated: {}", file_val);
-
-    // Undo item pushed — but renames vec should be empty (no disk rename).
-    assert_eq!(app.undo_stack.len(), 1);
-    if let UndoItem::FilenamesSynced { renames, .. } = &app.undo_stack[0] {
-        assert!(renames.is_empty(), "no disk renames when file absent");
-    } else {
-        panic!("expected FilenamesSynced undo item");
-    }
+    assert_eq!(app.database.entries[&key].fields["file"], original);
+    assert!(app.undo_stack.is_empty());
+    assert!(app.status_message.as_deref().unwrap().contains("errors"));
 }
 
 #[test]

@@ -18,6 +18,19 @@ pub(crate) trait SaveIo {
         fs::copy(source, destination).map(|_| ())
     }
 
+    fn rename_attachment(&self, source: &Path, destination: &Path) -> io::Result<()> {
+        // Creating the destination hard link is exclusive: even a file arriving
+        // between planning and execution cannot be overwritten. Attachments
+        // stay in their original directory, so no cross-device move is needed.
+        if source == destination { return Ok(()); }
+        fs::hard_link(source, destination)?;
+        if let Err(error) = fs::remove_file(source) {
+            let _ = fs::remove_file(destination);
+            return Err(error);
+        }
+        Ok(())
+    }
+
     fn persist(&self, path: &Path, contents: &[u8]) -> io::Result<()>;
 }
 
