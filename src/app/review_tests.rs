@@ -76,7 +76,7 @@ fn failed_save_and_quit_preview_can_retry() {
 fn failed_write_and_quit_stays_open() {
     let (mut app, _dir) = review_app("@Misc{A, title={Original}}\n");
     review_edit(&mut app, "A", "title", "Unsaved");
-    std::fs::create_dir(app.bib_path.with_extension("bib.tmp")).unwrap();
+    app.save_io = Box::new(FailingSaveIo);
     app.request_save(true);
     assert!(!app.should_quit);
     assert!(app.dirty);
@@ -209,3 +209,64 @@ fn automatic_save_renames_unwind_before_older_field_undo() {
     let reloaded = App::new(app.bib_path.clone(), app.config.clone()).unwrap();
     assert_eq!(reloaded.database.entries["A"].fields["title"], "Alpha");
 }
+
+pub(super) struct FailingSaveIo;
+impl crate::util::persistence::SaveIo for FailingSaveIo {
+    fn persist(&self, _path: &std::path::Path, _contents: &[u8]) -> std::io::Result<()> {
+        Err(std::io::Error::other("injected write/replacement failure"))
+    }
+}
+
+#[test]
+fn failed_save_restores_raw_document_deletions_and_can_retry() {
+    let (mut app, _dir) = review_app("@Misc{A, title={Alpha}}\n@Misc{B, title={Beta}}\n");
+    app.delete_entry("A");
+    review_edit(&mut app, "B", "title", "Changed");
+    let before = write_bib_file(&app.database.raw_file);
+    let queued = app.deleted_raw_indices.clone();
+    app.save_io = Box::new(FailingSaveIo);
+    assert!(!app.save());
+    assert_eq!(write_bib_file(&app.database.raw_file), before);
+    assert_eq!(std::fs::read_to_string(&app.bib_path).unwrap(), before);
+    assert_eq!(app.deleted_raw_indices, queued);
+    assert_eq!(app.database.entries["B"].fields["title"], "Changed");
+    app.save_io = Box::new(crate::util::persistence::FileSaveIo);
+    assert!(app.save());
+    let reloaded = App::new(app.bib_path.clone(), app.config.clone()).unwrap();
+    assert_eq!(reloaded.database.entries.len(), 1);
+    assert_eq!(reloaded.database.entries["B"].fields["title"], "Changed");
+}
+
+#[cfg(unix)]
+#[test]
+fn saving_through_symlink_preserves_link_and_target_permissions() {
+    use std::os::unix::fs::{symlink, PermissionsExt};
+    let (mut app, dir) = review_app("@Misc{A, title={Alpha}}\n");
+    let original = app.bib_path.clone();
+    std::fs::set_permissions(&original, std::fs::Permissions::from_mode(0o640)).unwrap();
+    let link = dir.path().join("link.bib");
+    symlink(&original, &link).unwrap();
+    app.bib_path = link.clone();
+    review_edit(&mut app, "A", "title", "Changed");
+    assert!(app.save());
+    assert!(std::fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+    assert_eq!(std::fs::metadata(&original).unwrap().permissions().mode() & 0o777, 0o640);
+    assert!(std::fs::read_to_string(&original).unwrap().contains("Changed"));
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 2);
+}
+#[test]
+fn review_temp_path_must_not_clobber_existing_file() {
+    let (mut app, _dir) = review_app("@Misc{A, title={Alpha}}\n");
+    let other = app.bib_path.with_extension("bib.tmp");
+    std::fs::write(&other, "unrelated temporary data").unwrap();
+    app.save();
+    assert!(
+        other.exists(),
+        "save removed an unrelated pre-existing temporary file"
+    );
+    assert_eq!(
+        std::fs::read_to_string(other).unwrap(),
+        "unrelated temporary data"
+    );
+}
+

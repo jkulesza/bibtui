@@ -124,6 +124,8 @@ pub struct App {
     /// built-in defaults in `handle_key`.
     user_bindings: Vec<(InputMode, KeyEvent, Action)>,
 
+    save_io: Box<dyn crate::util::persistence::SaveIo>,
+
     // System integrations, swappable for tests
     pub clipboard: Box<dyn Clipboard>,
     pub opener: Box<dyn Opener>,
@@ -216,6 +218,7 @@ impl App {
             theme,
             clipboard: Box::new(SystemClipboard),
             opener: Box::new(SystemOpener),
+            save_io: Box::new(crate::util::persistence::FileSaveIo),
             bib_path,
             mode: InputMode::Normal,
             focus: Focus::List,
@@ -282,6 +285,7 @@ impl App {
             theme,
             clipboard: Box::new(SystemClipboard),
             opener: Box::new(SystemOpener),
+            save_io: Box::new(crate::util::persistence::FileSaveIo),
             bib_path: PathBuf::new(), // filled in when the user confirms a path
             mode: InputMode::Editing,
             focus: Focus::List,

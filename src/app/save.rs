@@ -269,12 +269,26 @@ impl App {
     }
 
     pub(super) fn save(&mut self) -> bool {
+        // Save transformations are staged in memory. On failure restore every
+        // persistence-related field, including raw indices and deletion queues.
+        let previous_database = self.database.clone();
+        let previous_undo = self.undo_stack.clone();
+        let previous_generation = self.save_generation;
+        let previous_deleted = self.deleted_raw_indices.clone();
+        let previous_sorted = self.sorted_keys.clone();
+        let previous_detail = self.detail_entry_key.clone();
         match self.try_save() {
             Ok(()) => {
                 self.status_message = Some(format!("Saved to {}", self.bib_path.display()));
                 true
             }
             Err(error) => {
+                self.database = previous_database;
+                self.undo_stack = previous_undo;
+                self.save_generation = previous_generation;
+                self.deleted_raw_indices = previous_deleted;
+                self.sorted_keys = previous_sorted;
+                self.detail_entry_key = previous_detail;
                 self.dirty = true;
                 self.status_message = Some(error.to_string());
                 false
@@ -303,7 +317,7 @@ impl App {
         // Backup — only when the file already exists (skip for brand-new libraries).
         if self.config.general.backup_on_save && self.bib_path.exists() {
             let backup_path = self.bib_path.with_extension("bib.bak");
-            if let Err(e) = std::fs::copy(&self.bib_path, &backup_path) {
+            if let Err(e) = self.save_io.backup(&self.bib_path, &backup_path) {
                 return Err(SaveError::Backup(e));
             }
         }
@@ -318,26 +332,13 @@ impl App {
         // Write atomically: write to a sibling temp file then rename over the
         // target, so a crash or disk-full mid-write cannot truncate the original.
         let output = normalize_blank_lines(write_bib_file(&self.database.raw_file));
-        let tmp_path = self.bib_path.with_extension("bib.tmp");
-        let write_result = std::fs::write(&tmp_path, &output)
-            .and_then(|()| std::fs::rename(&tmp_path, &self.bib_path));
-        match write_result {
-            Ok(()) => {
-                self.save_generation = Some(self.undo_stack.len());
-                self.dirty = false;
-                // Mark all entries clean
-                for entry in self.database.entries.values_mut() {
-                    entry.dirty = false;
-                }
-                Ok(())
-            }
-            Err(e) => {
-                // Clean up the temp file so a failed save leaves no debris and
-                // the original file is untouched.
-                let _ = std::fs::remove_file(&tmp_path);
-                Err(SaveError::Write(e))
-            }
+        self.save_io.persist(&self.bib_path, output.as_bytes()).map_err(SaveError::Write)?;
+        self.save_generation = Some(self.undo_stack.len());
+        self.dirty = false;
+        for entry in self.database.entries.values_mut() {
+            entry.dirty = false;
         }
+        Ok(())
     }
 
     /// Dry-run of [`apply_save_actions`]: returns every field that *would* change

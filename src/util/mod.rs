@@ -9,3 +9,4 @@ pub mod open;
 pub mod path;
 pub mod titlecase;
 pub mod unicode;
+pub(crate) mod persistence;

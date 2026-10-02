@@ -3435,10 +3435,7 @@ fn test_save_failure_preserves_original_file() {
     cfg.general.backup_on_save = false;
     let mut app = App::new(bib_path.clone(), cfg).unwrap();
 
-    // Make the atomic rename fail: occupy the temp path with a directory so
-    // both the write and rename over it cannot succeed.
-    let tmp_path = bib_path.with_extension("bib.tmp");
-    std::fs::create_dir(&tmp_path).unwrap();
+    app.save_io = Box::new(super::review_tests::FailingSaveIo);
 
     if let Some(e) = app.database.entries.get_mut("Smith2020") {
         e.fields.insert("title".to_string(), "Should Not Persist".to_string());
@@ -3449,9 +3446,7 @@ fn test_save_failure_preserves_original_file() {
     // Original file is unchanged (not truncated).
     let after = std::fs::read_to_string(&bib_path).unwrap();
     assert_eq!(after, original, "original file must be untouched on save failure");
-    // The blocking directory is still there; our cleanup must not have removed it.
-    assert!(tmp_path.is_dir());
-    std::fs::remove_dir(&tmp_path).ok();
+
 }
 
 #[test]

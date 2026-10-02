@@ -287,7 +287,10 @@ preview of any file renames that will be performed, with `[y]es` / `[n]o` to pro
 or cancel. A failed save keeps the application open and marks the library unsaved,
 including when using `:wq`; correct the error and retry. Undo remains available across
 saves: restored entries and citation keys are persisted on the next save. Automatic
-key changes made during save form one undo step before earlier edits.
+key changes made during save form one undo step before earlier edits. Saves use an
+exclusive temporary file in the destination directory, preserve existing file
+permissions, and follow existing symlinks without replacing the link. Failed writes
+retain the previous raw document and pending edits for retry.
 
 ### Group tree
 
