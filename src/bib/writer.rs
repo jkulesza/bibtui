@@ -30,15 +30,45 @@ pub fn write_bib_file(raw: &RawBibFile) -> String {
     out
 }
 
+/// Normalize only whitespace separators. Raw entry bodies, macros, comments,
+/// and preambles remain byte-for-byte intact, including their blank lines.
+/// Keep item positions stable so semantic raw bindings remain valid.
+pub fn normalize_separators(raw: &mut RawBibFile) {
+    let mut trailing_newlines = 0;
+    for item in &mut raw.items {
+        let text = match item {
+            RawItem::Preamble(text) if text.trim().is_empty() => {
+                *text = normalize_blank_lines_from(text, trailing_newlines);
+                text
+            }
+            RawItem::Preamble(text) => text,
+            RawItem::Entry(entry) => &mut entry.raw_text,
+            RawItem::BibPreamble { raw_text, .. }
+            | RawItem::StringDef { raw_text, .. }
+            | RawItem::Comment { raw_text } => raw_text,
+        };
+        for byte in text.bytes() {
+            match byte {
+                b'\n' => trailing_newlines += 1,
+                b'\r' => {},
+                _ => trailing_newlines = 0,
+            }
+        }
+    }
+}
+
 /// Replace any run of 3 or more consecutive newlines with exactly two (i.e. at
 /// most one blank line between items).
 ///
 /// A newline unit is either `"\r\n"` or `"\n"`, so CRLF files collapse the same
 /// way as LF files and the CRLF style of the surviving newlines is preserved.
 pub fn normalize_blank_lines(s: String) -> String {
+    normalize_blank_lines_from(&s, 0)
+}
+
+fn normalize_blank_lines_from(s: &str, mut newline_run: usize) -> String {
     let bytes = s.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
-    let mut newline_run = 0usize;
     let mut i = 0;
 
     while i < bytes.len() {

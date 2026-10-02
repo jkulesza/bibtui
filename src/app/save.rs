@@ -298,7 +298,8 @@ impl App {
         if !undo.is_empty() { self.push_undo(UndoItem::Batch(undo)); }
         self.sync_dirty_entries();
         self.sort_entries_for_save();
-        let output = normalize_blank_lines(write_bib_file(&self.database.raw_file));
+        crate::bib::writer::normalize_separators(&mut self.database.raw_file);
+        let output = write_bib_file(&self.database.raw_file);
         let plan = SavePlan {
             original: before.database.clone(), path: self.bib_path.clone(),
             staged: SaveState::capture(self), output, renames,
@@ -539,7 +540,7 @@ impl App {
                     .unwrap_or(self.database.raw_file.items.len());
 
                 // Insert: blank line, entry, blank line (before @Comment).
-                // normalize_blank_lines will collapse any excess, ensuring exactly
+                // normalize_separators will collapse any excess, ensuring exactly
                 // one blank line on each side of the new entry.
                 self.database.raw_file.items.insert(
                     insert_pos,

@@ -550,3 +550,13 @@ fn bulk_crossrefs_use_simultaneous_mapping_with_collisions() {
     }
     assert!(app.save());
 }
+
+#[test]
+fn save_preserves_blank_lines_inside_every_opaque_item() {
+    for newline in ["\n", "\r\n"] {
+        let input = "@String{j={First\n\n\nSecond}}\n@Preamble{\"First\n\n\nSecond\"}\n@Comment{First\n\n\nSecond}\n% First\n\n\n% Second\n@Misc{A, abstract={First\n\n\nSecond}, note=\"First\n\n\nSecond\"}\n".replace('\n', newline);
+        let (mut app, _dir) = review_app(&input);
+        assert!(app.save());
+        assert_eq!(std::fs::read_to_string(&app.bib_path).unwrap(), input);
+    }
+}

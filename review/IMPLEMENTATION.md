@@ -19,3 +19,5 @@ Remaining: R04–R14, P01–P03, Q01–Q02.
 - R06: preserve raw-expression baselines through manual, automatic, and duplicate-repair key changes; consecutive-save tests assert parsed variants.
 
 - R07: centralized key mutation and simultaneous exact crossref mapping, recorded together in undo; external citation consequences documented.
+
+- R08: normalize only whitespace-only raw separators, preserving opaque content and CRLF blank lines; insertion/deletion spacing tests retained.
