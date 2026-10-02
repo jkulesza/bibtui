@@ -13,7 +13,7 @@ A terminal UI BibTeX manager written in Rust. Designed as a lightweight, keyboar
 - JabRef-compatible group tree (static and keyword groups)
 - Byte-perfect BibTeX round-tripping — formatting is preserved for unmodified entries; in edited entries, unchanged fields keep their original form (`#` concatenation, `@String` references, quoted vs braced style); optional `field_order: alphabetical` sorts fields within required / optional / nonstandard subgroups on save
 - Vim-style navigation throughout
-- Entry CRUD: add, edit, duplicate, delete with undo (`u`)
+- Entry CRUD: add, edit, duplicate, delete with undo (`u`); editing after undo correctly retains unsaved-change protection
 - JabRef-compatible citation key patterns with three-level precedence (`.bib` metadata, YAML config, defaults)
 - Clipboard yank (`yy`) in configurable format: citation key, raw BibTeX, or formatted citation
 - Per-entry status indicators: `●` unsaved change, `⎘` file attachment, `⎋` DOI/URL

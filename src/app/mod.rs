@@ -2004,6 +2004,11 @@ impl App {
     // ── Undo ──
 
     fn push_undo(&mut self, item: UndoItem) {
+        // A new edit after undo abandons the saved branch; an equal future
+        // stack depth must never be mistaken for the same document.
+        if self.save_generation.is_some_and(|saved| saved > self.undo_stack.len()) {
+            self.save_generation = None;
+        }
         if self.undo_stack.len() >= MAX_UNDO {
             self.undo_stack.remove(0);
             // Shift the save-generation marker; if it was already at 0 the

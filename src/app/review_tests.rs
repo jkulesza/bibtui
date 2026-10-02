@@ -82,3 +82,56 @@ fn failed_write_and_quit_stays_open() {
     assert!(app.dirty);
     assert!(app.status_message.as_deref().unwrap().contains("Save failed"));
 }
+#[test]
+fn review_edit_after_undo_saved_state_must_be_dirty() {
+    let (mut app, _dir) = review_app("@Misc{A, title={Original}}\n");
+    review_edit(&mut app, "A", "title", "Saved");
+    app.save();
+    app.undo();
+    review_edit(&mut app, "A", "title", "Different");
+    assert!(
+        app.dirty,
+        "equal undo depth does not imply equal document state"
+    );
+}
+
+
+#[test]
+fn undo_branch_requires_quit_confirmation_and_new_save_point() {
+    let (mut app, _dir) = review_app("@Misc{A, title={Original}}\n");
+    review_edit(&mut app, "A", "title", "Saved");
+    assert!(app.save());
+    review_edit(&mut app, "A", "title", "Later");
+    app.undo();
+    assert!(!app.dirty);
+    app.undo();
+    review_edit(&mut app, "A", "title", "Branch");
+    app.command_palette_state.input = "q".into();
+    app.execute_command();
+    assert!(!app.should_quit);
+    assert!(matches!(app.pending_action, Some(PendingAction::Quit)));
+    assert!(app.save());
+    review_edit(&mut app, "A", "title", "After branch save");
+    app.undo();
+    assert!(!app.dirty);
+    assert_eq!(app.database.entries["A"].fields["title"], "Branch");
+}
+
+#[test]
+fn undo_marker_survives_cap_and_batch_until_saved_state_evicted() {
+    let (mut app, _dir) = review_app("@Misc{A, title={Original}}\n");
+    review_edit(&mut app, "A", "title", "Saved");
+    assert!(app.save());
+    for i in 0..MAX_UNDO {
+        review_edit(&mut app, "A", "title", &i.to_string());
+    }
+    for _ in 0..MAX_UNDO { app.undo(); }
+    assert!(!app.dirty);
+    assert_eq!(app.database.entries["A"].fields["title"], "Saved");
+    for i in 0..=MAX_UNDO {
+        review_edit(&mut app, "A", "title", &i.to_string());
+    }
+    for _ in 0..MAX_UNDO { app.undo(); }
+    assert!(app.dirty);
+    assert_eq!(app.save_generation, None);
+}
