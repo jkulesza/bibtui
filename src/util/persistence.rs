@@ -6,6 +6,14 @@ use std::io::{self, Write};
 use std::path::Path;
 
 pub(crate) trait SaveIo {
+    fn read(&self, path: &Path) -> io::Result<Option<Vec<u8>>> {
+        match fs::read(path) {
+            Ok(contents) => Ok(Some(contents)),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
     fn backup(&self, source: &Path, destination: &Path) -> io::Result<()> {
         fs::copy(source, destination).map(|_| ())
     }

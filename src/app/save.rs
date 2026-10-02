@@ -5,6 +5,9 @@ use super::*;
 
 #[derive(Debug, thiserror::Error)]
 pub(super) enum SaveError {
+    #[error("Save refused: bibliography changed outside bibtui; reload it before saving")]
+    ExternalChange,
+
     #[error("Backup failed: {0}")]
     Backup(std::io::Error),
     #[error("Save failed: {0}")]
@@ -296,7 +299,16 @@ impl App {
         }
     }
 
+    fn verify_saved_contents(&self) -> std::result::Result<(), SaveError> {
+        let current = self.save_io.read(&self.bib_path).map_err(SaveError::Write)?;
+        if current != self.saved_contents {
+            return Err(SaveError::ExternalChange);
+        }
+        Ok(())
+    }
+
     fn try_save(&mut self) -> std::result::Result<(), SaveError> {
+        self.verify_saved_contents()?;
         // Rename attached files to match citation keys before serialising.
         self.sync_filenames(false);
 
@@ -332,7 +344,11 @@ impl App {
         // Write atomically: write to a sibling temp file then rename over the
         // target, so a crash or disk-full mid-write cannot truncate the original.
         let output = normalize_blank_lines(write_bib_file(&self.database.raw_file));
+        // Recheck after preparation/backup too. This detects external changes,
+        // but is not an interprocess lock against a writer racing the rename.
+        self.verify_saved_contents()?;
         self.save_io.persist(&self.bib_path, output.as_bytes()).map_err(SaveError::Write)?;
+        self.saved_contents = Some(output.into_bytes());
         self.save_generation = Some(self.undo_stack.len());
         self.dirty = false;
         for entry in self.database.entries.values_mut() {

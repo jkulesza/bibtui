@@ -270,3 +270,42 @@ fn review_temp_path_must_not_clobber_existing_file() {
     );
 }
 
+
+#[test]
+fn external_changes_preserve_both_external_file_and_existing_backup() {
+    for external in [Some("external update"), None] {
+        let (mut app, _dir) = review_app("@Misc{A, title={Alpha}}\n");
+        app.config.general.backup_on_save = true;
+        let backup = app.bib_path.with_extension("bib.bak");
+        std::fs::write(&backup, "previous backup").unwrap();
+        review_edit(&mut app, "A", "title", "Local edit");
+        if let Some(text) = external { std::fs::write(&app.bib_path, text).unwrap(); }
+        else { std::fs::remove_file(&app.bib_path).unwrap(); }
+        assert!(!app.save());
+        assert!(app.dirty);
+        assert!(app.status_message.as_deref().unwrap().contains("changed outside"));
+        assert_eq!(std::fs::read_to_string(&backup).unwrap(), "previous backup");
+        assert_eq!(std::fs::read_to_string(&app.bib_path).ok().as_deref(), external);
+        assert_eq!(app.database.entries["A"].fields["title"], "Local edit");
+    }
+}
+
+#[test]
+fn new_library_does_not_overwrite_file_created_since_open() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("new.bib");
+    let mut app = App::new(path.clone(), default_config()).unwrap();
+    std::fs::write(&path, "created by another process").unwrap();
+    assert!(!app.save());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "created by another process");
+}
+
+#[test]
+fn unchanged_external_rewrite_and_repeated_saves_are_allowed() {
+    let (mut app, _dir) = review_app("@Misc{A, title={Alpha}}\n");
+    std::fs::write(&app.bib_path, app.saved_contents.as_ref().unwrap()).unwrap();
+    assert!(app.save());
+    review_edit(&mut app, "A", "title", "Next");
+    assert!(app.save());
+    assert_eq!(app.saved_contents, Some(std::fs::read(&app.bib_path).unwrap()));
+}

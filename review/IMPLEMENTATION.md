@@ -9,3 +9,5 @@ Implementation of the October 1 review. Each item is committed separately after 
 Remaining: R04–R14, P01–P03, Q01–Q02.
 
 - R09 (part 1): owned atomic temporary files, permission/symlink preservation, injectable persistence, and in-memory rollback on failure.
+
+- R09 (part 2): compare exact saved bytes before backup and replacement; reject external edits/deletion and newly occupied paths, preserving backups.

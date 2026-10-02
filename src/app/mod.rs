@@ -125,6 +125,7 @@ pub struct App {
     user_bindings: Vec<(InputMode, KeyEvent, Action)>,
 
     save_io: Box<dyn crate::util::persistence::SaveIo>,
+    saved_contents: Option<Vec<u8>>,
 
     // System integrations, swappable for tests
     pub clipboard: Box<dyn Clipboard>,
@@ -152,14 +153,14 @@ impl App {
     pub fn new(bib_path: PathBuf, config: Config) -> Result<Self> {
         // A path that doesn't exist yet opens a blank library; the file is
         // created on first save.
-        let (raw, is_new_file) = if bib_path.exists() {
+        let (raw, is_new_file, saved_contents) = if bib_path.exists() {
             let content = std::fs::read_to_string(&bib_path)
                 .with_context(|| format!("Failed to read {}", bib_path.display()))?;
             let raw = parse_bib_file(&content)
                 .with_context(|| format!("Failed to parse {}", bib_path.display()))?;
-            (raw, false)
+            (raw, false, Some(content.into_bytes()))
         } else {
-            (RawBibFile { items: vec![], ..Default::default() }, true)
+            (RawBibFile { items: vec![], ..Default::default() }, true, None)
         };
         let database = build_database(raw);
 
@@ -219,6 +220,7 @@ impl App {
             clipboard: Box::new(SystemClipboard),
             opener: Box::new(SystemOpener),
             save_io: Box::new(crate::util::persistence::FileSaveIo),
+            saved_contents,
             bib_path,
             mode: InputMode::Normal,
             focus: Focus::List,
@@ -286,6 +288,7 @@ impl App {
             clipboard: Box::new(SystemClipboard),
             opener: Box::new(SystemOpener),
             save_io: Box::new(crate::util::persistence::FileSaveIo),
+            saved_contents: None,
             bib_path: PathBuf::new(), // filled in when the user confirms a path
             mode: InputMode::Editing,
             focus: Focus::List,

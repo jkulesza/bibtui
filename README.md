@@ -290,7 +290,10 @@ saves: restored entries and citation keys are persisted on the next save. Automa
 key changes made during save form one undo step before earlier edits. Saves use an
 exclusive temporary file in the destination directory, preserve existing file
 permissions, and follow existing symlinks without replacing the link. Failed writes
-retain the previous raw document and pending edits for retry.
+retain the previous raw document and pending edits for retry. If the bibliography
+has changed outside bibtui, saving is refused before replacing it or its backup;
+export pending work and reopen the changed file. This check does not lock out
+other processes writing simultaneously.
 
 ### Group tree
 
