@@ -3,6 +3,15 @@
 
 use super::*;
 
+#[derive(Debug, thiserror::Error)]
+pub(super) enum SaveError {
+    #[error("Backup failed: {0}")]
+    Backup(std::io::Error),
+    #[error("Save failed: {0}")]
+    Write(std::io::Error),
+}
+
+
 impl App {
     /// Rename attached files to match the citation key, updating the `file` field in place.
     ///
@@ -245,8 +254,7 @@ impl App {
     pub(super) fn request_save(&mut self, and_quit: bool) {
         let renames = self.compute_sync_renames(false);
         if renames.is_empty() {
-            self.save();
-            if and_quit {
+            if self.save() && and_quit {
                 self.should_quit = true;
             }
         } else {
@@ -260,7 +268,21 @@ impl App {
         }
     }
 
-    pub(super) fn save(&mut self) {
+    pub(super) fn save(&mut self) -> bool {
+        match self.try_save() {
+            Ok(()) => {
+                self.status_message = Some(format!("Saved to {}", self.bib_path.display()));
+                true
+            }
+            Err(error) => {
+                self.dirty = true;
+                self.status_message = Some(error.to_string());
+                false
+            }
+        }
+    }
+
+    fn try_save(&mut self) -> std::result::Result<(), SaveError> {
         // Rename attached files to match citation keys before serialising.
         self.sync_filenames(false);
 
@@ -280,8 +302,7 @@ impl App {
         if self.config.general.backup_on_save && self.bib_path.exists() {
             let backup_path = self.bib_path.with_extension("bib.bak");
             if let Err(e) = std::fs::copy(&self.bib_path, &backup_path) {
-                self.status_message = Some(format!("Backup failed: {}", e));
-                return;
+                return Err(SaveError::Backup(e));
             }
         }
 
@@ -306,13 +327,13 @@ impl App {
                 for entry in self.database.entries.values_mut() {
                     entry.dirty = false;
                 }
-                self.status_message = Some(format!("Saved to {}", self.bib_path.display()));
+                Ok(())
             }
             Err(e) => {
                 // Clean up the temp file so a failed save leaves no debris and
                 // the original file is untouched.
                 let _ = std::fs::remove_file(&tmp_path);
-                self.status_message = Some(format!("Save failed: {}", e));
+                Err(SaveError::Write(e))
             }
         }
     }

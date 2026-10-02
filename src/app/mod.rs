@@ -1872,8 +1872,7 @@ impl App {
                 self.save();
             }
             Some(PendingAction::SaveAndQuit) => {
-                self.save();
-                self.should_quit = true;
+                self.should_quit = self.save();
             }
             Some(PendingAction::Quit) => {
                 // Quit-confirm dialog: quit without saving.
@@ -2376,3 +2375,6 @@ fn parse_field_header(s: &str) -> (String, String) {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod review_tests;

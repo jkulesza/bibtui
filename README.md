@@ -284,7 +284,8 @@ a visible field or is cleared.
 
 When `save.sync_filenames` is enabled, saving with `:w` or `:wq` shows a scrollable
 preview of any file renames that will be performed, with `[y]es` / `[n]o` to proceed
-or cancel.
+or cancel. A failed save keeps the application open and marks the library unsaved,
+including when using `:wq`; correct the error and retry.
 
 ### Group tree
 

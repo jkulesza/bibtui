@@ -1,0 +1,5 @@
+Release mode; Rust 1.98.1; x86_64 macOS; synthetic data; milliseconds.
+PERF n=1000 bytes=2211000 parse_ms=10.484 search_ms=59.542 author_ms=0.300 cached_match_ms=58.277 sort_ms=0.360 render_ms=8.649 regen_ms=9.102
+PERF n=5000 bytes=11055000 parse_ms=50.998 search_ms=300.706 author_ms=1.570 cached_match_ms=291.951 sort_ms=1.967 render_ms=13.362 regen_ms=187.253
+PERF n=10000 bytes=22110000 parse_ms=113.859 search_ms=596.237 author_ms=3.417 cached_match_ms=587.862 sort_ms=4.164 render_ms=19.081 regen_ms=744.351
+PERF n=20000 bytes=44220000 parse_ms=246.068 search_ms=1204.835 author_ms=7.078 cached_match_ms=1169.793 sort_ms=8.708 render_ms=36.004 regen_ms=4052.258
