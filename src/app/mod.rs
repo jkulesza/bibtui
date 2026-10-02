@@ -2081,12 +2081,17 @@ impl App {
                 }
                 self.status_message = Some(format!("Undo: field '{}'", field_name));
             }
-            UndoItem::EntryDeleted { entry } => {
+            UndoItem::EntryDeleted { mut entry } => {
                 let key = entry.citation_key.clone();
-                // If the raw_index was queued for removal, cancel that
+                // A save may have removed/reordered this entry's historical slot.
+                // Bind to the current raw document, never to the undo snapshot's index.
+                entry.raw_index = self.database.raw_file.items.iter().position(|item| {
+                    matches!(item, RawItem::Entry(raw) if raw.citation_key == key)
+                }).unwrap_or(usize::MAX);
                 if let Some(pos) = self.deleted_raw_indices.iter().position(|&i| i == entry.raw_index) {
                     self.deleted_raw_indices.remove(pos);
                 }
+                entry.dirty = true;
                 self.database.entries.insert(key.clone(), entry);
                 self.sorted_keys = sort_entries(&self.database.entries, &self.config);
                 self.status_message = Some(format!("Undo: restored '{}'", key));
@@ -2119,8 +2124,10 @@ impl App {
                 self.status_message = Some(format!("Undo: type reverted to {}", old_name));
             }
             UndoItem::CitekeyChanged { old_key, new_key, entry_snapshot } => {
-                self.database.entries.shift_remove(&new_key);
+                let current = self.database.entries.shift_remove(&new_key);
                 let mut entry = entry_snapshot;
+                entry.raw_index = current.map(|e| e.raw_index).unwrap_or(usize::MAX);
+                entry.dirty = true;
                 entry.citation_key = old_key.clone();
                 self.database.entries.insert(old_key.clone(), entry);
                 if self.detail_entry_key.as_deref() == Some(new_key.as_str()) {

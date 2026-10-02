@@ -292,7 +292,9 @@ impl App {
         // Regenerate all citation keys from templates (after field normalisations
         // so the keys are based on the final, normalised field values).
         if self.config.save.save_action_regenerate_citekeys {
-            let n = self.regen_all_citekeys_impl(false);
+            // Record automatic renames as a batch so older undo records are
+            // reached only after their original keys have been restored.
+            let n = self.regen_all_citekeys_impl(true);
             if n > 0 {
                 self.sorted_keys = sort_entries(&self.database.entries, &self.config);
             }

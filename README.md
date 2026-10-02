@@ -285,7 +285,9 @@ a visible field or is cleared.
 When `save.sync_filenames` is enabled, saving with `:w` or `:wq` shows a scrollable
 preview of any file renames that will be performed, with `[y]es` / `[n]o` to proceed
 or cancel. A failed save keeps the application open and marks the library unsaved,
-including when using `:wq`; correct the error and retry.
+including when using `:wq`; correct the error and retry. Undo remains available across
+saves: restored entries and citation keys are persisted on the next save. Automatic
+key changes made during save form one undo step before earlier edits.
 
 ### Group tree
 

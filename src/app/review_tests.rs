@@ -135,3 +135,77 @@ fn undo_marker_survives_cap_and_batch_until_saved_state_evicted() {
     assert!(app.dirty);
     assert_eq!(app.save_generation, None);
 }
+#[test]
+fn review_delete_save_undo_save_must_restore_entry() {
+    let (mut app, _dir) = review_app("@Misc{A, title={Alpha}}\n@Misc{B, title={Beta}}\n");
+    app.delete_entry("A");
+    app.save();
+    app.undo();
+    assert!(app.database.entries.contains_key("A"));
+    app.save();
+    let reloaded = App::new(app.bib_path.clone(), app.config.clone()).unwrap();
+    assert_eq!(
+        reloaded.database.entries.len(),
+        2,
+        "restored entry must survive save/reload"
+    );
+}
+
+#[test]
+fn review_key_change_save_undo_save_must_restore_key() {
+    let (mut app, _dir) = review_app("@Misc{A, title={Alpha}, year={2020}}\n");
+    app.config
+        .citekey
+        .templates
+        .insert("misc".into(), "New[year]".into());
+    app.detail_entry_key = Some("A".into());
+    app.regen_citekey();
+    app.save();
+    app.undo();
+    assert!(app.database.entries.contains_key("A"));
+    app.save();
+    let reloaded = App::new(app.bib_path.clone(), app.config.clone()).unwrap();
+    assert!(
+        reloaded.database.entries.contains_key("A"),
+        "undo must restore key on disk"
+    );
+}
+
+
+#[test]
+fn deleted_entries_restore_after_sorted_save_and_remain_editable() {
+    for order in ["none", "citation_key"] {
+        let (mut app, _dir) = review_app("@Misc{C, title={Gamma}}\n@Misc{A, title={Alpha}}\n@Misc{B, title={Beta}}\n");
+        app.config.save.entry_sort_order = order.into();
+        app.delete_entry("A");
+        app.delete_entry("C");
+        assert!(app.save());
+        app.undo();
+        app.undo();
+        review_edit(&mut app, "A", "title", "Restored Alpha");
+        assert!(app.save());
+        let reloaded = App::new(app.bib_path.clone(), app.config.clone()).unwrap();
+        assert_eq!(reloaded.database.entries.len(), 3);
+        assert_eq!(reloaded.database.entries["A"].fields["title"], "Restored Alpha");
+        assert_eq!(reloaded.database.entries["B"].fields["title"], "Beta");
+        assert_eq!(reloaded.database.entries["C"].fields["title"], "Gamma");
+    }
+}
+
+#[test]
+fn automatic_save_renames_unwind_before_older_field_undo() {
+    let (mut app, _dir) = review_app("@Misc{A, title={Alpha}, year={2020}}\n");
+    review_edit(&mut app, "A", "title", "Changed");
+    app.config.citekey.templates.insert("misc".into(), "New[year]".into());
+    app.config.save.save_action_regenerate_citekeys = true;
+    assert!(app.save());
+    app.undo(); // automatic rename
+    assert!(app.database.entries.contains_key("A"));
+    app.undo(); // preceding field edit
+    assert_eq!(app.database.entries["A"].fields["title"], "Alpha");
+    assert!(app.dirty);
+    app.config.save.save_action_regenerate_citekeys = false;
+    assert!(app.save());
+    let reloaded = App::new(app.bib_path.clone(), app.config.clone()).unwrap();
+    assert_eq!(reloaded.database.entries["A"].fields["title"], "Alpha");
+}
