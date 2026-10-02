@@ -600,10 +600,9 @@ impl App {
             .iter()
             .map(|&i| self.database.raw_file.items[i].clone())
             .collect();
-        sorted.sort_by(|a, b| {
-            let ka = if let RawItem::Entry(e) = a { e.citation_key.to_lowercase() } else { String::new() };
-            let kb = if let RawItem::Entry(e) = b { e.citation_key.to_lowercase() } else { String::new() };
-            ka.cmp(&kb)
+        sorted.sort_by_cached_key(|item| match item {
+            RawItem::Entry(entry) => entry.citation_key.to_lowercase(),
+            _ => String::new(),
         });
 
         // Write them back into the same index slots (non-entry items stay put).
@@ -869,20 +868,12 @@ pub(super) fn sort_entries(entries: &IndexMap<String, Entry>, config: &Config) -
 
     let ascending = config.display.default_sort.ascending;
     let mut keys = keys;
-    keys.sort_by(|a, b| {
-        let ea = entries.get(a);
-        let eb = entries.get(b);
-
-        let va = ea.map(|e| get_sort_value(e, field)).unwrap_or_default();
-        let vb = eb.map(|e| get_sort_value(e, field)).unwrap_or_default();
-
-        let ord = compare_sort_values(field, &va, &vb);
-        if ascending {
-            ord
-        } else {
-            ord.reverse()
-        }
-    });
+    let cached_key = |key: &String| sort_value_key(field, &get_sort_value(&entries[key], field));
+    if ascending {
+        keys.sort_by_cached_key(cached_key);
+    } else {
+        keys.sort_by_cached_key(|key| std::cmp::Reverse(cached_key(key)));
+    }
 
     keys
 }
@@ -890,30 +881,19 @@ pub(super) fn sort_entries(entries: &IndexMap<String, Entry>, config: &Config) -
 /// Fields that are compared numerically rather than lexically.
 const NUMERIC_SORT_FIELDS: &[&str] = &["year", "volume", "number", "pages"];
 
-/// Compare two sort values in ascending order.
-///
-/// Numeric-aware behavior applies when the sort field is `year`, `volume`,
-/// `number`, or `pages`, or when both values parse fully as integers. In those
-/// cases values are compared as numbers so that `"9"` sorts before `"10"`.
-///
-/// For `pages`, the leading integer of each value is used (e.g. `"123--130"`
-/// compares as `123`). Ordering within a numeric field is:
-/// 1. empty values first (matching the previous string-based behavior),
-/// 2. values with a numeric key, in numeric order,
-/// 3. values with no leading integer last, in lexical order.
-///
-/// When neither trigger applies, the original case-relevant string comparison
-/// is used.
+/// Choose ordering once per field: numeric for numeric fields, lexical for
+/// all others. Pair-dependent numeric fallback would violate transitivity.
+#[cfg(test)]
 pub(super) fn compare_sort_values(field: &str, a: &str, b: &str) -> std::cmp::Ordering {
+    sort_value_key(field, a).cmp(&sort_value_key(field, b))
+}
+
+fn sort_value_key(field: &str, value: &str) -> (u8, i64, String) {
     if NUMERIC_SORT_FIELDS.contains(&field) {
-        return numeric_sort_key(field, a).cmp(&numeric_sort_key(field, b));
+        numeric_sort_key(field, value)
+    } else {
+        (0, 0, value.to_string())
     }
-    // For any other field, compare numerically only when both values are
-    // integers; otherwise fall back to the original string comparison.
-    if let (Ok(ia), Ok(ib)) = (a.trim().parse::<i64>(), b.trim().parse::<i64>()) {
-        return ia.cmp(&ib);
-    }
-    a.cmp(b)
 }
 
 /// Build an ascending sort key for a numeric field: `(tier, number, text)`.
@@ -937,11 +917,12 @@ fn numeric_sort_key(field: &str, value: &str) -> (u8, i64, String) {
     }
 }
 
-/// Parse the leading run of ASCII digits as an integer (e.g. `"123--130"` →
+/// Parse the leading signed run of ASCII digits as an integer (e.g. `"123--130"` →
 /// `Some(123)`). Returns `None` when the value does not start with a digit.
 fn leading_integer(v: &str) -> Option<i64> {
-    let digits: String = v.chars().take_while(|c| c.is_ascii_digit()).collect();
-    digits.parse::<i64>().ok()
+    let sign = usize::from(v.starts_with(['-', '+']));
+    let end = sign + v.as_bytes()[sign..].iter().take_while(|b| b.is_ascii_digit()).count();
+    v[..end].parse::<i64>().ok()
 }
 
 pub(super) fn get_sort_value(entry: &Entry, field: &str) -> String {

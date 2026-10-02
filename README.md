@@ -445,3 +445,7 @@ cargo llvm-cov --workspace --summary-only
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md) for the full release history.
+
+Sorting uses numeric order for `year`, `volume`, `number`, and the leading page
+number; other fields use lexical order, even when some values contain only digits.
+Sort keys are computed once per entry.

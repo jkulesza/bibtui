@@ -560,3 +560,28 @@ fn save_preserves_blank_lines_inside_every_opaque_item() {
         assert_eq!(std::fs::read_to_string(&app.bib_path).unwrap(), input);
     }
 }
+
+#[test]
+fn sort_order_is_transitive_and_antisymmetric_for_mixed_values() {
+    let values = ["", " ", "2", "10", "1a", "-5", "+5", "05", "18446744073709551616", "é", "ê", "100--120", "-12--1"];
+    for field in ["title", "citation_key", "year", "volume", "number", "pages"] {
+        for a in values {
+            for b in values {
+                assert_eq!(compare_sort_values(field, a, b), compare_sort_values(field, b, a).reverse());
+                for c in values {
+                    if compare_sort_values(field, a, b).is_le() && compare_sort_values(field, b, c).is_le() {
+                        assert!(compare_sort_values(field, a, c).is_le(), "{field}: {a}, {b}, {c}");
+                    }
+                }
+            }
+        }
+    }
+    let (mut app, _dir) = review_app("@Misc{A,title={2}}\n@Misc{B,title={10}}\n@Misc{C,title={1a}}\n");
+    app.config.display.default_sort.field = "title".into();
+    app.config.display.default_sort.ascending = true;
+    let mut ascending = sort_entries(&app.database.entries, &app.config);
+    assert_eq!(ascending, ["B", "C", "A"]);
+    ascending.reverse();
+    app.config.display.default_sort.ascending = false;
+    assert_eq!(sort_entries(&app.database.entries, &app.config), ascending);
+}

@@ -1804,11 +1804,11 @@ fn test_compare_sort_values_mixed_numeric_non_numeric_stability() {
 }
 
 #[test]
-fn test_compare_sort_values_non_numeric_field_both_integers() {
+fn test_compare_sort_values_non_numeric_field_stays_lexical() {
     use std::cmp::Ordering;
-    // A non-numeric field still compares numerically when both values are ints.
-    assert_eq!(compare_sort_values("citation_key", "9", "10"), Ordering::Less);
-    // But falls back to string comparison when they are not both integers.
+    // A non-numeric field always compares lexically, including integer text.
+    assert_eq!(compare_sort_values("citation_key", "9", "10"), Ordering::Greater);
+    // The same policy applies to ordinary text.
     assert_eq!(compare_sort_values("citation_key", "b", "a"), Ordering::Greater);
 }
 
