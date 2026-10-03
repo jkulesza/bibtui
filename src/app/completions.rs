@@ -522,13 +522,6 @@ pub(super) fn longest_common_prefix(items: &[String]) -> String {
             }
         }
     }
-    // Walk the first string's chars to find the largest valid UTF-8 boundary <= len.
-    let mut boundary = 0;
-    for (i, c) in items[0].char_indices() {
-        if i >= len {
-            break;
-        }
-        boundary = i + c.len_utf8();
-    }
-    items[0][..boundary].to_string()
+    while !items[0].is_char_boundary(len) { len -= 1; }
+    items[0][..len].to_string()
 }

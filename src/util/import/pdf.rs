@@ -76,7 +76,7 @@ fn find_doi_in_text(text: &str) -> Option<String> {
 /// - XML/XMP: `<prism:doi>10.xxx/...</prism:doi>`
 /// - PDF /Subject or /Keywords entries containing the DOI
 fn labeled_doi(text: &str) -> Option<String> {
-    let lower = text.to_lowercase();
+    let lower = text.to_ascii_lowercase();
 
     // Ordered from most-specific to least-specific
     let prefixes: &[&str] = &[
@@ -134,12 +134,13 @@ fn bare_doi(text: &str) -> Option<String> {
 /// Returns `None` if the candidate is not a valid DOI shape.
 fn extract_doi_at(text: &str) -> Option<String> {
     // DOI ends at whitespace or common PDF/HTML delimiters
-    let end = text
+    let mut end = text
         .find(|c: char| {
             c.is_whitespace()
                 || matches!(c, '"' | '\'' | '<' | '>' | '{' | '}' | '\\' | ')' | ']' | '\0')
         })
-        .unwrap_or(text.len().min(200));
+        .unwrap_or(text.len()).min(200);
+    while !text.is_char_boundary(end) { end -= 1; }
 
     let candidate = text[..end].trim_end_matches(['.', ',', ';', ':']);
 
@@ -369,4 +370,22 @@ mod tests {
         let tmp = tempfile::Builder::new().suffix(".PDF").tempfile().unwrap();
         assert!(PdfFetcher.can_handle(tmp.path().to_str().unwrap()));
     }
+    #[test]
+    fn unicode_offsets_and_byte_limits_never_split_codepoints() {
+        // Lowercasing Kelvin signs and dotted I changes byte length under full
+        // Unicode folding; ASCII DOI labels must retain original offsets.
+        for ch in ['K', 'İ', 'é', 'ê', '漢', '😀', '\u{301}'] {
+            for len in 0..210 {
+                let prefix = ch.to_string().repeat(len);
+                let text = format!("{prefix} DOI: 10.1234/test");
+                assert_eq!(find_doi_in_text(&text).as_deref(), Some("10.1234/test"));
+                let candidate = format!("10.1234/{}", prefix);
+                if let Some(doi) = extract_doi_at(&candidate) {
+                    assert!(doi.len() <= 200);
+                    assert!(candidate.starts_with(&doi));
+                }
+            }
+        }
+    }
+
 }

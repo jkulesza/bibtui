@@ -594,3 +594,19 @@ fn documented_multi_field_search_matches_all_qualifiers() {
     assert_eq!(app.visible_entry_count(), 1);
     assert_eq!(app.selected_entry_key().as_deref(), Some("A"));
 }
+
+#[test]
+fn completion_prefix_is_a_prefix_of_every_unicode_candidate() {
+    assert_eq!(longest_common_prefix(&["é.pdf".into(), "ê.pdf".into()]), "");
+    let parts = ["", "é", "ê", "漢", "😀", "😁", "a", "e\u{301}"];
+    for prefix in parts {
+        for a in parts {
+            for b in parts {
+                let candidates = [format!("{prefix}{a}.pdf"), format!("{prefix}{b}.pdf")];
+                let common = longest_common_prefix(&candidates);
+                assert!(candidates.iter().all(|s| s.starts_with(&common)));
+                assert!(common.starts_with(prefix));
+            }
+        }
+    }
+}
