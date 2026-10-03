@@ -45,3 +45,5 @@ Remaining: R04–R14, P01–P03, Q01–Q02.
 - P01: batch search paste; one cancellable worker above 500 entries, combined query/document generations, immutable per-entry text/range cache, stale-result rejection and responsiveness/full-field tests.
 
 - Q01: event-driven workflow helpers and save/reload/failure sequences, generated semantic round-trip cases, tracked JabRef fixtures and isolated config roots; existing injected filesystem/HTTP/order/Unicode tests retained.
+
+- P01 follow-up: release benchmarks exposed excess copying in synchronous qualified search; borrow selected fields and share compiled-query scoring with the worker.

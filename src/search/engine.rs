@@ -34,7 +34,7 @@ impl SearchEngine {
         let mut results = Vec::new();
         let mut buf = Vec::new();
         for (idx, entry) in entries.iter().enumerate() {
-            if let Some(score) = query.score(&SearchDocument::new(entry), &mut self.matcher, &mut buf) {
+            if let Some(score) = query.score_entry(entry, &mut self.matcher, &mut buf) {
                 results.push((idx, score));
             }
         }
@@ -63,10 +63,27 @@ impl CompiledQuery {
     }
 
     pub fn score(&self, document: &SearchDocument, matcher: &mut Matcher, buf: &mut Vec<char>) -> Option<u32> {
+        self.score_values(|field| document.get(field), matcher, buf)
+    }
+
+    fn score_entry(&self, entry: &Entry, matcher: &mut Matcher, buf: &mut Vec<char>) -> Option<u32> {
+        // Qualified queries borrow only their fields. Avoid indexing or copying
+        // large unrelated abstracts on the synchronous path.
+        let all = self.terms.iter().any(|(term, _)| term.field.is_none())
+            .then(|| build_search_string(entry, None));
+        self.score_values(|field| match field {
+            None => all.as_deref().unwrap_or_default(),
+            Some("entrytype" | "type") => entry.entry_type.display_name(),
+            Some("citation_key" | "key" | "citekey") => &entry.citation_key,
+            Some(name) => entry.fields.get(name).map(String::as_str).unwrap_or_default(),
+        }, matcher, buf)
+    }
+
+    fn score_values<'a>(&self, value: impl Fn(Option<&str>) -> &'a str, matcher: &mut Matcher, buf: &mut Vec<char>) -> Option<u32> {
         let mut total = 0u32;
         for (term, pattern) in &self.terms {
             if term.text.is_empty() { return None; }
-            let haystack = document.get(term.field.as_deref());
+            let haystack = value(term.field.as_deref());
             if haystack.is_empty() { return None; }
             total = total.saturating_add(pattern.score(Utf32Str::new(haystack, buf), matcher)?);
         }
@@ -116,7 +133,6 @@ fn parse_query(query: &str) -> Vec<QueryTerm> {
 }
 
 /// Build a search string from an entry, optionally filtering to a specific field.
-#[cfg(test)]
 fn build_search_string(entry: &Entry, field_filter: Option<&str>) -> String {
     if let Some(field) = field_filter {
         if field == "entrytype" || field == "type" {
