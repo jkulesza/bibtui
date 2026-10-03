@@ -5,6 +5,7 @@ use super::schema::*;
 pub fn default_config() -> Config {
     Config {
         general: GeneralConfig::default(),
+        import: ImportConfig::default(),
         display: DisplayConfig::default(),
         citation: super::schema::CitationConfig::default(),
         citekey: CitekeyConfig::default(),

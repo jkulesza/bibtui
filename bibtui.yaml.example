@@ -235,3 +235,7 @@ field_groups:
 #     "ctrl-d": "DeleteEntry"   # delete with Ctrl-D instead of 'dd'
 #   detail:
 #     "ctrl-r": "RegenCitekey"  # regenerate citekey from detail view
+
+# PDF download limit; files already at the destination are never overwritten.
+import:
+  max_pdf_size_mb: 100

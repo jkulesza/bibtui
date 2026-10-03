@@ -26,6 +26,7 @@ impl App {
             &self.bib_path,
             self.database.jabref_meta.file_directory.as_deref(),
         );
+        let max_pdf_bytes = self.config.import.max_pdf_size_mb.saturating_mul(1024 * 1024);
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
             let result = (|| {
@@ -34,7 +35,7 @@ impl App {
                 if entry.pdf_path.is_none() && !entry.pdf_urls.is_empty() {
                     let doi = entry.fields.get("doi").cloned().unwrap_or_else(|| "import".to_string());
                     for pdf_url in &entry.pdf_urls {
-                        match crate::util::import::download_pdf_with(pdf_url, &bib_dir, &doi, &http) {
+                        match crate::util::import::download_pdf_with(pdf_url, &bib_dir, &doi, &http, max_pdf_bytes) {
                             Ok(path) => { entry.pdf_path = Some(path); entry.pdf_error = None; break; }
                             Err(error) => entry.pdf_error = Some(error.to_string()),
                         }

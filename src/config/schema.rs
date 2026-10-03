@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 #[serde(default)]
 pub struct Config {
     pub general: GeneralConfig,
+    pub import: ImportConfig,
     pub display: DisplayConfig,
     pub citation: CitationConfig,
     pub citekey: CitekeyConfig,
@@ -56,6 +57,17 @@ impl Config {
 
         warnings
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ImportConfig {
+    /// Maximum PDF download size in MiB. Existing files are never overwritten.
+    pub max_pdf_size_mb: u64,
+}
+
+impl Default for ImportConfig {
+    fn default() -> Self { Self { max_pdf_size_mb: 100 } }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

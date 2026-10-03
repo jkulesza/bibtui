@@ -475,3 +475,9 @@ and assigns the first available numeric suffix deterministically on collisions.
 Imports share one HTTP client with 5-second connection, 10-second read/write,
 30-second request, and 90-second overall budgets. Metadata is limited to 4 MiB.
 Optional open-access lookup has a 5-second budget and is skipped for local PDFs.
+
+PDF downloads stream into an owned temporary file, validate the `%PDF` signature,
+and create the final file without overwriting an existing attachment. The default
+limit is 100 MiB; configure `import.max_pdf_size_mb` in YAML. A failed PDF download
+keeps the imported metadata and reports the error. Local PDF DOI extraction reads
+only the first 200 KB and last 50 KB.

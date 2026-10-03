@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::io::{Read, Seek, SeekFrom};
 
 use super::crossref::CrossrefFetcher;
 use super::fetcher::Fetcher;
@@ -15,31 +16,31 @@ pub struct PdfFetcher;
 impl PdfFetcher {
     /// Extract a DOI from the raw bytes of a PDF file.
     pub fn extract_doi_from_path(path: &Path) -> Result<String, ImportError> {
-        let bytes =
-            std::fs::read(path).map_err(|e| ImportError::Parse(format!("Cannot read file: {}", e)))?;
+        let mut file = std::fs::File::open(path)
+            .map_err(|error| ImportError::Parse(format!("Cannot read file: {}", error)))?;
+        extract_doi_from_reader(&mut file)
+    }
+}
 
+/// Read only the head and tail, with bounded memory even for very large PDFs.
+fn extract_doi_from_reader(reader: &mut (impl Read + Seek)) -> Result<String, ImportError> {
+        let mut bytes = Vec::new();
+        (&mut *reader).take(200_000).read_to_end(&mut bytes)
+            .map_err(|error| ImportError::Parse(error.to_string()))?;
         if !bytes.starts_with(b"%PDF") {
             return Err(ImportError::Parse("File is not a valid PDF".to_string()));
         }
-
-        // Search the first 200 KB — covers uncompressed DocInfo, XMP, and early page headers.
-        let head_end = bytes.len().min(200_000);
-        let head = String::from_utf8_lossy(&bytes[..head_end]);
-
-        if let Some(doi) = find_doi_in_text(&head) {
-            return Ok(doi);
-        }
-
-        // Also check the last 50 KB — xref/trailer sometimes repeats metadata.
-        if bytes.len() > head_end {
-            let tail = String::from_utf8_lossy(&bytes[bytes.len().saturating_sub(50_000)..]);
-            if let Some(doi) = find_doi_in_text(&tail) {
-                return Ok(doi);
-            }
+        if let Some(doi) = find_doi_in_text(&String::from_utf8_lossy(&bytes)) { return Ok(doi); }
+        let length = reader.seek(SeekFrom::End(0)).map_err(|error| ImportError::Parse(error.to_string()))?;
+        if length > bytes.len() as u64 {
+            reader.seek(SeekFrom::End(-(length.min(50_000) as i64)))
+                .map_err(|error| ImportError::Parse(error.to_string()))?;
+            bytes.clear();
+            reader.take(50_000).read_to_end(&mut bytes).map_err(|error| ImportError::Parse(error.to_string()))?;
+            if let Some(doi) = find_doi_in_text(&String::from_utf8_lossy(&bytes)) { return Ok(doi); }
         }
 
         Err(ImportError::Parse("No DOI found in PDF".to_string()))
-    }
 }
 
 impl Fetcher for PdfFetcher {
@@ -387,6 +388,30 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn local_scanning_reads_at_most_head_and_tail() {
+        struct Counted {
+            inner: std::io::Cursor<Vec<u8>>,
+            bytes_read: usize,
+        }
+        impl Read for Counted {
+            fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+                let count = self.inner.read(buffer)?;
+                self.bytes_read += count;
+                Ok(count)
+            }
+        }
+        impl Seek for Counted {
+            fn seek(&mut self, position: SeekFrom) -> std::io::Result<u64> { self.inner.seek(position) }
+        }
+        let mut bytes = vec![b' '; 1_000_000];
+        bytes[..4].copy_from_slice(b"%PDF");
+        bytes.extend_from_slice(b" DOI: 10.1234/tail");
+        let mut reader = Counted { inner: std::io::Cursor::new(bytes), bytes_read: 0 };
+        assert_eq!(extract_doi_from_reader(&mut reader).unwrap(), "10.1234/tail");
+        assert_eq!(reader.bytes_read, 250_000);
     }
 
 }
