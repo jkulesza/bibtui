@@ -127,7 +127,11 @@ impl App {
                     let rel = crate::util::open::make_relative(&file_dir, pdf_path);
                     fields.insert(
                         "file".to_string(),
-                        format!(":{}:PDF", rel.to_string_lossy()),
+                        serialize_file_field(&[crate::util::open::ParsedFile {
+                            description: String::new(),
+                            path: rel.to_string_lossy().into_owned(),
+                            file_type: "PDF".into(),
+                        }]),
                     );
                 }
 

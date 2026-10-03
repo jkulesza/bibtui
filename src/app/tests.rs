@@ -678,7 +678,7 @@ fn test_delete_entry_with_one_local_file_shows_type_picker() {
         .get_mut(&key)
         .unwrap()
         .fields
-        .insert("file".to_string(), format!(":{}:PDF", pdf_path.display()));
+        .insert("file".to_string(), attachment_field(&[&pdf_path]));
 
     app.handle_action(Action::DeleteEntry);
     assert_eq!(app.mode, InputMode::Dialog);
@@ -704,7 +704,7 @@ fn test_delete_entry_with_multiple_local_files_shows_file_delete_select() {
     let pdf2 = NamedTempFile::new().unwrap();
     let p1 = pdf1.path();
     let p2 = pdf2.path();
-    let file_val = format!(":{}:PDF;:{}:PDF", p1.display(), p2.display());
+    let file_val = attachment_field(&[p1, p2]);
 
     let key = app.sorted_keys.first().cloned().unwrap();
     app.database
@@ -738,7 +738,7 @@ fn test_delete_entry_with_file_option0_deletes_both() {
         .get_mut(&key)
         .unwrap()
         .fields
-        .insert("file".to_string(), format!(":{}:PDF", pdf_path.display()));
+        .insert("file".to_string(), attachment_field(&[&pdf_path]));
 
     // Trigger delete → TypePicker
     app.handle_action(Action::DeleteEntry);
@@ -764,7 +764,7 @@ fn test_delete_entry_with_file_option1_keeps_file() {
         .get_mut(&key)
         .unwrap()
         .fields
-        .insert("file".to_string(), format!(":{}:PDF", pdf_path.display()));
+        .insert("file".to_string(), attachment_field(&[&pdf_path]));
 
     app.handle_action(Action::DeleteEntry);
     app.dialog_state.as_mut().unwrap().select(1); // "Delete entry only"
@@ -787,7 +787,7 @@ fn test_delete_entry_with_file_option2_cancels() {
         .get_mut(&key)
         .unwrap()
         .fields
-        .insert("file".to_string(), format!(":{}:PDF", pdf_path.display()));
+        .insert("file".to_string(), attachment_field(&[&pdf_path]));
 
     app.handle_action(Action::DeleteEntry);
     app.dialog_state.as_mut().unwrap().select(2); // "Cancel"
@@ -809,7 +809,7 @@ fn test_delete_entry_multi_file_select_partial() {
     let pdf2 = NamedTempFile::new().unwrap();
     let p1 = pdf1.path().to_path_buf();
     let p2 = pdf2.path().to_path_buf();
-    let file_val = format!(":{}:PDF;:{}:PDF", p1.display(), p2.display());
+    let file_val = attachment_field(&[p1.as_ref(), p2.as_ref()]);
 
     let key = app.sorted_keys.first().cloned().unwrap();
     app.database
@@ -5263,4 +5263,17 @@ fn test_dialog_move_to_top_bottom_and_page() {
     assert_eq!(app.dialog_state.as_ref().unwrap().selected(), 20);
     app.handle_action(Action::PageUp);
     assert_eq!(app.dialog_state.as_ref().unwrap().selected(), 0);
+}
+
+fn attachment_field(paths: &[&std::path::Path]) -> String {
+    serialize_file_field(
+        &paths
+            .iter()
+            .map(|path| crate::util::open::ParsedFile {
+                description: String::new(),
+                path: path.to_string_lossy().into_owned(),
+                file_type: "PDF".into(),
+            })
+            .collect::<Vec<_>>(),
+    )
 }

@@ -1265,3 +1265,26 @@ fn restore_deleted_key_after_another_entry_reused_it_and_was_saved() {
     assert_eq!(reload.database.entries["A"].fields["title"], "Original A");
     assert_eq!(reload.database.entries["B"].fields["title"], "Original B");
 }
+
+#[test]
+fn imported_attachment_paths_escape_jabref_separators() {
+    let (mut app, dir) = review_app("@Misc{A}\n");
+    let path = dir.path().join("paper;part.pdf");
+    std::fs::write(&path, "%PDF").unwrap();
+    let mut imported = crate::util::import::ImportedEntry::new("misc", IndexMap::new());
+    imported.pdf_path = Some(path.clone());
+    app.handle_import_result(Ok(imported));
+    let key = app.detail_entry_key.clone().unwrap();
+    let files = parse_file_field(&app.database.entries[&key].fields["file"]);
+    assert_eq!(files.len(), 1);
+    assert_eq!(
+        crate::util::open::resolve_file_path(&files[0].path, dir.path()),
+        path
+    );
+    assert!(app.save());
+    let reload = App::new(app.bib_path.clone(), app.config.clone()).unwrap();
+    assert_eq!(
+        parse_file_field(&reload.database.entries[&key].fields["file"])[0].path,
+        "paper;part.pdf"
+    );
+}

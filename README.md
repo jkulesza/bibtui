@@ -504,3 +504,6 @@ Source formatting is standardized with `cargo fmt --all`; check it with
 
 Undo also preserves both entries when a deleted citation key was temporarily
 reused by another entry and saved before the deletion was undone.
+
+Imported attachment paths escape JabRef separators, including Windows drive
+colons and semicolons in filenames.

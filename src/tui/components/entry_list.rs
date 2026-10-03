@@ -611,7 +611,11 @@ mod tests {
         use tempfile::NamedTempFile;
         let tmp = NamedTempFile::new().unwrap();
         let path_str = tmp.path().to_str().unwrap().to_string();
-        let file_val = format!(":{}:application/pdf", path_str);
+        let file_val = crate::util::open::serialize_file_field(&[crate::util::open::ParsedFile {
+            description: String::new(),
+            path: path_str,
+            file_type: "application/pdf".into(),
+        }]);
         let e = make_entry("k", false, &[("file", &file_val)]);
         let bib_dir = tmp.path().parent().unwrap();
         let _ = file_indicator_cell(&e, bib_dir);
