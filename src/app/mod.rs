@@ -3,7 +3,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use crossterm::event::{Event, KeyCode, KeyEvent};
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
 use indexmap::IndexMap;
 
 use crate::bib::citekey::generate_citekey;
@@ -462,14 +462,18 @@ impl App {
         }
     }
 
-    fn handle_key(&mut self, key: KeyEvent) {
+    fn handle_key(&mut self, mut key: KeyEvent) {
+        if key.kind == KeyEventKind::Release { return; }
+        let repeat = key.kind == KeyEventKind::Repeat;
+        key.kind = KeyEventKind::Press; // user bindings describe keys, not backend event kinds
+
         // Track last key for multi-key combos (gg, dd, yy, dt{c}, df{c}, …)
-        let last = self.last_key;
-        let second_last = self.second_last_key;
+        let last = if repeat { None } else { self.last_key };
+        let second_last = if repeat { None } else { self.second_last_key };
 
         // Update key-history tracking.  Only char keys advance the chain;
         // non-char keys (arrows, Esc, …) reset both slots.
-        match key.code {
+        if !repeat { match key.code {
             KeyCode::Char(c) => {
                 self.second_last_key = self.last_key;
                 self.last_key = Some(c);
@@ -478,6 +482,8 @@ impl App {
                 self.second_last_key = None;
                 self.last_key = None;
             }
+        }
+
         }
 
         let is_message_dialog = matches!(
@@ -497,11 +503,28 @@ impl App {
             .find(|(m, k, _)| *m == current_mode && *k == key)
             .map(|(_, _, a)| a.clone())
         {
-            self.handle_action(action);
+            self.dispatch_key_action(action, repeat);
             return;
         }
 
         if let Some(action) = map_key(key, &self.mode, second_last, last, is_message_dialog, edit_normal) {
+            self.dispatch_key_action(action, repeat);
+        }
+    }
+
+    fn dispatch_key_action(&mut self, action: Action, repeat: bool) {
+        // Repeats support navigation and text editing, but cannot finish a
+        // multi-key command or repeat destructive library/dialog actions.
+        if !repeat || matches!(action,
+            Action::MoveDown | Action::MoveUp | Action::PageDown | Action::PageUp
+            | Action::EditCursorLeft | Action::EditCursorRight | Action::EditCursorUp
+            | Action::EditCursorDown | Action::EditCursorHome | Action::EditCursorEnd
+            | Action::EditChar(_) | Action::EditBackspace | Action::EditDelete
+            | Action::SearchChar(_) | Action::SearchBackspace
+            | Action::DetailSearchChar(_) | Action::DetailSearchBackspace
+            | Action::CommandChar(_) | Action::CommandBackspace
+            | Action::SettingsMoveDown | Action::SettingsMoveUp
+            | Action::SettingsPageDown | Action::SettingsPageUp) {
             self.handle_action(action);
         }
     }

@@ -610,3 +610,46 @@ fn completion_prefix_is_a_prefix_of_every_unicode_candidate() {
         }
     }
 }
+
+#[test]
+fn key_releases_do_not_dispatch_or_advance_command_history() {
+    use crossterm::event::KeyModifiers;
+    for c in ['j', 'd', 'g', 'y'] {
+        let (mut app, _dir) = review_app("@Misc{A}\n@Misc{B}\n");
+        let press = KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
+        app.handle_event(Event::Key(press));
+        let selection = app.entry_list_state.selected();
+        let history = (app.second_last_key, app.last_key);
+        app.handle_event(Event::Key(KeyEvent { kind: KeyEventKind::Release, ..press }));
+        assert_eq!(app.entry_list_state.selected(), selection);
+        assert_eq!((app.second_last_key, app.last_key), history);
+        assert!(app.dialog_state.is_none());
+    }
+    let (mut app, _dir) = review_app("@Misc{A}\n@Misc{B}\n");
+    let press = KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE);
+    app.user_bindings.push((InputMode::Normal, press, Action::DeleteEntry));
+    for kind in [KeyEventKind::Release, KeyEventKind::Repeat] {
+        app.handle_event(Event::Key(KeyEvent { kind, ..press }));
+        assert!(app.dialog_state.is_none());
+    }
+    app.handle_event(Event::Key(press));
+    assert!(app.dialog_state.is_some());
+}
+
+#[test]
+fn repeat_events_allow_navigation_and_text_without_command_chains() {
+    use crossterm::event::KeyModifiers;
+    let (mut app, _dir) = review_app("@Misc{A}\n@Misc{B}\n");
+    let event = |c, kind| Event::Key(KeyEvent::new_with_kind(KeyCode::Char(c), KeyModifiers::NONE, kind));
+    app.handle_event(event('j', KeyEventKind::Repeat));
+    assert_eq!(app.entry_list_state.selected(), 1);
+    app.handle_event(event('d', KeyEventKind::Press));
+    app.handle_event(event('d', KeyEventKind::Repeat));
+    assert!(app.dialog_state.is_none());
+    assert_eq!(app.second_last_key, None);
+    app.mode = InputMode::Search;
+    app.handle_event(event('a', KeyEventKind::Press));
+    app.handle_event(event('a', KeyEventKind::Release));
+    app.handle_event(event('a', KeyEventKind::Repeat));
+    assert_eq!(app.search_bar_state.query, "aa");
+}

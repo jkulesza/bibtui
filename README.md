@@ -460,3 +460,7 @@ do not match). URLs and DOI strings containing colons remain literal terms;
 
 PDF DOI scanning and path completion preserve UTF-8 character boundaries,
 including when Unicode case folding changes a character’s byte length.
+
+Keyboard release events are ignored. Held-key repeats support navigation and
+text entry/deletion; they do not complete command sequences or repeat library
+deletions, confirmations, or other one-shot actions, including custom bindings.
