@@ -92,7 +92,7 @@ fn pdf_url_candidates(html: &str, doi: &str, article_url: &str) -> Vec<String> {
 
 /// Extract a named attribute value from `<meta>` tags, handling any attribute order.
 fn extract_meta_content(html: &str, name: &str) -> Option<String> {
-    let html_lower = html.to_lowercase();
+    let html_lower = html.to_ascii_lowercase();
     let name_needle = format!("name=\"{}\"", name.to_lowercase());
 
     let mut search_start = 0;
@@ -299,4 +299,12 @@ mod tests {
         assert_eq!(candidates.len(), 1);
         assert_eq!(candidates[0], "https://www.ans.org/pubs/journals/nse/article-60004/pdf/");
     }
+    #[test]
+    fn unicode_before_metadata_preserves_original_byte_offsets() {
+        for prefix in ["K".repeat(10), "İ".repeat(10), "😀éê".repeat(10)] {
+            let html = format!("{prefix}<META name=\"citation_doi\" data-extra=\"{prefix}\" CONTENT=\"10.1234/test\">");
+            assert_eq!(extract_doi_from_html(&html).as_deref(), Some("10.1234/test"));
+        }
+    }
+
 }

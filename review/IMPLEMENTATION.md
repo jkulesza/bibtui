@@ -37,3 +37,5 @@ Remaining: R04–R14, P01–P03, Q01–Q02.
 - R14 (transport): injectable shared Agent with explicit native TLS selection, bounded request/import budgets and metadata sizes, local-PDF OA skip, deterministic routing/metadata/redirect/timeout tests.
 
 - R14 (downloads): stream PDFs into owned temporary files with configurable caps, signature validation and exclusive persistence; local PDF scanning uses bounded Read/Seek head/tail reads.
+
+- R12 follow-up: the same offset bug also occurred in ANS/Taylor & Francis metadata scraping; ASCII-fold tag labels and cover Unicode before/inside tags.

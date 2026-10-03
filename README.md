@@ -458,7 +458,7 @@ empty quotes are ignored. Unknown qualifiers search custom fields (missing field
 do not match). URLs and DOI strings containing colons remain literal terms;
 `key`, `citekey`, and `citation_key` are aliases, as are `type` and `entrytype`.
 
-PDF DOI scanning and path completion preserve UTF-8 character boundaries,
+PDF and publisher-page DOI scanning and path completion preserve UTF-8 character boundaries,
 including when Unicode case folding changes a character’s byte length.
 
 Keyboard release events are ignored. Held-key repeats support navigation and

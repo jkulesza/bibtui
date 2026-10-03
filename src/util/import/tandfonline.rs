@@ -63,12 +63,12 @@ impl Fetcher for TandFOnlineFetcher {
 
 fn extract_doi_from_html(html: &str) -> Option<String> {
     // <meta name="dc.identifier" content="10.xxxx/...">
-    let html_lower = html.to_lowercase();
+    let html_lower = html.to_ascii_lowercase();
     for meta_name in &["dc.identifier", "citation_doi"] {
         let needle = format!("name=\"{}\"", meta_name);
         if let Some(pos) = html_lower.find(&needle) {
             let after = &html[pos..];
-            if let Some(content_pos) = after.to_lowercase().find("content=\"") {
+            if let Some(content_pos) = after.to_ascii_lowercase().find("content=\"") {
                 let start = content_pos + "content=\"".len();
                 let rest = &after[start..];
                 if let Some(end) = rest.find('"') {
@@ -226,4 +226,12 @@ mod tests {
     fn test_extract_doi_from_html_none() {
         assert_eq!(extract_doi_from_html("<html>No DOI here</html>"), None);
     }
+    #[test]
+    fn unicode_before_metadata_preserves_original_byte_offsets() {
+        for prefix in ["K".repeat(10), "İ".repeat(10), "😀éê".repeat(10)] {
+            let html = format!("{prefix}<META name=\"citation_doi\" data-extra=\"{prefix}\" CONTENT=\"10.1234/test\">");
+            assert_eq!(extract_doi_from_html(&html).as_deref(), Some("10.1234/test"));
+        }
+    }
+
 }
