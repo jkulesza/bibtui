@@ -1,6 +1,7 @@
 use indexmap::IndexMap;
 
 use super::fetcher::Fetcher;
+use super::http::HttpTransport;
 use super::{ImportedEntry, ImportError};
 
 /// Fetches BibTeX metadata for books from the OpenLibrary Books API using an ISBN.
@@ -54,7 +55,7 @@ impl Fetcher for IsbnFetcher {
         Self::normalize(input).is_some()
     }
 
-    fn fetch(&self, input: &str) -> Result<ImportedEntry, ImportError> {
+    fn fetch_with(&self, input: &str, http: &dyn HttpTransport) -> Result<ImportedEntry, ImportError> {
         let isbn = Self::normalize(input)
             .ok_or_else(|| ImportError::NoMatch(input.to_string()))?;
 
@@ -63,14 +64,7 @@ impl Fetcher for IsbnFetcher {
             isbn
         );
 
-        let response = ureq::get(&url)
-            .set("User-Agent", "bibtui/0.1 (https://github.com/jkulesza/bibtui)")
-            .call()
-            .map_err(|e| ImportError::Network(e.to_string()))?;
-
-        let json: serde_json::Value = response
-            .into_json()
-            .map_err(|e| ImportError::Parse(e.to_string()))?;
+        let json = http.get(&url, super::http::REQUEST_TIMEOUT)?.json()?;
 
         let key = format!("ISBN:{}", isbn);
         let book = json

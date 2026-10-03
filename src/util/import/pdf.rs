@@ -2,6 +2,7 @@ use std::path::Path;
 
 use super::crossref::CrossrefFetcher;
 use super::fetcher::Fetcher;
+use super::http::HttpTransport;
 use super::{ImportedEntry, ImportError};
 
 /// Fetches BibTeX metadata by reading a local PDF file.
@@ -46,11 +47,11 @@ impl Fetcher for PdfFetcher {
         input.to_lowercase().ends_with(".pdf") && Path::new(input).exists()
     }
 
-    fn fetch(&self, input: &str) -> Result<ImportedEntry, ImportError> {
+    fn fetch_with(&self, input: &str, http: &dyn HttpTransport) -> Result<ImportedEntry, ImportError> {
         let path = Path::new(input);
         let doi = Self::extract_doi_from_path(path)?;
 
-        let mut entry = CrossrefFetcher.fetch(&doi)?;
+        let mut entry = CrossrefFetcher.fetch_with(&doi, http)?;
 
         // The PDF is already local — no download needed; set path directly.
         entry.pdf_path = Some(

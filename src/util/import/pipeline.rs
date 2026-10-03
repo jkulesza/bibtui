@@ -1,6 +1,7 @@
 use super::ans::AnsFetcher;
 use super::crossref::CrossrefFetcher;
 use super::fetcher::Fetcher;
+use super::http::{HttpClient, HttpTransport, OPTIONAL_TIMEOUT};
 use super::isbn::IsbnFetcher;
 use super::pdf::PdfFetcher;
 use super::tandfonline::TandFOnlineFetcher;
@@ -24,15 +25,19 @@ fn fetchers() -> Vec<Box<dyn Fetcher>> {
 /// open-access PDF URL to the candidate list so it is tried before paywalled
 /// publisher URLs.
 pub fn run(doi_or_url: &str) -> Result<ImportedEntry, ImportError> {
+    run_with(doi_or_url, &HttpClient::new()?)
+}
+
+pub fn run_with(doi_or_url: &str, http: &dyn HttpTransport) -> Result<ImportedEntry, ImportError> {
     for fetcher in fetchers() {
         if fetcher.can_handle(doi_or_url) {
-            let mut entry = fetcher.fetch(doi_or_url)?;
+            let mut entry = fetcher.fetch_with(doi_or_url, http)?;
             // Fix publisher field when Crossref reports a distributor instead of the
             // society publisher (e.g. T&F listed instead of ANS).
             apply_publisher_corrections(&mut entry);
             // Prepend Unpaywall OA PDF URL if available — free, legal, no auth required.
-            if let Some(doi) = entry.fields.get("doi").cloned() {
-                if let Some(oa_url) = unpaywall_pdf_url(&doi) {
+            if let Some(doi) = entry.fields.get("doi").cloned().filter(|_| entry.pdf_path.is_none()) {
+                if let Some(oa_url) = unpaywall_pdf_url(&doi, http) {
                     entry.pdf_urls.insert(0, oa_url);
                 }
             }
@@ -83,16 +88,12 @@ fn apply_publisher_corrections(entry: &mut ImportedEntry) {
 
 /// Query the Unpaywall public API for a legal open-access PDF URL.
 /// Returns `None` if the paper has no OA copy or the API is unreachable.
-fn unpaywall_pdf_url(doi: &str) -> Option<String> {
+fn unpaywall_pdf_url(doi: &str, http: &dyn HttpTransport) -> Option<String> {
     let url = format!(
         "https://api.unpaywall.org/v2/{}?email=bibtui@example.com",
         doi
     );
-    let response = ureq::get(&url)
-        .set("User-Agent", "bibtui/0.1 (https://github.com/jkulesza/bibtui)")
-        .call()
-        .ok()?;
-    let json: serde_json::Value = response.into_json().ok()?;
+    let json = http.get(&url, OPTIONAL_TIMEOUT).ok()?.json().ok()?;
     // best_oa_location.url_for_pdf is the most direct downloadable copy
     let pdf_url = json["best_oa_location"]["url_for_pdf"].as_str()?;
     if pdf_url.is_empty() {
@@ -124,12 +125,8 @@ mod tests {
 
     #[test]
     fn test_bare_doi_routes_to_crossref() {
-        // CrossrefFetcher::can_handle should match; the actual HTTP call would
-        // fail in a unit test environment, but we can at least verify routing.
-        // We just check that the NoMatch error is NOT returned for a valid DOI.
-        let result = run("10.1016/j.anucene.2020.107650");
-        // Either succeeds or fails with Network/Parse, but NOT NoMatch.
-        assert!(!matches!(result, Err(ImportError::NoMatch(_))));
+        let first = fetchers().into_iter().position(|fetcher| fetcher.can_handle("10.1016/j.anucene.2020.107650"));
+        assert_eq!(first, Some(4));
     }
 
     // ── apply_publisher_corrections ───────────────────────────────────────────
@@ -246,4 +243,36 @@ mod tests {
         apply_publisher_corrections(&mut e);
         assert_eq!(e.fields["publisher"], "American Nuclear Society");
     }
+    #[test]
+    fn injected_metadata_and_optional_timeout_preserve_successful_import() {
+        use super::super::http::tests::MockHttp;
+        let http = MockHttp::new(vec![Ok(r#"{"message":{"title":["Test"],"type":"journal-article"}}"#), Err("timeout")]);
+        let entry = run_with("10.1234/test", &http).unwrap();
+        assert_eq!(entry.fields["title"], "Test");
+        let requests = http.requests.lock().unwrap();
+        assert!(requests[0].0.starts_with("https://api.crossref.org/works/"));
+        assert_eq!(requests[1].1, OPTIONAL_TIMEOUT);
+    }
+
+    #[test]
+    fn local_pdf_skips_optional_open_access_request() {
+        use super::super::http::tests::MockHttp;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("local.pdf");
+        std::fs::write(&path, "%PDF DOI: 10.1234/test").unwrap();
+        let http = MockHttp::new(vec![Ok(r#"{"message":{"title":["Test"]}}"#)]);
+        let entry = run_with(path.to_str().unwrap(), &http).unwrap();
+        assert_eq!(entry.pdf_path, Some(path.canonicalize().unwrap()));
+        assert_eq!(http.requests.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn metadata_transport_and_parse_failures_are_reported() {
+        use super::super::http::tests::MockHttp;
+        assert!(matches!(run_with("10.1234/test", &MockHttp::new(vec![Err("timeout")])), Err(ImportError::Network(_))));
+        assert!(matches!(run_with("10.1234/test", &MockHttp::new(vec![Ok("not JSON")])), Err(ImportError::Parse(_))));
+        let http = MockHttp::new(vec![Ok(r#"{"ISBN:9780374528379":{"title":"A Book"}}"#)]);
+        assert_eq!(run_with("9780374528379", &http).unwrap().fields["title"], "A Book");
+    }
+
 }

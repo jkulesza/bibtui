@@ -24,8 +24,8 @@ serde_json = "1"
 isbn2 = "0.4.0"
 tempfile = "3"
 
-# Use rustls (default) + native-tls (OS cert store) on non-musl platforms.
-# native-tls alone with default-features=false fails at runtime ("no TLS backend configured").
+# Select the native-tls connector explicitly in util/import/http.rs on non-musl.
+# Keep the TLS feature enabled; the adapter alone does not configure ureq.
 # musl builds use rustls only (native-tls requires OpenSSL unavailable in musl cross-compilation).
 [target.'cfg(not(target_env = "musl"))'.dependencies]
 ureq = { version = "2", features = ["json", "native-tls"] }

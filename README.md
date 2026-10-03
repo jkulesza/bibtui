@@ -37,7 +37,7 @@ A terminal UI BibTeX manager written in Rust. Designed as a lightweight, keyboar
 - Duplicate citation keys are detected at load: later copies are renamed with a `_dupN` suffix (persisted on the next save) and a startup warning lists the affected keys
 - `w` fetches DOI/URL from Crossref via metadata (title, author, year) when none is present, in both the entry list and detail view; only sets `url` when it is distinct from the DOI; when multiple links are available (DOI, URL, ISBN) a picker dialog is shown
 - `w` opens an OpenLibrary search (`openlibrary.org/search?isbn=…`) for entries with an `isbn` field but no DOI or URL
-- HTTPS requests (DOI/URL fetch, Crossref, Unpaywall) use rustls by default with native TLS available so corporate VPN certificate authorities are trusted automatically
+- HTTPS imports explicitly use the native TLS connector and OS trust store on non-musl builds; musl builds use rustls with bundled webpki roots. Certificate and hostname verification remain enabled
 - Import errors are shown in a full-screen popup so long messages (e.g. network errors) are never truncated; `yy` copies the error text to the clipboard
 
 ## Requirements
@@ -471,3 +471,7 @@ it remains visible. Identically named groups retain their distinct tree paths.
 
 Bulk citation-key regeneration rebuilds the entry map once, retains file order,
 and assigns the first available numeric suffix deterministically on collisions.
+
+Imports share one HTTP client with 5-second connection, 10-second read/write,
+30-second request, and 90-second overall budgets. Metadata is limited to 4 MiB.
+Optional open-access lookup has a 5-second budget and is skipped for local PDFs.

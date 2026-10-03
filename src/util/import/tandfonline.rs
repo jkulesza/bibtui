@@ -1,5 +1,6 @@
 use super::crossref::CrossrefFetcher;
 use super::fetcher::Fetcher;
+use super::http::HttpTransport;
 use super::{ImportedEntry, ImportError};
 
 /// Fetches BibTeX metadata from Taylor & Francis Online (tandfonline.com) URLs.
@@ -39,24 +40,19 @@ impl Fetcher for TandFOnlineFetcher {
         doi_or_url.contains(Self::HOST)
     }
 
-    fn fetch(&self, doi_or_url: &str) -> Result<ImportedEntry, ImportError> {
+    fn fetch_with(&self, doi_or_url: &str, http: &dyn HttpTransport) -> Result<ImportedEntry, ImportError> {
         // Try to extract the DOI directly from the URL path
         let doi = if let Some(d) = Self::doi_from_url(doi_or_url) {
             d
         } else {
             // Fall back to fetching the page and scraping for a DOI
-            let html = ureq::get(doi_or_url)
-                .set("User-Agent", "bibtui/0.1 (https://github.com/jkulesza/bibtui)")
-                .call()
-                .map_err(|e| ImportError::Network(e.to_string()))?
-                .into_string()
-                .map_err(|e| ImportError::Parse(e.to_string()))?;
+            let html = http.get(doi_or_url, super::http::REQUEST_TIMEOUT)?.text()?;
 
             extract_doi_from_html(&html)
                 .ok_or_else(|| ImportError::Parse("Could not find DOI in T&F page".to_string()))?
         };
 
-        let mut entry = CrossrefFetcher.fetch(&doi)?;
+        let mut entry = CrossrefFetcher.fetch_with(&doi, http)?;
 
         // Use the original publisher URL rather than the doi.org resolver
         entry.fields.insert("url".to_string(), doi_or_url.to_string());

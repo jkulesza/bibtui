@@ -28,28 +28,20 @@ impl App {
         );
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
-            let mut result = crate::util::import::fetch(&doi_or_url);
-            // If the fetcher already resolved a local PDF (e.g. PdfFetcher), skip download.
-            // Otherwise try each URL candidate in order; stop on first successful download.
-            if let Ok(ref mut entry) = result {
+            let result = (|| {
+                let http = crate::util::import::http::HttpClient::new()?;
+                let mut entry = crate::util::import::pipeline::run_with(&doi_or_url, &http)?;
                 if entry.pdf_path.is_none() && !entry.pdf_urls.is_empty() {
                     let doi = entry.fields.get("doi").cloned().unwrap_or_else(|| "import".to_string());
-                    let mut last_err: Option<String> = None;
-                    for pdf_url in &entry.pdf_urls.clone() {
-                        match crate::util::import::download_pdf(pdf_url, &bib_dir, &doi) {
-                            Ok(path) => {
-                                entry.pdf_path = Some(path);
-                                last_err = None;
-                                break;
-                            }
-                            Err(e) => {
-                                last_err = Some(e.to_string());
-                            }
+                    for pdf_url in &entry.pdf_urls {
+                        match crate::util::import::download_pdf_with(pdf_url, &bib_dir, &doi, &http) {
+                            Ok(path) => { entry.pdf_path = Some(path); entry.pdf_error = None; break; }
+                            Err(error) => entry.pdf_error = Some(error.to_string()),
                         }
                     }
-                    entry.pdf_error = last_err;
                 }
-            }
+                Ok(entry)
+            })();
             let _ = tx.send(result);
         });
         self.pending_import = Some(rx);

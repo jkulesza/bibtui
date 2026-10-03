@@ -1,6 +1,7 @@
 use indexmap::IndexMap;
 
 use super::fetcher::Fetcher;
+use super::http::HttpTransport;
 use super::{ImportedEntry, ImportError};
 
 /// Fetches BibTeX metadata from the Crossref public API.
@@ -34,22 +35,12 @@ impl Fetcher for CrossrefFetcher {
         Self::extract_doi(doi_or_url).is_some()
     }
 
-    fn fetch(&self, doi_or_url: &str) -> Result<ImportedEntry, ImportError> {
+    fn fetch_with(&self, doi_or_url: &str, http: &dyn HttpTransport) -> Result<ImportedEntry, ImportError> {
         let doi = Self::extract_doi(doi_or_url)
             .ok_or_else(|| ImportError::NoMatch(doi_or_url.to_string()))?;
 
         let url = format!("https://api.crossref.org/works/{}", doi);
-        let response = ureq::get(&url)
-            .set(
-                "User-Agent",
-                "bibtui/0.1 (https://github.com/jkulesza/bibtui; mailto:user@example.com)",
-            )
-            .call()
-            .map_err(|e| ImportError::Network(e.to_string()))?;
-
-        let json: serde_json::Value = response
-            .into_json()
-            .map_err(|e| ImportError::Parse(e.to_string()))?;
+        let json = http.get(&url, super::http::REQUEST_TIMEOUT)?.json()?;
 
         let work = json
             .get("message")
@@ -68,6 +59,11 @@ pub fn search_by_metadata(
     author: &str,
     year: &str,
 ) -> Result<(String, String), String> {
+    let client = super::http::HttpClient::new().map_err(|error| error.to_string())?;
+    search_by_metadata_with(title, author, year, &client)
+}
+
+pub fn search_by_metadata_with(title: &str, author: &str, year: &str, http: &dyn HttpTransport) -> Result<(String, String), String> {
     if title.trim().is_empty() && author.trim().is_empty() {
         return Err("Need at least a title or author to search".to_string());
     }
@@ -90,17 +86,8 @@ pub fn search_by_metadata(
         url.push_str(&format!("&query.author={}", urlencoding_simple(author)));
     }
 
-    let response = ureq::get(&url)
-        .set(
-            "User-Agent",
-            "bibtui/0.1 (https://github.com/jkulesza/bibtui; mailto:user@example.com)",
-        )
-        .call()
-        .map_err(|e| format!("Network error: {}", e))?;
-
-    let json: serde_json::Value = response
-        .into_json()
-        .map_err(|e| format!("Parse error: {}", e))?;
+    let json = http.get(&url, super::http::REQUEST_TIMEOUT).and_then(|response| response.json())
+        .map_err(|error| error.to_string())?;
 
     let items = json["message"]["items"]
         .as_array()

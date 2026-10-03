@@ -2,6 +2,7 @@ pub mod ans;
 pub mod crossref;
 pub mod fetcher;
 pub mod isbn;
+pub mod http;
 pub mod pdf;
 pub mod pipeline;
 pub mod tandfonline;
@@ -61,15 +62,15 @@ pub fn fetch(doi_or_url: &str) -> ImportResult {
 /// The filename is derived from the DOI (sanitized for the filesystem).
 /// Returns the path of the saved file on success.
 pub fn download_pdf(pdf_url: &str, dest_dir: &Path, doi: &str) -> Result<PathBuf, ImportError> {
+    download_pdf_with(pdf_url, dest_dir, doi, &http::HttpClient::new()?)
+}
+
+pub fn download_pdf_with(pdf_url: &str, dest_dir: &Path, doi: &str, http: &dyn http::HttpTransport) -> Result<PathBuf, ImportError> {
     let filename = doi_to_filename(doi);
     let dest = dest_dir.join(&filename);
 
-    let response = ureq::get(pdf_url)
-        .set("User-Agent", "bibtui/0.1 (https://github.com/jkulesza/bibtui)")
-        .call()
-        .map_err(|e| ImportError::Network(e.to_string()))?;
-
-    let mut reader = response.into_reader();
+    let response = http.get(pdf_url, http::REQUEST_TIMEOUT)?;
+    let mut reader = response.body;
     let mut buf = Vec::new();
     reader
         .read_to_end(&mut buf)
@@ -223,10 +224,8 @@ mod tests {
 
     #[test]
     fn test_fetch_bare_doi_routes_to_crossref_not_no_match() {
-        // CrossrefFetcher handles bare DOIs; even if the network call fails it
-        // should NOT return NoMatch (it would return Network or Parse).
-        let result = fetch("10.9999/test.2099.9999999");
-        assert!(!matches!(result, Err(ImportError::NoMatch(_))));
+        use fetcher::Fetcher;
+        assert!(crossref::CrossrefFetcher.can_handle("10.9999/test.2099.9999999"));
     }
 
     #[test]
