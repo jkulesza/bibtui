@@ -481,3 +481,6 @@ and create the final file without overwriting an existing attachment. The defaul
 limit is 100 MiB; configure `import.max_pdf_size_mb` in YAML. A failed PDF download
 keeps the imported metadata and reports the error. Local PDF DOI extraction reads
 only the first 200 KB and last 50 KB.
+
+Entry-list rendering constructs cells and checks attachment paths only for the
+visible rows, while selection and scrolling use the full filtered result count.

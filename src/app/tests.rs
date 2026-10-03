@@ -4230,7 +4230,9 @@ fn test_render_main_screen_filtered_indices_out_of_range() {
     let (mut app, _tmp) = make_app();
     app.filtered_indices = Some(vec![0, 99]);
     let content = render_to_string(&mut app, 100, 20);
-    assert!(content.contains("0 entries") || content.contains("1 entries"));
+    // Virtualized status uses the supplied result count; invalid references
+    // are still skipped safely when gathering the viewport.
+    assert!(content.contains("2 entries"));
 }
 
 #[test]

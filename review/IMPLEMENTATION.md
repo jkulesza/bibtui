@@ -39,3 +39,5 @@ Remaining: R04–R14, P01–P03, Q01–Q02.
 - R14 (downloads): stream PDFs into owned temporary files with configurable caps, signature validation and exclusive persistence; local PDF scanning uses bounded Read/Seek head/tail reads.
 
 - R12 follow-up: the same offset bug also occurred in ANS/Taylor & Francis metadata scraping; ASCII-fold tag labels and cover Unicode before/inside tags.
+
+- P03: window-only entry gathering and row construction with separate global/local table state; row counts and TestBackend navigation/resize/empty-filter checks.

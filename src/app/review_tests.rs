@@ -759,3 +759,35 @@ fn bulk_rekey_preserves_file_order_and_first_available_suffix() {
     app.undo();
     assert_eq!(app.database.entries.keys().map(String::as_str).collect::<Vec<_>>(), ["Target", "Old", "Target_2", "Other"]);
 }
+
+#[test]
+fn rendering_builds_only_viewport_rows_and_tracks_global_navigation() {
+    use ratatui::{backend::TestBackend, Terminal};
+    for count in [100, 10_000] {
+        let input: String = (0..count).map(|i| format!("@Misc{{Key{i:05}, title={{Row {i:05}}}}}\n")).collect();
+        let (mut app, _dir) = review_app(&input);
+        app.show_groups = false;
+        app.focus = Focus::List;
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        for action in [Action::MoveToBottom, Action::MoveToTop, Action::PageDown, Action::PageUp] {
+            app.handle_action(action);
+            terminal.draw(|frame| app.render(frame)).unwrap();
+            assert_eq!(app.entry_list_state.rendered_rows, 15);
+            let selected = app.selected_entry_key().unwrap();
+            let screen: String = terminal.backend().buffer().content.iter().map(|cell| cell.symbol()).collect();
+            assert!(screen.contains(&selected), "selected row {selected} must be rendered");
+        }
+        app.handle_action(Action::MoveToBottom);
+        terminal.draw(|frame| app.render(frame)).unwrap();
+        terminal.backend_mut().resize(100, 12);
+        terminal.autoresize().unwrap();
+        terminal.draw(|frame| app.render(frame)).unwrap();
+        assert_eq!(app.entry_list_state.rendered_rows, 7);
+        assert_eq!(app.entry_list_state.table_state.offset(), count - 7);
+        app.search_bar_state.query = "key:missing".into();
+        app.update_search();
+        terminal.draw(|frame| app.render(frame)).unwrap();
+        assert_eq!(app.entry_list_state.rendered_rows, 0);
+        assert_eq!(app.selected_entry_key(), None);
+    }
+}

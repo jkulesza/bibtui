@@ -16,6 +16,8 @@ use crate::util::open::{parse_file_field, resolve_file_path};
 use crate::util::titlecase::strip_case_braces;
 pub struct EntryListState {
     pub table_state: TableState,
+    #[cfg(test)]
+    pub rendered_rows: usize,
 }
 
 impl Default for EntryListState {
@@ -30,7 +32,21 @@ impl EntryListState {
         state.select(Some(0));
         EntryListState {
             table_state: state,
+            #[cfg(test)]
+            rendered_rows: 0,
         }
+    }
+
+    /// Global selection and offset are independent of the local table widget.
+    pub fn viewport(&mut self, total: usize, height: u16) -> std::ops::Range<usize> {
+        let rows = height.saturating_sub(3) as usize;
+        let selected = self.selected().min(total.saturating_sub(1));
+        self.select(selected);
+        let mut offset = self.table_state.offset().min(total.saturating_sub(rows));
+        if selected < offset { offset = selected; }
+        if rows > 0 && selected >= offset.saturating_add(rows) { offset = selected + 1 - rows; }
+        *self.table_state.offset_mut() = offset;
+        offset..offset.saturating_add(rows).min(total)
     }
 
     pub fn selected(&self) -> usize {
@@ -57,6 +73,19 @@ pub fn render_entry_list(
     abbreviate_journal_enabled: bool,
     bib_dir: &Path,
 ) {
+    let range = state.viewport(entries.len(), area.height);
+    render_entry_list_window(f, area, &entries[range], state, columns, theme, focused,
+        show_braces, render_latex_enabled, abbreviate_authors_enabled, abbreviate_journal_enabled, bib_dir);
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn render_entry_list_window(
+    f: &mut Frame, area: Rect, entries: &[&Entry], state: &mut EntryListState,
+    columns: &[ColumnConfig], theme: &Theme, focused: bool, show_braces: bool,
+    render_latex_enabled: bool, abbreviate_authors_enabled: bool,
+    abbreviate_journal_enabled: bool, bib_dir: &Path,
+) {
+    #[cfg(test)] { state.rendered_rows = entries.len(); }
     let total_width = area.width.saturating_sub(2); // borders
 
     // Build constraints from column config
@@ -85,39 +114,7 @@ pub fn render_entry_list(
         .collect();
     let header = Row::new(header_cells).style(theme.header).height(1);
 
-    // Only compute cell content for rows that are actually visible in the
-    // viewport.  Off-screen rows get cheap empty cells; ratatui still needs
-    // the full row count so that selection and scrolling work correctly.
-    //
-    // We must predict the offset ratatui *will* use this frame rather than
-    // the stale offset from the previous frame.  ratatui scrolls the table
-    // so that the selected row is always visible, using these rules:
-    //   • selected < offset          → new offset = selected
-    //   • selected ≥ offset + height → new offset = selected - height + 1
-    //   • otherwise offset is unchanged
-    // Replicating that here keeps our visible window in sync.
-
-    // Subtract 2 for the top/bottom borders and 1 for the header row.
-    let viewport_rows = area.height.saturating_sub(3) as usize;
-    let selected = state.selected();
-    let prev_offset = state.table_state.offset();
-    let offset = if selected < prev_offset {
-        selected
-    } else if viewport_rows > 0 && selected >= prev_offset + viewport_rows {
-        selected.saturating_sub(viewport_rows - 1)
-    } else {
-        prev_offset
-    };
-    let visible_end = (offset + viewport_rows).min(entries.len());
-
-    let rows: Vec<Row> = entries
-        .iter()
-        .enumerate()
-        .map(|(i, entry)| {
-            if i < offset || i >= visible_end {
-                // Off-screen: emit a minimal placeholder row (no string work).
-                return Row::new(vec![Cell::from(""); columns.len()]).height(1);
-            }
+    let rows: Vec<Row> = entries.iter().map(|entry| {
             let cells: Vec<Cell> = columns
                 .iter()
                 .map(|col| {
@@ -157,7 +154,11 @@ pub fn render_entry_list(
         )
         .row_highlight_style(theme.selected);
 
-    f.render_stateful_widget(table, area, &mut state.table_state);
+    let mut local = TableState::default();
+    if !entries.is_empty() {
+        local.select(Some(state.selected().saturating_sub(state.table_state.offset()).min(entries.len() - 1)));
+    }
+    f.render_stateful_widget(table, area, &mut local);
 }
 
 /// Return a styled Cell for the file indicator column.

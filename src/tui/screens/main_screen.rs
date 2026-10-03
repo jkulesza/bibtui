@@ -20,21 +20,14 @@ pub fn render_main_screen(f: &mut Frame, app: &mut App) {
     let search_area = vertical[1];
     let status_area = vertical[2];
 
-    // Build the visible entry list without cloning the full key vec.
-    // Using references into sorted_keys avoids per-frame String allocations.
+    let entry_count = app.visible_entry_count();
+    let range = app.entry_list_state.viewport(entry_count, main_area.height);
     let entries: Vec<&Entry> = if let Some(ref indices) = app.filtered_indices {
-        indices
-            .iter()
-            .filter_map(|&i| app.sorted_keys.get(i))
-            .filter_map(|k| app.database.entries.get(k))
-            .collect()
+        indices[range].iter().filter_map(|&i| app.sorted_keys.get(i))
+            .filter_map(|key| app.database.entries.get(key)).collect()
     } else {
-        app.sorted_keys
-            .iter()
-            .filter_map(|k| app.database.entries.get(k))
-            .collect()
+        app.sorted_keys[range].iter().filter_map(|key| app.database.entries.get(key)).collect()
     };
-    let entry_count = entries.len();
 
     let bib_dir = crate::util::open::effective_file_dir(
         &app.bib_path,
@@ -73,7 +66,7 @@ pub fn render_main_screen(f: &mut Frame, app: &mut App) {
             total_entries,
         );
 
-        crate::tui::components::entry_list::render_entry_list(
+        crate::tui::components::entry_list::render_entry_list_window(
             f,
             horizontal[1],
             &entries,
@@ -88,7 +81,7 @@ pub fn render_main_screen(f: &mut Frame, app: &mut App) {
             &bib_dir,
         );
     } else {
-        crate::tui::components::entry_list::render_entry_list(
+        crate::tui::components::entry_list::render_entry_list_window(
             f,
             main_area,
             &entries,
