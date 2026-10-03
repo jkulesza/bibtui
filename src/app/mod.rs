@@ -95,6 +95,10 @@ pub struct App {
     pub search_engine: SearchEngine,
     pub filtered_indices: Option<Vec<usize>>,
     view_dirty: bool,
+    search_cache_dirty: bool,
+    search_worker: crate::search::worker::SearchWorker,
+    pending_search_selection: Option<String>,
+    pending_search_group: Option<std::collections::HashSet<String>>,
     pub sorted_keys: Vec<String>,
     /// The sort that was active when the file was loaded (or last explicitly set
     /// as the default). ESC in Normal mode restores this.
@@ -253,6 +257,10 @@ impl App {
             search_engine: SearchEngine::new(),
             filtered_indices: None,
             view_dirty: false,
+            search_cache_dirty: true,
+            search_worker: Default::default(),
+            pending_search_selection: None,
+            pending_search_group: None,
             sorted_keys,
             default_sort,
             pending_action: None,
@@ -326,6 +334,10 @@ impl App {
             search_engine: SearchEngine::new(),
             filtered_indices: None,
             view_dirty: false,
+            search_cache_dirty: true,
+            search_worker: Default::default(),
+            pending_search_selection: None,
+            pending_search_group: None,
             sorted_keys,
             default_sort,
             pending_action: Some(PendingAction::NewFile),
@@ -354,6 +366,7 @@ impl App {
                 self.handle_event(event);
                 needs_redraw = true;
             }
+            if self.poll_search() { needs_redraw = true; }
             // Poll background import task
             if self.pending_import.is_some() {
                 match self.pending_import.as_ref().unwrap().try_recv() {
@@ -448,9 +461,9 @@ impl App {
         }
         match self.mode {
             InputMode::Search => {
-                for c in text.chars() {
-                    self.handle_action(Action::SearchChar(c));
-                }
+                self.search_bar_state.query.insert_str(self.search_bar_state.cursor, &text);
+                self.search_bar_state.cursor += text.len();
+                self.update_search();
             }
             InputMode::DetailSearch => {
                 for c in text.chars() {
@@ -1190,13 +1203,14 @@ impl App {
 
     fn update_search(&mut self) {
         self.refresh_view();
+        self.pending_search_selection = None;
         self.entry_list_state.select(0);
     }
 
     /// Rebuild sort and all active filters together. Stored offsets never
     /// survive a change to the vector they index. Preserve selection by key.
     fn refresh_view(&mut self) {
-        let selected = self.selected_entry_key();
+        let selected = self.selected_entry_key().or_else(|| self.pending_search_selection.clone());
         let old_position = self.entry_list_state.selected();
         self.sorted_keys = sort_entries(&self.database.entries, &self.config);
         let entries: Vec<&Entry> = self.sorted_keys.iter()
@@ -1210,8 +1224,20 @@ impl App {
             self.group_tree_state.active_group = None;
             self.group_tree_state.active_path = None;
         }
+        self.search_worker.cancel();
+        self.search_bar_state.searching = false;
+        self.pending_search_group = None;
+        self.pending_search_selection = None;
         self.filtered_indices = if self.search_bar_state.query.is_empty() {
             group_indices
+        } else if entries.len() > crate::search::worker::BACKGROUND_THRESHOLD {
+            self.pending_search_group = group_indices.map(|indices| indices.into_iter()
+                .map(|index| entries[index].citation_key.clone()).collect());
+            self.pending_search_selection = selected.clone();
+            self.search_worker.submit(&entries, &self.search_bar_state.query, self.search_cache_dirty);
+            self.search_cache_dirty = false;
+            self.search_bar_state.searching = true;
+            Some(Vec::new())
         } else {
             let allowed = group_indices.map(|indices| indices.into_iter().collect::<std::collections::HashSet<_>>());
             Some(self.search_engine.search(&entries, &self.search_bar_state.query).into_iter()
@@ -1227,6 +1253,22 @@ impl App {
         });
         self.entry_list_state.select(selected_index.unwrap_or(old_position.min(count.saturating_sub(1))));
         self.view_dirty = false;
+    }
+
+    fn poll_search(&mut self) -> bool {
+        let Some(keys) = self.search_worker.poll() else { return false };
+        let positions: std::collections::HashMap<&str, usize> = self.sorted_keys.iter()
+            .enumerate().map(|(index, key)| (key.as_str(), index)).collect();
+        let indices: Vec<usize> = keys.iter()
+            .filter(|key| self.pending_search_group.as_ref().is_none_or(|group| group.contains(*key)))
+            .filter_map(|key| positions.get(key.as_str()).copied()).collect();
+        let selection = self.pending_search_selection.take().and_then(|key|
+            indices.iter().position(|&index| self.sorted_keys[index] == key)).unwrap_or(0);
+        self.search_bar_state.result_count = indices.len();
+        self.filtered_indices = Some(indices);
+        self.search_bar_state.searching = false;
+        self.entry_list_state.select(selection);
+        true
     }
 
     // ── Visible entries ──
@@ -2067,6 +2109,7 @@ impl App {
             self.save_generation = self.save_generation.and_then(|g| g.checked_sub(1));
         }
         self.view_dirty = true;
+        self.search_cache_dirty = true;
         self.undo_stack.push(item);
         self.dirty = self.save_generation != Some(self.undo_stack.len());
     }
@@ -2079,6 +2122,7 @@ impl App {
 
         let count = match &item { UndoItem::Batch(items) => items.len(), _ => 1 };
         let succeeded = self.undo_apply(item);
+        self.search_cache_dirty = true;
         self.refresh_view();
         if !succeeded {
             self.save_generation = None;

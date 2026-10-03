@@ -791,3 +791,51 @@ fn rendering_builds_only_viewport_rows_and_tracks_global_navigation() {
         assert_eq!(app.selected_entry_key(), None);
     }
 }
+
+fn finish_review_search(app: &mut App) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while app.search_bar_state.searching {
+        app.poll_search();
+        assert!(std::time::Instant::now() < deadline, "background search timed out");
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+}
+
+#[test]
+fn background_search_discards_old_queries_and_edits_and_batches_paste() {
+    let input: String = (0..600).map(|i| format!("@Misc{{Key{i:05}, title={{Common}}, abstract={{{} tailneedle}}}}\n", "padding ".repeat(300))).collect();
+    let (mut app, _dir) = review_app(&input);
+    app.handle_action(Action::EnterSearch);
+    let before = app.search_worker.submission_count();
+    app.handle_event(Event::Paste("abstract:tailneedle title:common".into()));
+    assert_eq!(app.search_worker.submission_count() - before, 1);
+    assert!(app.search_bar_state.searching);
+    // The event loop can accept a command while matching continues.
+    app.handle_action(Action::ConfirmSearch);
+    app.handle_action(Action::EnterCommand);
+    assert_eq!(app.mode, InputMode::Command);
+    finish_review_search(&mut app);
+    assert_eq!(app.visible_entry_count(), 600);
+    app.search_bar_state.query = "key:Key00001".into();
+    app.update_search();
+    app.search_bar_state.query = "title:Unique".into();
+    app.update_search();
+    review_edit(&mut app, "Key00002", "title", "Unique");
+    app.refresh_view();
+    finish_review_search(&mut app);
+    assert_eq!(app.selected_entry_key().as_deref(), Some("Key00002"));
+    app.delete_entry("Key00002");
+    finish_review_search(&mut app);
+    assert_eq!(app.visible_entry_count(), 0);
+    app.undo();
+    finish_review_search(&mut app);
+    assert_eq!(app.selected_entry_key().as_deref(), Some("Key00002"));
+    app.search_bar_state.query = "common".into();
+    app.update_search();
+    app.handle_action(Action::ExitSearch);
+    assert!(!app.search_bar_state.searching);
+    assert_eq!(app.visible_entry_count(), 600);
+    // Cancelled results cannot reinstate the old filter.
+    app.poll_search();
+    assert!(app.filtered_indices.is_none());
+}

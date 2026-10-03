@@ -484,3 +484,9 @@ only the first 200 KB and last 50 KB.
 
 Entry-list rendering constructs cells and checks attachment paths only for the
 visible rows, while selection and scrolling use the full filtered result count.
+
+Searches above 500 entries run in a cancellable background worker. The search bar
+shows progress; newer queries and document changes invalidate older results.
+Search text is cached per entry, including complete abstracts and custom fields,
+and unchanged snapshots are shared across queries. Pasting runs one query update.
+The cache stores one extra copy of searchable text plus field offsets.

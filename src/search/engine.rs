@@ -2,6 +2,7 @@ use nucleo_matcher::pattern::{Atom, AtomKind, CaseMatching, Normalization, Patte
 use nucleo_matcher::{Config, Matcher, Utf32Str};
 
 use crate::bib::model::Entry;
+use super::index::SearchDocument;
 
 pub struct SearchEngine {
     matcher: Matcher,
@@ -29,34 +30,47 @@ impl SearchEngine {
             return entries.iter().enumerate().map(|(i, _)| (i, 0)).collect();
         }
 
-        let terms = parse_query(query);
-        let patterns: Vec<_> = terms.iter().map(|term| {
-            if term.quoted {
+        let query = CompiledQuery::new(query);
+        let mut results = Vec::new();
+        let mut buf = Vec::new();
+        for (idx, entry) in entries.iter().enumerate() {
+            if let Some(score) = query.score(&SearchDocument::new(entry), &mut self.matcher, &mut buf) {
+                results.push((idx, score));
+            }
+        }
+        results.sort_by_key(|&(_, score)| std::cmp::Reverse(score));
+        results
+    }
+}
+
+pub(super) struct CompiledQuery {
+    terms: Vec<(QueryTerm, Pattern)>,
+}
+
+impl CompiledQuery {
+    pub fn new(query: &str) -> Self {
+        let terms = parse_query(query).into_iter().map(|term| {
+            let pattern = if term.quoted {
                 let mut pattern = Pattern::default();
                 pattern.atoms.push(Atom::new(&term.text, CaseMatching::Ignore, Normalization::Smart, AtomKind::Substring, false));
                 pattern
             } else {
                 Pattern::new(&term.text, CaseMatching::Ignore, Normalization::Smart, AtomKind::Fuzzy)
-            }
+            };
+            (term, pattern)
         }).collect();
-        let mut results = Vec::new();
-        let mut buf = Vec::new();
-        for (idx, entry) in entries.iter().enumerate() {
-            let mut total = 0u32;
-            let matches = terms.iter().zip(&patterns).all(|(term, pattern)| {
-                if term.text.is_empty() { return false; }
-                let haystack = build_search_string(entry, term.field.as_deref());
-                if haystack.is_empty() { return false; }
-                match pattern.score(Utf32Str::new(&haystack, &mut buf), &mut self.matcher) {
-                    Some(score) => { total = total.saturating_add(score); true }
-                    None => false,
-                }
-            });
-            if matches { results.push((idx, total)); }
-        }
+        Self { terms }
+    }
 
-        results.sort_by_key(|&(_, score)| std::cmp::Reverse(score));
-        results
+    pub fn score(&self, document: &SearchDocument, matcher: &mut Matcher, buf: &mut Vec<char>) -> Option<u32> {
+        let mut total = 0u32;
+        for (term, pattern) in &self.terms {
+            if term.text.is_empty() { return None; }
+            let haystack = document.get(term.field.as_deref());
+            if haystack.is_empty() { return None; }
+            total = total.saturating_add(pattern.score(Utf32Str::new(haystack, buf), matcher)?);
+        }
+        Some(total)
     }
 }
 
@@ -102,6 +116,7 @@ fn parse_query(query: &str) -> Vec<QueryTerm> {
 }
 
 /// Build a search string from an entry, optionally filtering to a specific field.
+#[cfg(test)]
 fn build_search_string(entry: &Entry, field_filter: Option<&str>) -> String {
     if let Some(field) = field_filter {
         if field == "entrytype" || field == "type" {

@@ -10,6 +10,7 @@ pub struct SearchBarState {
     pub query: String,
     pub cursor: usize,
     pub result_count: usize,
+    pub searching: bool,
 }
 
 impl Default for SearchBarState {
@@ -24,6 +25,7 @@ impl SearchBarState {
             query: String::new(),
             cursor: 0,
             result_count: 0,
+            searching: false,
         }
     }
 
@@ -31,6 +33,7 @@ impl SearchBarState {
         self.query.clear();
         self.cursor = 0;
         self.result_count = 0;
+        self.searching = false;
     }
 
     pub fn push_char(&mut self, c: char) {
@@ -58,18 +61,19 @@ pub fn render_search_bar(
     active: bool,
     theme: &Theme,
 ) {
+    let count = if state.searching { "  (searching…)".to_string() } else { format!("  ({} matches)", state.result_count) };
     let line = if active {
         Line::from(vec![
             Span::styled("/", theme.search_match),
             Span::raw(&state.query),
             Span::styled("_", Style::default().add_modifier(Modifier::SLOW_BLINK)),
-            Span::raw(format!("  ({} matches)", state.result_count)),
+            Span::raw(count),
         ])
     } else if !state.query.is_empty() {
         Line::from(vec![
             Span::styled("/", theme.search_match),
             Span::raw(&state.query),
-            Span::raw(format!("  ({} matches)", state.result_count)),
+            Span::raw(count),
         ])
     } else {
         Line::from(vec![

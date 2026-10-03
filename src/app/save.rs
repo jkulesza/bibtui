@@ -27,13 +27,14 @@ struct SaveState {
     detail_key: Option<String>,
     dirty: bool,
     view_dirty: bool,
+    search_cache_dirty: bool,
 }
 
 impl SaveState {
     fn capture(app: &App) -> Self {
         Self { database: app.database.clone(), undo: app.undo_stack.clone(),
             generation: app.save_generation, deleted: app.deleted_raw_indices.clone(),
-            sorted: app.sorted_keys.clone(), detail_key: app.detail_entry_key.clone(), dirty: app.dirty, view_dirty: app.view_dirty }
+            sorted: app.sorted_keys.clone(), detail_key: app.detail_entry_key.clone(), dirty: app.dirty, view_dirty: app.view_dirty, search_cache_dirty: app.search_cache_dirty }
     }
     fn restore(self, app: &mut App) {
         app.database = self.database;
@@ -44,6 +45,7 @@ impl SaveState {
         app.detail_entry_key = self.detail_key;
         app.dirty = self.dirty;
         app.view_dirty = self.view_dirty;
+        app.search_cache_dirty = self.search_cache_dirty;
     }
 }
 
@@ -371,6 +373,7 @@ impl App {
             });
         }
         plan.staged.restore(self);
+        self.search_cache_dirty = true;
         self.refresh_view();
         self.saved_contents = Some(plan.output.into_bytes());
         self.save_generation = Some(self.undo_stack.len());
