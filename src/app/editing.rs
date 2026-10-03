@@ -72,6 +72,7 @@ impl App {
             }
             _ => self.confirm_field_edit(),
         }
+        if self.view_dirty { self.refresh_view(); }
     }
 
     /// New file: the user just entered a path for a brand-new library.
@@ -639,7 +640,7 @@ impl App {
                         let mut undo = vec![item];
                         undo.extend(self.update_crossrefs(&mapping));
                         self.push_undo(UndoItem::Batch(undo));
-                        self.sorted_keys = sort_entries(&self.database.entries, &self.config);
+                        self.refresh_view();
 
                         if let Some(ref mut detail) = self.detail_state {
                             if let Some(entry) = self.database.entries.get(self.detail_entry_key.as_ref().unwrap()) {
@@ -662,6 +663,7 @@ impl App {
         entry.citation_key = new.into();
         entry.dirty = true;
         self.database.entries.insert(new.into(), entry);
+        for key in &mut self.sorted_keys { if key == old { *key = new.into(); } }
         if self.detail_entry_key.as_deref() == Some(old) { self.detail_entry_key = Some(new.into()); }
         Some(undo)
     }
@@ -736,7 +738,7 @@ impl App {
         let renamed = self.regen_all_citekeys_impl(true);
 
         if renamed > 0 {
-            self.sorted_keys = sort_entries(&self.database.entries, &self.config);
+            self.refresh_view();
             let new_key = self.detail_entry_key.clone();
             if let (Some(ref key), Some(ref mut detail)) = (new_key, self.detail_state.as_mut()) {
                 if let Some(entry) = self.database.entries.get(key) {

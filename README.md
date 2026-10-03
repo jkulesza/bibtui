@@ -464,3 +464,7 @@ including when Unicode case folding changes a character’s byte length.
 Keyboard release events are ignored. Held-key repeats support navigation and
 text entry/deletion; they do not complete command sequences or repeat library
 deletions, confirmations, or other one-shot actions, including custom bindings.
+
+Search and the selected group are applied together. Edits, imports, duplication,
+key changes, saves, and undo refresh both filters and keep the selected entry when
+it remains visible. Identically named groups retain their distinct tree paths.

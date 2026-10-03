@@ -143,7 +143,7 @@ impl App {
 
                 self.database.entries.insert(key.clone(), entry);
                 self.push_undo(UndoItem::EntryAdded { entry_key: key.clone() });
-                self.sorted_keys = sort_entries(&self.database.entries, &self.config);
+                self.refresh_view();
                 self.dirty = true;
 
                 // Open detail view
@@ -267,6 +267,7 @@ impl App {
                         }
                     }
                     self.dirty = true;
+                    self.refresh_view();
                     self.status_message = Some(format!("Found DOI: {}", doi));
                 } else {
                     self.status_message =

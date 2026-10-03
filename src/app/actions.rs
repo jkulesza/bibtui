@@ -180,7 +180,7 @@ pub(super) enum UndoItem {
         entry_snapshot: Entry,
     },
     /// The group tree was changed (group added or deleted).
-    GroupTreeChanged { old_tree: GroupTree },
+    GroupTreeChanged { old_tree: GroupTree, active_path: Option<Vec<usize>> },
     /// An entry's group memberships were reassigned.
     GroupMembershipChanged {
         entry_key: String,

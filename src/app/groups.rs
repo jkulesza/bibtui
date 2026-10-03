@@ -5,29 +5,15 @@ use super::*;
 impl App {
     pub(super) fn select_group(&mut self) {
         if let Some(item) = self.group_tree_state.selected_item() {
-            let name = item.name.clone();
             let path = item.path.clone();
-
-            if self.group_tree_state.active_group.as_ref() == Some(&name) {
-                // Deselect
+            if self.group_tree_state.active_path.as_ref() == Some(&path) {
+                self.group_tree_state.active_path = None;
                 self.group_tree_state.active_group = None;
-                self.filtered_indices = None;
             } else {
-                // Resolve the node by tree path, not by name, so two
-                // same-named groups in different subtrees filter correctly.
-                if let Some(node) = find_group_node_by_path(&self.database.groups.root, &path) {
-                    let entries: Vec<&Entry> = self
-                        .sorted_keys
-                        .iter()
-                        .filter_map(|k| self.database.entries.get(k))
-                        .collect();
-                    let indices = filter_by_group(&entries, node);
-                    self.search_bar_state.result_count = indices.len();
-                    self.filtered_indices = Some(indices);
-                    self.group_tree_state.active_group = Some(name);
-                    self.entry_list_state.select(0);
-                }
+                self.group_tree_state.active_group = Some(item.name.clone());
+                self.group_tree_state.active_path = Some(path);
             }
+            self.update_search();
             self.focus = Focus::List;
         }
     }
@@ -91,7 +77,7 @@ impl App {
     }
 
     pub(super) fn finish_add_group(&mut self, name: String, parent_path: Vec<usize>) {
-        self.push_undo(UndoItem::GroupTreeChanged { old_tree: self.database.groups.clone() });
+        self.push_undo(UndoItem::GroupTreeChanged { old_tree: self.database.groups.clone(), active_path: self.group_tree_state.active_path.clone() });
         let new_node = GroupNode {
             group: Group {
                 name: name.clone(),
@@ -108,6 +94,7 @@ impl App {
         }
         self.sync_groups_to_raw();
         self.group_tree_state.refresh(&self.database.groups);
+        self.refresh_view();
         self.status_message = Some(format!("Group '{}' added", name));
     }
 
@@ -115,7 +102,7 @@ impl App {
         if path.is_empty() {
             return;
         }
-        self.push_undo(UndoItem::GroupTreeChanged { old_tree: self.database.groups.clone() });
+        self.push_undo(UndoItem::GroupTreeChanged { old_tree: self.database.groups.clone(), active_path: self.group_tree_state.active_path.clone() });
         let (parent_path, child_idx) = path.split_at(path.len() - 1);
         let child_idx = child_idx[0];
         if let Some(parent) =
@@ -125,12 +112,14 @@ impl App {
                 let removed = parent.children.remove(child_idx);
                 self.sync_groups_to_raw();
                 self.group_tree_state.refresh(&self.database.groups);
-                // Clear active group filter if the deleted group was active
-                if self.group_tree_state.active_group.as_deref()
-                    == Some(removed.group.name.as_str())
-                {
-                    self.group_tree_state.active_group = None;
-                    self.filtered_indices = None;
+                if let Some(active) = &mut self.group_tree_state.active_path {
+                    if active.starts_with(&path) {
+                        self.group_tree_state.active_path = None;
+                        self.group_tree_state.active_group = None;
+                    } else if active.starts_with(parent_path) && active.len() > parent_path.len()
+                        && active[parent_path.len()] > child_idx {
+                        active[parent_path.len()] -= 1;
+                    }
                 }
                 self.status_message =
                     Some(format!("Group '{}' deleted", removed.group.name));
@@ -160,6 +149,7 @@ impl App {
                 }
             }
         }
+        self.refresh_view();
     }
 
     /// Remove `group_name` from the `groups` field and memberships of every
@@ -189,6 +179,7 @@ impl App {
         if n > 0 {
             self.push_undo(UndoItem::Batch(undo_items));
         }
+        self.refresh_view();
         self.status_message = Some(format!(
             "Removed '{}' from {} entr{}",
             group_name,
@@ -224,6 +215,7 @@ impl App {
                 detail.refresh(&entry_clone);
             }
         }
+        self.refresh_view();
     }
 
     pub(super) fn sync_groups_to_raw(&mut self) {
@@ -254,17 +246,10 @@ impl App {
 
     /// Filter the entry list to a named group (used by `:group <name>` command).
     pub(super) fn apply_group_filter(&mut self, group_name: &str) {
-        if let Some(node) = find_group_node(&self.database.groups.root, group_name) {
-            let entries: Vec<&Entry> = self
-                .sorted_keys
-                .iter()
-                .filter_map(|k| self.database.entries.get(k))
-                .collect();
-            let indices = filter_by_group(&entries, node);
-            self.search_bar_state.result_count = indices.len();
-            self.filtered_indices = Some(indices);
+        if let Some(path) = find_group_path(&self.database.groups.root, group_name) {
+            self.group_tree_state.active_path = Some(path);
             self.group_tree_state.active_group = Some(group_name.to_string());
-            self.entry_list_state.select(0);
+            self.update_search();
             self.status_message = Some(format!("Group: {}", group_name));
         } else {
             self.status_message = Some(format!("Group not found: {}", group_name));
@@ -272,6 +257,18 @@ impl App {
     }
 }
 
+fn find_group_path(node: &GroupNode, name: &str) -> Option<Vec<usize>> {
+    if node.group.name == name { return Some(vec![]); }
+    for (index, child) in node.children.iter().enumerate() {
+        if let Some(mut path) = find_group_path(child, name) {
+            path.insert(0, index);
+            return Some(path);
+        }
+    }
+    None
+}
+
+#[cfg(test)]
 pub(super) fn find_group_node<'a>(node: &'a GroupNode, name: &str) -> Option<&'a GroupNode> {
     if node.group.name == name {
         return Some(node);

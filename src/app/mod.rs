@@ -94,6 +94,7 @@ pub struct App {
     // Search / sort
     pub search_engine: SearchEngine,
     pub filtered_indices: Option<Vec<usize>>,
+    view_dirty: bool,
     pub sorted_keys: Vec<String>,
     /// The sort that was active when the file was loaded (or last explicitly set
     /// as the default). ESC in Normal mode restores this.
@@ -251,6 +252,7 @@ impl App {
             help_pre_mode: None,
             search_engine: SearchEngine::new(),
             filtered_indices: None,
+            view_dirty: false,
             sorted_keys,
             default_sort,
             pending_action: None,
@@ -323,6 +325,7 @@ impl App {
             help_pre_mode: None,
             search_engine: SearchEngine::new(),
             filtered_indices: None,
+            view_dirty: false,
             sorted_keys,
             default_sort,
             pending_action: Some(PendingAction::NewFile),
@@ -404,6 +407,7 @@ impl App {
     }
 
     fn render(&mut self, f: &mut ratatui::Frame) {
+        if self.view_dirty { self.refresh_view(); }
         if self.settings_state.is_some() {
             render_settings_screen(f, self);
         } else if self.detail_state.is_some() {
@@ -605,15 +609,17 @@ impl App {
             Action::ResetSort => {
                 if self.filtered_indices.is_some() {
                     // Active search filter: ESC clears it and returns to full list
-                    self.filtered_indices = None;
+                    self.group_tree_state.active_group = None;
+                    self.group_tree_state.active_path = None;
                     self.search_bar_state.clear();
+                    self.refresh_view();
                     self.entry_list_state.select(0);
                     self.status_message = Some("Search cleared".to_string());
                 } else {
                     let current = &self.config.display.default_sort;
                     if current.field != self.default_sort.field || current.ascending != self.default_sort.ascending {
                         self.config.display.default_sort = self.default_sort.clone();
-                        self.sorted_keys = sort_entries(&self.database.entries, &self.config);
+                        self.refresh_view();
                         self.entry_list_state.select(0);
                         let dir = if self.default_sort.ascending { "↑" } else { "↓" };
                         self.status_message = Some(format!(
@@ -626,11 +632,12 @@ impl App {
             Action::EnterSearch => {
                 self.mode = InputMode::Search;
                 self.search_bar_state.clear();
+                self.update_search();
             }
             Action::ExitSearch => {
                 self.mode = InputMode::Normal;
                 self.search_bar_state.clear();
-                self.filtered_indices = None;
+                self.refresh_view();
                 self.entry_list_state.select(0);
             }
             Action::ConfirmSearch => {
@@ -1101,6 +1108,7 @@ impl App {
             Action::EditTabComplete => self.do_field_tab_complete_dir(true),
             Action::EditTabCompleteReverse => self.do_field_tab_complete_dir(false),
         }
+        if self.view_dirty { self.refresh_view(); }
     }
 
     // ── Navigation ──
@@ -1181,25 +1189,44 @@ impl App {
     // ── Search ──
 
     fn update_search(&mut self) {
-        let query = &self.search_bar_state.query;
-        if query.is_empty() {
-            self.filtered_indices = None;
-            self.search_bar_state.result_count = self.sorted_keys.len();
-            return;
-        }
-
-        let entries: Vec<&Entry> = self
-            .sorted_keys
-            .iter()
-            .filter_map(|k| self.database.entries.get(k))
-            .collect();
-
-        let results = self.search_engine.search(&entries, query);
-        self.search_bar_state.result_count = results.len();
-
-        let indices: Vec<usize> = results.iter().map(|(i, _)| *i).collect();
-        self.filtered_indices = Some(indices);
+        self.refresh_view();
         self.entry_list_state.select(0);
+    }
+
+    /// Rebuild sort and all active filters together. Stored offsets never
+    /// survive a change to the vector they index. Preserve selection by key.
+    fn refresh_view(&mut self) {
+        let selected = self.selected_entry_key();
+        let old_position = self.entry_list_state.selected();
+        self.sorted_keys = sort_entries(&self.database.entries, &self.config);
+        let entries: Vec<&Entry> = self.sorted_keys.iter()
+            .filter_map(|key| self.database.entries.get(key)).collect();
+        let group = self.group_tree_state.active_path.as_deref()
+            .and_then(|path| groups::find_group_node_by_path(&self.database.groups.root, path));
+        let group_indices = group.map(|node| filter_by_group(&entries, node));
+        if let Some(node) = group {
+            self.group_tree_state.active_group = Some(node.group.name.clone());
+        } else {
+            self.group_tree_state.active_group = None;
+            self.group_tree_state.active_path = None;
+        }
+        self.filtered_indices = if self.search_bar_state.query.is_empty() {
+            group_indices
+        } else {
+            let allowed = group_indices.map(|indices| indices.into_iter().collect::<std::collections::HashSet<_>>());
+            Some(self.search_engine.search(&entries, &self.search_bar_state.query).into_iter()
+                .map(|(index, _)| index)
+                .filter(|index| allowed.as_ref().is_none_or(|allowed| allowed.contains(index))).collect())
+        };
+        let count = self.visible_entry_count();
+        self.search_bar_state.result_count = count;
+        let selected_index = selected.and_then(|key| {
+            if let Some(indices) = &self.filtered_indices {
+                indices.iter().position(|&i| self.sorted_keys[i] == key)
+            } else { self.sorted_keys.iter().position(|candidate| *candidate == key) }
+        });
+        self.entry_list_state.select(selected_index.unwrap_or(old_position.min(count.saturating_sub(1))));
+        self.view_dirty = false;
     }
 
     // ── Visible entries ──
@@ -1328,7 +1355,7 @@ impl App {
 
         self.database.entries.insert(key.clone(), entry);
         self.push_undo(UndoItem::EntryAdded { entry_key: key.clone() });
-        self.sorted_keys = sort_entries(&self.database.entries, &self.config);
+        self.refresh_view();
 
         // Open detail view for the new entry
         self.detail_entry_key = Some(key.clone());
@@ -1457,7 +1484,7 @@ impl App {
             }
         }
         self.database.entries.shift_remove(key);
-        self.sorted_keys = sort_entries(&self.database.entries, &self.config);
+        self.refresh_view();
 
         let count = self.visible_entry_count();
         if self.entry_list_state.selected() >= count && count > 0 {
@@ -1479,7 +1506,7 @@ impl App {
                 new_entry.raw_index = usize::MAX;
                 self.database.entries.insert(new_key.clone(), new_entry);
                 self.push_undo(UndoItem::EntryAdded { entry_key: new_key });
-                self.sorted_keys = sort_entries(&self.database.entries, &self.config);
+                self.refresh_view();
                 self.status_message = Some("Entry duplicated".to_string());
             }
         }
@@ -1731,16 +1758,7 @@ impl App {
                     let dir = if self.config.display.default_sort.ascending { "↑" } else { "↓" };
                     format!("Sorted by {} {}", self.config.display.default_sort.field, dir)
                 };
-                self.sorted_keys = sort_entries(&self.database.entries, &self.config);
-                // Re-run whichever filter is active so filtered_indices stays
-                // consistent with the new sorted_keys, instead of unconditionally
-                // falling back to the (possibly empty) search query.
-                if let Some(group_name) = self.group_tree_state.active_group.clone() {
-                    self.apply_group_filter(&group_name);
-                } else {
-                    self.update_search();
-                }
-                self.entry_list_state.select(0);
+                self.refresh_view();
                 self.status_message = Some(msg);
             }
             _ if cmd.starts_with("import ") => {
@@ -2048,6 +2066,7 @@ impl App {
             // save point has been evicted and can never be reached again.
             self.save_generation = self.save_generation.and_then(|g| g.checked_sub(1));
         }
+        self.view_dirty = true;
         self.undo_stack.push(item);
         self.dirty = self.save_generation != Some(self.undo_stack.len());
     }
@@ -2060,6 +2079,7 @@ impl App {
 
         let count = match &item { UndoItem::Batch(items) => items.len(), _ => 1 };
         let succeeded = self.undo_apply(item);
+        self.refresh_view();
         if !succeeded {
             self.save_generation = None;
         } else if count > 1 {
@@ -2119,7 +2139,6 @@ impl App {
                 }
                 entry.dirty = true;
                 self.database.entries.insert(key.clone(), entry);
-                self.sorted_keys = sort_entries(&self.database.entries, &self.config);
                 self.status_message = Some(format!("Undo: restored '{}'", key));
             }
             UndoItem::EntryAdded { entry_key } => {
@@ -2129,7 +2148,6 @@ impl App {
                     }
                 }
                 self.database.entries.shift_remove(&entry_key);
-                self.sorted_keys = sort_entries(&self.database.entries, &self.config);
                 if self.detail_entry_key.as_deref() == Some(entry_key.as_str()) {
                     self.close_detail();
                 }
@@ -2165,10 +2183,10 @@ impl App {
                         }
                     }
                 }
-                self.sorted_keys = sort_entries(&self.database.entries, &self.config);
                 self.status_message = Some(format!("Undo: key reverted to '{}'", old_key));
             }
-            UndoItem::GroupTreeChanged { old_tree } => {
+            UndoItem::GroupTreeChanged { old_tree, active_path } => {
+                self.group_tree_state.active_path = active_path;
                 self.database.groups = old_tree;
                 self.sync_groups_to_raw();
                 self.group_tree_state.refresh(&self.database.groups);

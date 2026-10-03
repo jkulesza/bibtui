@@ -12,6 +12,7 @@ pub struct GroupTreeState {
     /// Flattened list of (depth, group_name, node_path_index) for display
     pub flat_items: Vec<FlatGroupItem>,
     pub active_group: Option<String>,
+    pub active_path: Option<Vec<usize>>,
 }
 
 #[derive(Debug, Clone)]
@@ -36,6 +37,7 @@ impl GroupTreeState {
             list_state: state,
             flat_items,
             active_group: None,
+            active_path: None,
         }
     }
 
@@ -146,7 +148,7 @@ pub fn render_group_tree(
                 String::new()
             };
 
-            let style = if state.active_group.as_ref() == Some(&item.name) {
+            let style = if state.active_path.as_ref() == Some(&item.path) {
                 theme.group_active
             } else {
                 theme.normal

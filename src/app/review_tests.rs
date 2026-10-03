@@ -653,3 +653,91 @@ fn repeat_events_allow_navigation_and_text_without_command_chains() {
     app.handle_event(event('a', KeyEventKind::Repeat));
     assert_eq!(app.search_bar_state.query, "aa");
 }
+
+#[test]
+fn mutations_rebuild_search_results_and_preserve_selection_identity() {
+    let (mut app, _dir) = review_app("@Misc{A, title={Alpha}}\n@Misc{B, title={Beta}}\n@Misc{C, title={Gamma}}\n");
+    app.search_bar_state.query = "key:B".into();
+    app.update_search();
+    app.delete_entry("B");
+    assert!(app.visible_entries().is_empty());
+    assert_eq!(app.selected_entry_key(), None);
+    assert_eq!(app.search_bar_state.result_count, 0);
+    app.undo();
+    assert_eq!(app.selected_entry_key().as_deref(), Some("B"));
+    app.duplicate_entry();
+    assert_eq!(app.visible_entry_count(), 2);
+    assert_eq!(app.selected_entry_key().as_deref(), Some("B"));
+    app.undo();
+    assert_eq!(app.visible_entry_count(), 1);
+    app.add_entry_of_type("Misc");
+    assert_eq!(app.visible_entry_count(), 1);
+    app.close_detail();
+    app.search_bar_state.clear();
+    app.update_search();
+    let position = app.sorted_keys.iter().position(|key| key == "C").unwrap();
+    app.entry_list_state.select(position);
+    app.delete_entry("A");
+    assert_eq!(app.selected_entry_key().as_deref(), Some("C"));
+}
+
+#[test]
+fn group_and_search_filters_compose_and_keep_duplicate_name_identity() {
+    let (mut app, _dir) = review_app("@Misc{A, title={Alpha}, year={2020}}\n@Misc{B, title={Beta}, year={2021}}\n@Misc{C, title={Beta}, year={2020}}\n");
+    let group = |year: &str| GroupNode {
+        group: Group { name: "Same".into(), group_type: GroupType::Keyword {
+            field: "year".into(), search_term: year.into(), case_sensitive: false, regex: false,
+        } }, children: vec![], expanded: true, original_fields: None,
+    };
+    app.database.groups.root.children = vec![group("2020"), group("2021")];
+    app.group_tree_state.refresh(&app.database.groups);
+    app.group_tree_state.select(1);
+    app.select_group();
+    assert_eq!(app.visible_entry_count(), 2);
+    app.group_tree_state.select(2);
+    app.select_group(); // same name, different identity
+    assert_eq!(app.selected_entry_key().as_deref(), Some("B"));
+    app.config.display.default_sort.ascending = false;
+    app.refresh_view();
+    assert_eq!(app.group_tree_state.active_path, Some(vec![1]));
+    assert_eq!(app.selected_entry_key().as_deref(), Some("B"));
+    app.search_bar_state.query = "title:Alpha".into();
+    app.update_search();
+    assert_eq!(app.visible_entry_count(), 0);
+    app.search_bar_state.query = "title:Beta".into();
+    app.update_search();
+    assert_eq!(app.visible_entry_count(), 1);
+    app.finish_delete_group(vec![0]); // shift the active sibling's path
+    assert_eq!(app.group_tree_state.active_path, Some(vec![0]));
+    assert_eq!(app.selected_entry_key().as_deref(), Some("B"));
+    app.undo();
+    assert_eq!(app.group_tree_state.active_path, Some(vec![1]));
+    assert_eq!(app.selected_entry_key().as_deref(), Some("B"));
+    app.detail_entry_key = Some("B".into());
+    app.field_editor_state = Some(FieldEditorState::new("year", "2020"));
+    app.config.citekey.templates.insert("misc".into(), "[title]".into());
+    app.confirm_edit();
+    assert_eq!(app.visible_entry_count(), 0);
+    app.undo(); // rename
+    app.undo(); // year
+    assert_eq!(app.selected_entry_key().as_deref(), Some("B"));
+    assert_eq!(app.search_bar_state.result_count, 1);
+}
+
+#[test]
+fn importing_and_rekeying_reapply_active_search() {
+    use crate::util::import::ImportedEntry;
+    let (mut app, _dir) = review_app("@Misc{A, title={Original}}\n");
+    app.config.citekey.templates.insert("misc".into(), "[title]".into());
+    app.search_bar_state.query = "title:Imported".into();
+    app.update_search();
+    let fields = IndexMap::from([("title".into(), "Imported".into())]);
+    app.handle_import_result(Ok(ImportedEntry::new("misc", fields)));
+    assert_eq!(app.visible_entry_count(), 1);
+    assert_eq!(app.selected_entry_key().as_deref(), Some("Imported"));
+    app.search_bar_state.query = "key:A".into();
+    app.update_search();
+    app.regen_all_citekeys();
+    assert!(app.visible_entries().iter().all(|e| e.citation_key != "Imported"));
+    assert_eq!(app.search_bar_state.result_count, app.visible_entries().len());
+}
