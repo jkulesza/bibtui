@@ -656,9 +656,10 @@ impl App {
 
     /// Preserve the raw binding while changing the semantic identity.
     fn rename_entry_key(&mut self, old: &str, new: &str) -> Option<UndoItem> {
+        let original_index = self.database.entries.get_index_of(old)?;
         let mut entry = self.database.entries.shift_remove(old)?;
         let undo = UndoItem::CitekeyChanged {
-            old_key: old.into(), new_key: new.into(), entry_snapshot: entry.clone(),
+            old_key: old.into(), new_key: new.into(), entry_snapshot: entry.clone(), original_index,
         };
         entry.citation_key = new.into();
         entry.dirty = true;
@@ -688,41 +689,57 @@ impl App {
     /// Returns the number of keys changed.  When `push_undo` is true each rename
     /// is pushed to the undo stack.
     pub(super) fn regen_all_citekeys_impl(&mut self, push_undo: bool) -> usize {
-        let keys: Vec<String> = self.database.entries.keys().cloned().collect();
-        let mut renamed = 0usize;
-        // When push_undo is set, collect one undo item per rename and push them
-        // as a single Batch so a single undo reverts every key at once.
-        let mut undo_items: Vec<UndoItem> = Vec::new();
-        let mut mapping = std::collections::HashMap::new();
-
-        for key in keys {
-            let (base_new_key, skip) = {
-                let Some(entry) = self.database.entries.get(&key) else { continue };
-                let display_name = entry.entry_type.display_name();
-                let type_name = display_name.to_lowercase();
-                let template = self.resolve_citekey_template(&type_name, display_name);
-                let mut gen_fields = entry.fields.clone();
-                gen_fields.entry("entrytype".to_string()).or_insert_with(|| display_name.to_string());
-                let base = generate_citekey(&template, &gen_fields);
-                let skip = base == key;
-                (base, skip)
+        use std::collections::{HashMap, HashSet};
+        let original = std::mem::take(&mut self.database.entries);
+        let mut reserved: HashSet<String> = original.keys().cloned().collect();
+        let mut rebuilt = IndexMap::with_capacity(original.len());
+        let mut next_suffix: HashMap<String, usize> = HashMap::new();
+        let mut undo_items = Vec::new();
+        let mut mapping = HashMap::new();
+        for (original_index, (key, mut entry)) in original.into_iter().enumerate() {
+            reserved.remove(&key);
+            // A released suffix may be the earliest available one for a later
+            // collision. Retain the same first-free policy as single rekeying.
+            if let Some((base, suffix)) = key.rsplit_once('_') {
+                if let Ok(number) = suffix.parse::<usize>() {
+                    if number >= 2 && number.to_string() == suffix {
+                        if let Some(next) = next_suffix.get_mut(base) { *next = (*next).min(number); }
+                    }
+                }
+            }
+            let display_name = entry.entry_type.display_name();
+            let template = self.resolve_citekey_template(&display_name.to_lowercase(), display_name);
+            let mut fields = entry.fields.clone();
+            fields.entry("entrytype".into()).or_insert_with(|| display_name.to_string());
+            let base = generate_citekey(&template, &fields);
+            let new_key = if !reserved.contains(&base) { base } else {
+                let next = next_suffix.entry(base.clone()).or_insert(2);
+                loop {
+                    let candidate = format!("{base}_{next}");
+                    *next += 1;
+                    if !reserved.contains(&candidate) { break candidate; }
+                }
             };
-
-            if skip {
-                continue;
+            reserved.insert(new_key.clone());
+            if new_key != key {
+                if push_undo {
+                    undo_items.push(UndoItem::CitekeyChanged {
+                        old_key: key.clone(), new_key: new_key.clone(), entry_snapshot: entry.clone(), original_index,
+                    });
+                }
+                entry.citation_key = new_key.clone();
+                entry.dirty = true;
+                mapping.insert(key, new_key.clone());
             }
-
-            let new_key = self.unique_citekey(&base_new_key, &key);
-
-            if new_key == key {
-                continue;
-            }
-
-            if let Some(item) = self.rename_entry_key(&key, &new_key) {
-                mapping.insert(key, new_key);
-                if push_undo { undo_items.push(item); }
-                renamed += 1;
-            }
+            rebuilt.insert(new_key, entry);
+        }
+        self.database.entries = rebuilt;
+        let renamed = mapping.len();
+        for key in &mut self.sorted_keys {
+            if let Some(new) = mapping.get(key) { *key = new.clone(); }
+        }
+        if let Some(key) = &mut self.detail_entry_key {
+            if let Some(new) = mapping.get(key) { *key = new.clone(); }
         }
 
         let reference_undo = self.update_crossrefs(&mapping);

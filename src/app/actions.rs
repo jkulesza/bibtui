@@ -178,6 +178,7 @@ pub(super) enum UndoItem {
         old_key: String,
         new_key: String,
         entry_snapshot: Entry,
+        original_index: usize,
     },
     /// The group tree was changed (group added or deleted).
     GroupTreeChanged { old_tree: GroupTree, active_path: Option<Vec<usize>> },

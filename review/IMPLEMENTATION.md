@@ -31,3 +31,5 @@ Remaining: R04–R14, P01–P03, Q01–Q02.
 - R13: ignore releases before key history/bindings; allow repeats only for navigation/text actions, without advancing command chains; event-boundary regressions.
 
 - R05: centralized sorting/filter refresh and selection preservation after mutations; search/group intersection and active tree paths (including sibling deletion/undo) are tested.
+
+- P02: one reserved-key/map rebuild for bulk rekeying, cached collision suffix search, stable file order, one view refresh; collision/selection/save-reload tests.

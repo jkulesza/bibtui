@@ -468,3 +468,6 @@ deletions, confirmations, or other one-shot actions, including custom bindings.
 Search and the selected group are applied together. Edits, imports, duplication,
 key changes, saves, and undo refresh both filters and keep the selected entry when
 it remains visible. Identically named groups retain their distinct tree paths.
+
+Bulk citation-key regeneration rebuilds the entry map once, retains file order,
+and assigns the first available numeric suffix deterministically on collisions.

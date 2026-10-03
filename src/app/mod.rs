@@ -2167,13 +2167,14 @@ impl App {
                 }
                 self.status_message = Some(format!("Undo: type reverted to {}", old_name));
             }
-            UndoItem::CitekeyChanged { old_key, new_key, entry_snapshot } => {
+            UndoItem::CitekeyChanged { old_key, new_key, entry_snapshot, original_index } => {
                 let current = self.database.entries.shift_remove(&new_key);
                 let mut entry = entry_snapshot;
                 entry.raw_index = current.map(|e| e.raw_index).unwrap_or(usize::MAX);
                 entry.dirty = true;
                 entry.citation_key = old_key.clone();
-                self.database.entries.insert(old_key.clone(), entry);
+                let position = original_index.min(self.database.entries.len());
+                self.database.entries.shift_insert(position, old_key.clone(), entry);
                 if self.detail_entry_key.as_deref() == Some(new_key.as_str()) {
                     self.detail_entry_key = Some(old_key.clone());
                     if let Some(e) = self.database.entries.get(&old_key) {

@@ -741,3 +741,21 @@ fn importing_and_rekeying_reapply_active_search() {
     assert!(app.visible_entries().iter().all(|e| e.citation_key != "Imported"));
     assert_eq!(app.search_bar_state.result_count, app.visible_entries().len());
 }
+
+#[test]
+fn bulk_rekey_preserves_file_order_and_first_available_suffix() {
+    let (mut app, _dir) = review_app("@Misc{Target, title={Target}}\n@Misc{Old, title={Target}}\n@Misc{Target_2, title={Target}}\n@Misc{Other, title={Target}}\n");
+    app.config.citekey.templates.insert("misc".into(), "[title]".into());
+    app.config.display.default_sort.field = "none".into();
+    app.refresh_view();
+    app.entry_list_state.select(1);
+    app.regen_all_citekeys();
+    assert_eq!(app.database.entries.keys().map(String::as_str).collect::<Vec<_>>(), ["Target", "Target_3", "Target_2", "Target_4"]);
+    assert_eq!(app.selected_entry_key().as_deref(), Some("Target_3"));
+    assert_eq!(app.regen_all_citekeys_impl(true), 0);
+    assert!(app.save());
+    let reload = App::new(app.bib_path.clone(), app.config.clone()).unwrap();
+    assert_eq!(reload.database.entries.keys().collect::<Vec<_>>(), app.database.entries.keys().collect::<Vec<_>>());
+    app.undo();
+    assert_eq!(app.database.entries.keys().map(String::as_str).collect::<Vec<_>>(), ["Target", "Old", "Target_2", "Other"]);
+}
