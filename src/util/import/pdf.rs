@@ -1,10 +1,10 @@
-use std::path::Path;
 use std::io::{Read, Seek, SeekFrom};
+use std::path::Path;
 
 use super::crossref::CrossrefFetcher;
 use super::fetcher::Fetcher;
 use super::http::HttpTransport;
-use super::{ImportedEntry, ImportError};
+use super::{ImportError, ImportedEntry};
 
 /// Fetches BibTeX metadata by reading a local PDF file.
 ///
@@ -24,23 +24,35 @@ impl PdfFetcher {
 
 /// Read only the head and tail, with bounded memory even for very large PDFs.
 fn extract_doi_from_reader(reader: &mut (impl Read + Seek)) -> Result<String, ImportError> {
-        let mut bytes = Vec::new();
-        (&mut *reader).take(200_000).read_to_end(&mut bytes)
+    let mut bytes = Vec::new();
+    (&mut *reader)
+        .take(200_000)
+        .read_to_end(&mut bytes)
+        .map_err(|error| ImportError::Parse(error.to_string()))?;
+    if !bytes.starts_with(b"%PDF") {
+        return Err(ImportError::Parse("File is not a valid PDF".to_string()));
+    }
+    if let Some(doi) = find_doi_in_text(&String::from_utf8_lossy(&bytes)) {
+        return Ok(doi);
+    }
+    let length = reader
+        .seek(SeekFrom::End(0))
+        .map_err(|error| ImportError::Parse(error.to_string()))?;
+    if length > bytes.len() as u64 {
+        reader
+            .seek(SeekFrom::End(-(length.min(50_000) as i64)))
             .map_err(|error| ImportError::Parse(error.to_string()))?;
-        if !bytes.starts_with(b"%PDF") {
-            return Err(ImportError::Parse("File is not a valid PDF".to_string()));
+        bytes.clear();
+        reader
+            .take(50_000)
+            .read_to_end(&mut bytes)
+            .map_err(|error| ImportError::Parse(error.to_string()))?;
+        if let Some(doi) = find_doi_in_text(&String::from_utf8_lossy(&bytes)) {
+            return Ok(doi);
         }
-        if let Some(doi) = find_doi_in_text(&String::from_utf8_lossy(&bytes)) { return Ok(doi); }
-        let length = reader.seek(SeekFrom::End(0)).map_err(|error| ImportError::Parse(error.to_string()))?;
-        if length > bytes.len() as u64 {
-            reader.seek(SeekFrom::End(-(length.min(50_000) as i64)))
-                .map_err(|error| ImportError::Parse(error.to_string()))?;
-            bytes.clear();
-            reader.take(50_000).read_to_end(&mut bytes).map_err(|error| ImportError::Parse(error.to_string()))?;
-            if let Some(doi) = find_doi_in_text(&String::from_utf8_lossy(&bytes)) { return Ok(doi); }
-        }
+    }
 
-        Err(ImportError::Parse("No DOI found in PDF".to_string()))
+    Err(ImportError::Parse("No DOI found in PDF".to_string()))
 }
 
 impl Fetcher for PdfFetcher {
@@ -48,17 +60,18 @@ impl Fetcher for PdfFetcher {
         input.to_lowercase().ends_with(".pdf") && Path::new(input).exists()
     }
 
-    fn fetch_with(&self, input: &str, http: &dyn HttpTransport) -> Result<ImportedEntry, ImportError> {
+    fn fetch_with(
+        &self,
+        input: &str,
+        http: &dyn HttpTransport,
+    ) -> Result<ImportedEntry, ImportError> {
         let path = Path::new(input);
         let doi = Self::extract_doi_from_path(path)?;
 
         let mut entry = CrossrefFetcher.fetch_with(&doi, http)?;
 
         // The PDF is already local — no download needed; set path directly.
-        entry.pdf_path = Some(
-            path.canonicalize()
-                .unwrap_or_else(|_| path.to_path_buf()),
-        );
+        entry.pdf_path = Some(path.canonicalize().unwrap_or_else(|_| path.to_path_buf()));
 
         Ok(entry)
     }
@@ -94,7 +107,9 @@ fn labeled_doi(text: &str) -> Option<String> {
     ];
 
     for prefix in prefixes {
-        let Some(pos) = lower.find(prefix) else { continue };
+        let Some(pos) = lower.find(prefix) else {
+            continue;
+        };
         let after = text[pos + prefix.len()..].trim_start_matches([' ', '\t']);
         // Skip the literal "doi:" that may still prefix the number
         let after = after
@@ -139,10 +154,16 @@ fn extract_doi_at(text: &str) -> Option<String> {
     let mut end = text
         .find(|c: char| {
             c.is_whitespace()
-                || matches!(c, '"' | '\'' | '<' | '>' | '{' | '}' | '\\' | ')' | ']' | '\0')
+                || matches!(
+                    c,
+                    '"' | '\'' | '<' | '>' | '{' | '}' | '\\' | ')' | ']' | '\0'
+                )
         })
-        .unwrap_or(text.len()).min(200);
-    while !text.is_char_boundary(end) { end -= 1; }
+        .unwrap_or(text.len())
+        .min(200);
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
 
     let candidate = text[..end].trim_end_matches(['.', ',', ';', ':']);
 
@@ -250,7 +271,10 @@ mod tests {
     fn test_labeled_doi_doi_space_colon() {
         // "doi :" variant
         let text = "doi :10.1234/foo.bar.2020";
-        assert_eq!(find_doi_in_text(text), Some("10.1234/foo.bar.2020".to_string()));
+        assert_eq!(
+            find_doi_in_text(text),
+            Some("10.1234/foo.bar.2020".to_string())
+        );
     }
 
     #[test]
@@ -325,7 +349,8 @@ mod tests {
     fn test_extract_doi_from_path_header_hit() {
         let mut tmp = tempfile::NamedTempFile::new().unwrap();
         use std::io::Write;
-        tmp.write_all(b"%PDF-1.4\n/Subject (doi:10.1016/j.foo.2024.001)\n").unwrap();
+        tmp.write_all(b"%PDF-1.4\n/Subject (doi:10.1016/j.foo.2024.001)\n")
+            .unwrap();
         tmp.flush().unwrap();
         let doi = PdfFetcher::extract_doi_from_path(tmp.path()).unwrap();
         assert_eq!(doi, "10.1016/j.foo.2024.001");
@@ -340,7 +365,8 @@ mod tests {
         tmp.write_all(b"%PDF-1.4\n").unwrap();
         // 250 KB of filler with no DOI — exceeds the 200 KB head window
         tmp.write_all(&vec![b'x'; 250_000]).unwrap();
-        tmp.write_all(b"\n/trailer doi:10.9999/tail.found\n").unwrap();
+        tmp.write_all(b"\n/trailer doi:10.9999/tail.found\n")
+            .unwrap();
         tmp.flush().unwrap();
         let doi = PdfFetcher::extract_doi_from_path(tmp.path()).unwrap();
         assert_eq!(doi, "10.9999/tail.found");
@@ -360,7 +386,8 @@ mod tests {
     fn test_extract_doi_from_path_no_doi_anywhere() {
         let mut tmp = tempfile::NamedTempFile::new().unwrap();
         use std::io::Write;
-        tmp.write_all(b"%PDF-1.4\nplain content with no doi at all\n").unwrap();
+        tmp.write_all(b"%PDF-1.4\nplain content with no doi at all\n")
+            .unwrap();
         tmp.flush().unwrap();
         let err = PdfFetcher::extract_doi_from_path(tmp.path()).unwrap_err();
         assert!(matches!(err, ImportError::Parse(_)));
@@ -404,14 +431,21 @@ mod tests {
             }
         }
         impl Seek for Counted {
-            fn seek(&mut self, position: SeekFrom) -> std::io::Result<u64> { self.inner.seek(position) }
+            fn seek(&mut self, position: SeekFrom) -> std::io::Result<u64> {
+                self.inner.seek(position)
+            }
         }
         let mut bytes = vec![b' '; 1_000_000];
         bytes[..4].copy_from_slice(b"%PDF");
         bytes.extend_from_slice(b" DOI: 10.1234/tail");
-        let mut reader = Counted { inner: std::io::Cursor::new(bytes), bytes_read: 0 };
-        assert_eq!(extract_doi_from_reader(&mut reader).unwrap(), "10.1234/tail");
+        let mut reader = Counted {
+            inner: std::io::Cursor::new(bytes),
+            bytes_read: 0,
+        };
+        assert_eq!(
+            extract_doi_from_reader(&mut reader).unwrap(),
+            "10.1234/tail"
+        );
         assert_eq!(reader.bytes_read, 250_000);
     }
-
 }

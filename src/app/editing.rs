@@ -6,22 +6,34 @@ use super::*;
 impl App {
     pub(super) fn start_edit_field(&mut self) {
         // When a FileEntry row is selected, edit just that file's path.
-        if let Some(idx) = self.detail_state.as_ref().and_then(|d| d.selected_file_index()) {
-            let key = match self.detail_entry_key.clone() { Some(k) => k, None => return };
-            let file_value = self.database.entries.get(&key)
+        if let Some(idx) = self
+            .detail_state
+            .as_ref()
+            .and_then(|d| d.selected_file_index())
+        {
+            let key = match self.detail_entry_key.clone() {
+                Some(k) => k,
+                None => return,
+            };
+            let file_value = self
+                .database
+                .entries
+                .get(&key)
                 .and_then(|e| e.fields.get("file").cloned())
                 .unwrap_or_default();
             let files = parse_file_field(&file_value);
             let current_path = files.get(idx).map(|f| f.path.as_str()).unwrap_or("");
             self.field_editor_state = Some(FieldEditorState::for_path("File path", current_path));
-            self.pending_action = Some(PendingAction::EditFileAttachment { entry_key: key, index: idx });
+            self.pending_action = Some(PendingAction::EditFileAttachment {
+                entry_key: key,
+                index: idx,
+            });
             self.mode = InputMode::Editing;
             return;
         }
         if let Some(ref detail) = self.detail_state {
             if let Some((field_name, field_value)) = detail.selected_field() {
-                self.field_editor_state =
-                    Some(FieldEditorState::new(field_name, field_value));
+                self.field_editor_state = Some(FieldEditorState::new(field_name, field_value));
                 self.mode = InputMode::Editing;
                 self.update_field_completions();
             }
@@ -29,7 +41,10 @@ impl App {
     }
 
     pub(super) fn start_add_file_attachment(&mut self) {
-        let key = match self.detail_entry_key.clone() { Some(k) => k, None => return };
+        let key = match self.detail_entry_key.clone() {
+            Some(k) => k,
+            None => return,
+        };
         self.field_editor_state = Some(FieldEditorState::for_path("New file path", ""));
         self.pending_action = Some(PendingAction::AddFileAttachment { entry_key: key });
         self.mode = InputMode::Editing;
@@ -57,9 +72,7 @@ impl App {
                 self.confirm_rename_field_group(index)
             }
             Some(PendingAction::AddColumn) => self.confirm_add_column(),
-            Some(PendingAction::EditColumnWidth { index }) => {
-                self.confirm_edit_column_width(index)
-            }
+            Some(PendingAction::EditColumnWidth { index }) => self.confirm_edit_column_width(index),
             Some(PendingAction::RenameColumn { index }) => self.confirm_rename_column(index),
             Some(PendingAction::AddFileAttachment { entry_key }) => {
                 self.confirm_add_file_attachment(entry_key)
@@ -67,12 +80,12 @@ impl App {
             Some(PendingAction::EditFileAttachment { entry_key, index }) => {
                 self.confirm_edit_file_attachment(entry_key, index)
             }
-            Some(PendingAction::AddGroup { parent_path }) => {
-                self.confirm_add_group(parent_path)
-            }
+            Some(PendingAction::AddGroup { parent_path }) => self.confirm_add_group(parent_path),
             _ => self.confirm_field_edit(),
         }
-        if self.view_dirty { self.refresh_view(); }
+        if self.view_dirty {
+            self.refresh_view();
+        }
     }
 
     /// New file: the user just entered a path for a brand-new library.
@@ -337,7 +350,11 @@ impl App {
             self.push_undo(UndoItem::FieldChanged {
                 entry_key: entry_key.clone(),
                 field_name: "file".to_string(),
-                old_value: if current.is_empty() { None } else { Some(current) },
+                old_value: if current.is_empty() {
+                    None
+                } else {
+                    Some(current)
+                },
             });
             if let Some(entry) = self.database.entries.get_mut(&entry_key) {
                 entry.fields.insert("file".to_string(), new_value);
@@ -469,8 +486,7 @@ impl App {
                         }
                     }
                     self.regen_citekey();
-                    let current_key =
-                        self.detail_entry_key.clone().unwrap_or_else(|| key.clone());
+                    let current_key = self.detail_entry_key.clone().unwrap_or_else(|| key.clone());
                     self.recheck_dirty(&current_key);
                 }
             }
@@ -480,7 +496,11 @@ impl App {
 
     pub(super) fn delete_field(&mut self) {
         // When a FileEntry row is selected, remove just that file from the field.
-        if let Some(file_idx) = self.detail_state.as_ref().and_then(|d| d.selected_file_index()) {
+        if let Some(file_idx) = self
+            .detail_state
+            .as_ref()
+            .and_then(|d| d.selected_file_index())
+        {
             self.delete_file_attachment(file_idx);
             return;
         }
@@ -493,7 +513,10 @@ impl App {
 
         if let Some(field_name) = field_name_opt {
             if let Some(ref key) = self.detail_entry_key.clone() {
-                let old_value = self.database.entries.get(key)
+                let old_value = self
+                    .database
+                    .entries
+                    .get(key)
                     .and_then(|e| e.fields.get(&field_name).cloned());
                 if let Some(old_value) = old_value {
                     self.push_undo(UndoItem::FieldChanged {
@@ -515,9 +538,16 @@ impl App {
     }
 
     pub(super) fn delete_file_attachment(&mut self, index: usize) {
-        let key = match self.detail_entry_key.clone() { Some(k) => k, None => return };
-        let file_value = match self.database.entries.get(&key)
-            .and_then(|e| e.fields.get("file")).cloned()
+        let key = match self.detail_entry_key.clone() {
+            Some(k) => k,
+            None => return,
+        };
+        let file_value = match self
+            .database
+            .entries
+            .get(&key)
+            .and_then(|e| e.fields.get("file"))
+            .cloned()
         {
             Some(v) if !v.is_empty() => v,
             _ => return,
@@ -554,7 +584,9 @@ impl App {
     pub(super) fn recheck_dirty(&mut self, entry_key: &str) {
         use crate::bib::model::RawItem;
 
-        let Some(entry) = self.database.entries.get_mut(entry_key) else { return };
+        let Some(entry) = self.database.entries.get_mut(entry_key) else {
+            return;
+        };
 
         // A changed citation key is always dirty.
         let original_raw = match self.database.raw_file.items.get(entry.raw_index) {
@@ -577,11 +609,22 @@ impl App {
             .fields
             .iter()
             .filter(|(_, v)| !v.is_empty())
-            .all(|(k, v)| original.get(&k.to_lowercase()).map(|ov| ov == v).unwrap_or(false))
+            .all(|(k, v)| {
+                original
+                    .get(&k.to_lowercase())
+                    .map(|ov| ov == v)
+                    .unwrap_or(false)
+            })
             && original
                 .iter()
                 .filter(|(_, v)| !v.is_empty())
-                .all(|(k, v)| entry.fields.get(k.as_str()).map(|ev| ev == v).unwrap_or(false));
+                .all(|(k, v)| {
+                    entry
+                        .fields
+                        .get(k.as_str())
+                        .map(|ev| ev == v)
+                        .unwrap_or(false)
+                });
 
         if all_match {
             entry.dirty = false;
@@ -630,7 +673,9 @@ impl App {
                 let template = self.resolve_citekey_template(&type_name, display_name);
 
                 let mut gen_fields = entry.fields.clone();
-                gen_fields.entry("entrytype".to_string()).or_insert_with(|| display_name.to_string());
+                gen_fields
+                    .entry("entrytype".to_string())
+                    .or_insert_with(|| display_name.to_string());
                 let base_key = generate_citekey(&template, &gen_fields);
                 let new_key = self.unique_citekey(&base_key, key);
 
@@ -643,7 +688,11 @@ impl App {
                         self.refresh_view();
 
                         if let Some(ref mut detail) = self.detail_state {
-                            if let Some(entry) = self.database.entries.get(self.detail_entry_key.as_ref().unwrap()) {
+                            if let Some(entry) = self
+                                .database
+                                .entries
+                                .get(self.detail_entry_key.as_ref().unwrap())
+                            {
                                 detail.refresh(entry);
                             }
                         }
@@ -659,24 +708,40 @@ impl App {
         let original_index = self.database.entries.get_index_of(old)?;
         let mut entry = self.database.entries.shift_remove(old)?;
         let undo = UndoItem::CitekeyChanged {
-            old_key: old.into(), new_key: new.into(), entry_snapshot: entry.clone(), original_index,
+            old_key: old.into(),
+            new_key: new.into(),
+            entry_snapshot: entry.clone(),
+            original_index,
         };
         entry.citation_key = new.into();
         entry.dirty = true;
         self.database.entries.insert(new.into(), entry);
-        for key in &mut self.sorted_keys { if key == old { *key = new.into(); } }
-        if self.detail_entry_key.as_deref() == Some(old) { self.detail_entry_key = Some(new.into()); }
+        for key in &mut self.sorted_keys {
+            if key == old {
+                *key = new.into();
+            }
+        }
+        if self.detail_entry_key.as_deref() == Some(old) {
+            self.detail_entry_key = Some(new.into());
+        }
         Some(undo)
     }
 
     /// Apply the complete mapping once to original reference values. In
     /// particular A -> B and B -> C must not turn references to A into C.
-    fn update_crossrefs(&mut self, mapping: &std::collections::HashMap<String, String>) -> Vec<UndoItem> {
+    fn update_crossrefs(
+        &mut self,
+        mapping: &std::collections::HashMap<String, String>,
+    ) -> Vec<UndoItem> {
         let mut undo = Vec::new();
         for (key, entry) in &mut self.database.entries {
             if let Some(old) = entry.fields.get("crossref").cloned() {
                 if let Some(new) = mapping.get(&old) {
-                    undo.push(UndoItem::FieldChanged { entry_key: key.clone(), field_name: "crossref".into(), old_value: Some(old) });
+                    undo.push(UndoItem::FieldChanged {
+                        entry_key: key.clone(),
+                        field_name: "crossref".into(),
+                        old_value: Some(old),
+                    });
                     entry.fields.insert("crossref".into(), new.clone());
                     entry.dirty = true;
                 }
@@ -703,28 +768,40 @@ impl App {
             if let Some((base, suffix)) = key.rsplit_once('_') {
                 if let Ok(number) = suffix.parse::<usize>() {
                     if number >= 2 && number.to_string() == suffix {
-                        if let Some(next) = next_suffix.get_mut(base) { *next = (*next).min(number); }
+                        if let Some(next) = next_suffix.get_mut(base) {
+                            *next = (*next).min(number);
+                        }
                     }
                 }
             }
             let display_name = entry.entry_type.display_name();
-            let template = self.resolve_citekey_template(&display_name.to_lowercase(), display_name);
+            let template =
+                self.resolve_citekey_template(&display_name.to_lowercase(), display_name);
             let mut fields = entry.fields.clone();
-            fields.entry("entrytype".into()).or_insert_with(|| display_name.to_string());
+            fields
+                .entry("entrytype".into())
+                .or_insert_with(|| display_name.to_string());
             let base = generate_citekey(&template, &fields);
-            let new_key = if !reserved.contains(&base) { base } else {
+            let new_key = if !reserved.contains(&base) {
+                base
+            } else {
                 let next = next_suffix.entry(base.clone()).or_insert(2);
                 loop {
                     let candidate = format!("{base}_{next}");
                     *next += 1;
-                    if !reserved.contains(&candidate) { break candidate; }
+                    if !reserved.contains(&candidate) {
+                        break candidate;
+                    }
                 }
             };
             reserved.insert(new_key.clone());
             if new_key != key {
                 if push_undo {
                     undo_items.push(UndoItem::CitekeyChanged {
-                        old_key: key.clone(), new_key: new_key.clone(), entry_snapshot: entry.clone(), original_index,
+                        old_key: key.clone(),
+                        new_key: new_key.clone(),
+                        entry_snapshot: entry.clone(),
+                        original_index,
                     });
                 }
                 entry.citation_key = new_key.clone();
@@ -736,14 +813,20 @@ impl App {
         self.database.entries = rebuilt;
         let renamed = mapping.len();
         for key in &mut self.sorted_keys {
-            if let Some(new) = mapping.get(key) { *key = new.clone(); }
+            if let Some(new) = mapping.get(key) {
+                *key = new.clone();
+            }
         }
         if let Some(key) = &mut self.detail_entry_key {
-            if let Some(new) = mapping.get(key) { *key = new.clone(); }
+            if let Some(new) = mapping.get(key) {
+                *key = new.clone();
+            }
         }
 
         let reference_undo = self.update_crossrefs(&mapping);
-        if push_undo { undo_items.extend(reference_undo); }
+        if push_undo {
+            undo_items.extend(reference_undo);
+        }
         if push_undo && !undo_items.is_empty() {
             self.push_undo(UndoItem::Batch(undo_items));
         }
@@ -781,7 +864,10 @@ impl App {
 
         if let Some(field_name) = field_name {
             if let Some(key) = self.detail_entry_key.clone() {
-                let value = self.database.entries.get(&key)
+                let value = self
+                    .database
+                    .entries
+                    .get(&key)
                     .and_then(|e| e.fields.get(&field_name).cloned());
                 if let Some(value) = value {
                     let converted = crate::util::titlecase::apply_titlecase(
@@ -815,8 +901,14 @@ impl App {
 
     pub(super) fn normalize_names_field(&mut self) {
         const NAME_FIELDS: &[&str] = &[
-            "author", "editor", "editora", "editorb", "editorc",
-            "bookauthor", "afterword", "translator",
+            "author",
+            "editor",
+            "editora",
+            "editorb",
+            "editorc",
+            "bookauthor",
+            "afterword",
+            "translator",
         ];
         let field_name = match self
             .detail_state
@@ -828,16 +920,19 @@ impl App {
             None => return,
         };
 
-        if !NAME_FIELDS.iter().any(|&f| f.eq_ignore_ascii_case(&field_name)) {
-            self.status_message = Some(format!(
-                "'{}' is not a person-name field",
-                field_name
-            ));
+        if !NAME_FIELDS
+            .iter()
+            .any(|&f| f.eq_ignore_ascii_case(&field_name))
+        {
+            self.status_message = Some(format!("'{}' is not a person-name field", field_name));
             return;
         }
 
         if let Some(key) = self.detail_entry_key.clone() {
-            let value = self.database.entries.get(&key)
+            let value = self
+                .database
+                .entries
+                .get(&key)
                 .and_then(|e| e.fields.get(&field_name).cloned());
             if let Some(value) = value {
                 let normalized = crate::util::author::normalize_author_names(&value);
@@ -879,7 +974,8 @@ impl App {
                     if !editor.unnamed_register.is_empty() {
                         Ok(editor.unnamed_register.clone())
                     } else {
-                        self.clipboard.paste()
+                        self.clipboard
+                            .paste()
                             .map_err(|e| format!("Clipboard error: {e}"))
                     }
                 });

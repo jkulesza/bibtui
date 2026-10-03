@@ -150,7 +150,9 @@ impl<'a> Parser<'a> {
                     if self.peek() == Some('\n') {
                         self.advance(1);
                     }
-                    Ok(RawItem::Preamble(self.input[entry_start..self.pos].to_string()))
+                    Ok(RawItem::Preamble(
+                        self.input[entry_start..self.pos].to_string(),
+                    ))
                 }
             }
         }
@@ -200,7 +202,9 @@ impl<'a> Parser<'a> {
         self.advance(1);
         self.skip_whitespace();
 
-        let name = self.take_while(|c| c.is_alphanumeric() || c == '_' || c == '-').to_string();
+        let name = self
+            .take_while(|c| c.is_alphanumeric() || c == '_' || c == '-')
+            .to_string();
         self.skip_whitespace();
 
         if self.peek() != Some('=') {
@@ -234,10 +238,7 @@ impl<'a> Parser<'a> {
         self.advance(1);
 
         // Read citation key (everything up to first comma or '}')
-        let citation_key = self
-            .take_while(|c| c != ',' && c != '}')
-            .trim()
-            .to_string();
+        let citation_key = self.take_while(|c| c != ',' && c != '}').trim().to_string();
 
         // Consume comma after citation key (if present)
         if self.peek() == Some(',') {
@@ -259,7 +260,11 @@ impl<'a> Parser<'a> {
             }
 
             if self.at_end() {
-                bail!("Unexpected end of input in entry {} at line {}", citation_key, self.current_line());
+                bail!(
+                    "Unexpected end of input in entry {} at line {}",
+                    citation_key,
+                    self.current_line()
+                );
             }
 
             // Read field name
@@ -359,7 +364,11 @@ impl<'a> Parser<'a> {
                     .to_string();
                 Ok(RawFieldValue::Bare(bare))
             }
-            other => bail!("Unexpected character {:?} in field value at line {}", other, self.current_line()),
+            other => bail!(
+                "Unexpected character {:?} in field value at line {}",
+                other,
+                self.current_line()
+            ),
         }
     }
 
@@ -397,7 +406,10 @@ impl<'a> Parser<'a> {
             }
         }
 
-        bail!("Unterminated braced content starting at line {}", self.line_at(start));
+        bail!(
+            "Unterminated braced content starting at line {}",
+            self.line_at(start)
+        );
     }
 
     /// Read content inside quotes, handling escaped quotes. Consumes the closing '"'.
@@ -424,7 +436,10 @@ impl<'a> Parser<'a> {
             }
         }
 
-        bail!("Unterminated quoted string starting at line {}", self.line_at(start));
+        bail!(
+            "Unterminated quoted string starting at line {}",
+            self.line_at(start)
+        );
     }
 
     fn skip_whitespace(&mut self) {
@@ -576,7 +591,9 @@ mod tests {
         // @Comment{...} — braced content
         let input = "@Comment{jabref-meta: databaseType:bibtex;}\n";
         let raw = parse_bib_file(input).unwrap();
-        let comments: Vec<_> = raw.items.iter()
+        let comments: Vec<_> = raw
+            .items
+            .iter()
             .filter(|i| matches!(i, RawItem::Comment { .. }))
             .collect();
         assert_eq!(comments.len(), 1);
@@ -587,7 +604,9 @@ mod tests {
         // @Comment without braces — rest of line is the comment
         let input = "@Comment This is a bare comment\n@Article{k, title = {T},}\n";
         let raw = parse_bib_file(input).unwrap();
-        let comments: Vec<_> = raw.items.iter()
+        let comments: Vec<_> = raw
+            .items
+            .iter()
             .filter(|i| matches!(i, RawItem::Comment { .. }))
             .collect();
         assert_eq!(comments.len(), 1);
@@ -597,7 +616,9 @@ mod tests {
     fn test_parse_preamble() {
         let input = "@Preamble{{Some preamble text}}\n";
         let raw = parse_bib_file(input).unwrap();
-        let preambles: Vec<_> = raw.items.iter()
+        let preambles: Vec<_> = raw
+            .items
+            .iter()
             .filter(|i| matches!(i, RawItem::BibPreamble { .. }))
             .collect();
         assert_eq!(preambles.len(), 1);
@@ -611,13 +632,22 @@ mod tests {
     fn test_parse_string_def() {
         let input = "@String{jnl = {Journal of Testing}}\n";
         let raw = parse_bib_file(input).unwrap();
-        let strings: Vec<_> = raw.items.iter()
+        let strings: Vec<_> = raw
+            .items
+            .iter()
             .filter(|i| matches!(i, RawItem::StringDef { .. }))
             .collect();
         assert_eq!(strings.len(), 1);
-        if let RawItem::StringDef { name, raw_value, .. } = &strings[0] {
+        if let RawItem::StringDef {
+            name, raw_value, ..
+        } = &strings[0]
+        {
             assert_eq!(name, "jnl");
-            assert!(raw_value.contains("Journal of Testing"), "got: {}", raw_value);
+            assert!(
+                raw_value.contains("Journal of Testing"),
+                "got: {}",
+                raw_value
+            );
         }
     }
 
@@ -646,7 +676,10 @@ mod tests {
         let input = "@String{x {y}}\n";
         let raw = parse_bib_file(input).unwrap();
         assert_eq!(raw.warnings.len(), 1);
-        assert!(!raw.items.iter().any(|i| matches!(i, RawItem::StringDef { .. })));
+        assert!(!raw
+            .items
+            .iter()
+            .any(|i| matches!(i, RawItem::StringDef { .. })));
         assert_eq!(super::super::writer::write_bib_file(&raw), input);
     }
 

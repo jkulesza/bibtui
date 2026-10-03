@@ -10,8 +10,17 @@ use bibtui::bib::writer::write_bib_file;
 /// warning, and round-trips byte-for-byte.
 fn assert_recovers(input: &str) {
     let raw = parse_bib_file(input).expect("recoverable input must not hard-fail");
-    assert!(!raw.warnings.is_empty(), "a warning must be recorded for {:?}", input);
-    assert_eq!(write_bib_file(&raw), input, "recovered bytes must round-trip for {:?}", input);
+    assert!(
+        !raw.warnings.is_empty(),
+        "a warning must be recorded for {:?}",
+        input
+    );
+    assert_eq!(
+        write_bib_file(&raw),
+        input,
+        "recovered bytes must round-trip for {:?}",
+        input
+    );
 }
 
 #[test]

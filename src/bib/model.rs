@@ -75,9 +75,11 @@ impl RawFieldValue {
             RawFieldValue::Braced(s) => s.clone(),
             RawFieldValue::Quoted(s) => s.clone(),
             RawFieldValue::Bare(s) => s.clone(),
-            RawFieldValue::Concat(parts) => {
-                parts.iter().map(|p| p.to_string_value()).collect::<Vec<_>>().join(" ")
-            }
+            RawFieldValue::Concat(parts) => parts
+                .iter()
+                .map(|p| p.to_string_value())
+                .collect::<Vec<_>>()
+                .join(" "),
         }
     }
 
@@ -396,17 +398,26 @@ mod tests {
 
     #[test]
     fn test_raw_field_value_braced() {
-        assert_eq!(RawFieldValue::Braced("hello".to_string()).to_string_value(), "hello");
+        assert_eq!(
+            RawFieldValue::Braced("hello".to_string()).to_string_value(),
+            "hello"
+        );
     }
 
     #[test]
     fn test_raw_field_value_quoted() {
-        assert_eq!(RawFieldValue::Quoted("world".to_string()).to_string_value(), "world");
+        assert_eq!(
+            RawFieldValue::Quoted("world".to_string()).to_string_value(),
+            "world"
+        );
     }
 
     #[test]
     fn test_raw_field_value_bare() {
-        assert_eq!(RawFieldValue::Bare("2024".to_string()).to_string_value(), "2024");
+        assert_eq!(
+            RawFieldValue::Bare("2024".to_string()).to_string_value(),
+            "2024"
+        );
     }
 
     #[test]

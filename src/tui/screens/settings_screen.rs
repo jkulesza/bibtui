@@ -79,66 +79,62 @@ fn render_citekey_help(f: &mut Frame, area: Rect, app: &App) {
     // Split inner area into two columns: tokens (left) and modifiers (right).
     // Left column only needs enough room for its longest row; the right column
     // (examples) gets everything else when the terminal is wide.
-    let half = (inner.width / 2).max(46.min(inner.width.saturating_sub(1))).min(inner.width.saturating_sub(1));
-    let cols = Layout::horizontal([
-        Constraint::Length(half),
-        Constraint::Min(1),
-    ])
-    .split(inner);
+    let half = (inner.width / 2)
+        .max(46.min(inner.width.saturating_sub(1)))
+        .min(inner.width.saturating_sub(1));
+    let cols = Layout::horizontal([Constraint::Length(half), Constraint::Min(1)]).split(inner);
 
     // ── Left column: tokens ──────────────────────────────────────────────────
-    let kw = app.theme.header;   // keyword style
-    let dim = app.theme.label;   // description style
+    let kw = app.theme.header; // keyword style
+    let dim = app.theme.label; // description style
 
     let token_rows: &[(&str, &str)] = &[
-        ("[auth]",        "first author last name"),
-        ("[authN]",       "first N authors (e.g. [auth3])"),
-        ("[authors]",     "all authors (EtAl for 3+)"),
-        ("[year]",        "year field"),
-        ("[shortyear]",   "last 2 digits of year"),
-        ("[title]",       "first significant word"),
-        ("[shorttitle]",  "first 3 significant words"),
-        ("[journal]",     "journal field"),
-        ("[booktitle]",   "booktitle field"),
-        ("[firstpage]",   "first page from pages field"),
-        ("[number]",      "number / report-number field"),
+        ("[auth]", "first author last name"),
+        ("[authN]", "first N authors (e.g. [auth3])"),
+        ("[authors]", "all authors (EtAl for 3+)"),
+        ("[year]", "year field"),
+        ("[shortyear]", "last 2 digits of year"),
+        ("[title]", "first significant word"),
+        ("[shorttitle]", "first 3 significant words"),
+        ("[journal]", "journal field"),
+        ("[booktitle]", "booktitle field"),
+        ("[firstpage]", "first page from pages field"),
+        ("[number]", "number / report-number field"),
         ("[institution]", "institution field"),
-        ("[<field>]",     "any BibTeX field by name"),
+        ("[<field>]", "any BibTeX field by name"),
     ];
 
-    let token_lines: Vec<Line> = std::iter::once(
-        Line::from(Span::styled(" Tokens", kw))
-    )
-    .chain(token_rows.iter().map(|(token, desc)| {
-        let col_w = (half as usize).saturating_sub(1);
-        let token_w = 15usize;
-        let desc_w = col_w.saturating_sub(token_w + 1);
-        let desc_trunc: String = desc.chars().take(desc_w).collect();
-        Line::from(vec![
-            Span::styled(format!(" {:<w$}", token, w = token_w), kw),
-            Span::styled(desc_trunc, dim),
-        ])
-    }))
-    .collect();
+    let token_lines: Vec<Line> = std::iter::once(Line::from(Span::styled(" Tokens", kw)))
+        .chain(token_rows.iter().map(|(token, desc)| {
+            let col_w = (half as usize).saturating_sub(1);
+            let token_w = 15usize;
+            let desc_w = col_w.saturating_sub(token_w + 1);
+            let desc_trunc: String = desc.chars().take(desc_w).collect();
+            Line::from(vec![
+                Span::styled(format!(" {:<w$}", token, w = token_w), kw),
+                Span::styled(desc_trunc, dim),
+            ])
+        }))
+        .collect();
 
     f.render_widget(Paragraph::new(token_lines), cols[0]);
 
     // ── Right column: modifiers + examples ──────────────────────────────────
     let modifier_rows: &[(&str, &str)] = &[
-        (":upper",          "uppercase"),
-        (":lower",          "lowercase"),
-        (":abbr",           "first letter each word"),
-        (":camel",          "capitalise each word"),
-        (":(n)",            "truncate to n chars"),
+        (":upper", "uppercase"),
+        (":lower", "lowercase"),
+        (":abbr", "first letter each word"),
+        (":camel", "capitalise each word"),
+        (":(n)", "truncate to n chars"),
         (":regex(\"p\",\"r\")", "regex find/replace"),
     ];
 
     let example_rows: &[(&str, &str)] = &[
-        ("[auth][year]",                    "→ Smith2020"),
-        ("[auth:upper][year]",              "→ SMITH2020"),
-        ("[journal:abbr]",                  "→ NSE"),
-        ("[auth3][year]",                   "→ SmithJonesWilliams2020"),
-        ("[title:lower:(8)]",               "→ toward_e"),
+        ("[auth][year]", "→ Smith2020"),
+        ("[auth:upper][year]", "→ SMITH2020"),
+        ("[journal:abbr]", "→ NSE"),
+        ("[auth3][year]", "→ SmithJonesWilliams2020"),
+        ("[title:lower:(8)]", "→ toward_e"),
         ("[auth][year:regex(\"^..\",\"\")]", "→ Smith24"),
     ];
 
@@ -162,8 +158,17 @@ fn render_citekey_help(f: &mut Frame, area: Rect, app: &App) {
         for (pat, result) in example_rows.iter().take(remaining.saturating_sub(1)) {
             // Pattern column is sized to the longest pattern, but shrinks so the
             // result stays fully visible when space is tight.
-            let longest = example_rows.iter().map(|(p, _)| p.chars().count()).max().unwrap_or(0);
-            let result_w = example_rows.iter().map(|(_, r)| r.chars().count()).max().unwrap_or(0) + 1;
+            let longest = example_rows
+                .iter()
+                .map(|(p, _)| p.chars().count())
+                .max()
+                .unwrap_or(0);
+            let result_w = example_rows
+                .iter()
+                .map(|(_, r)| r.chars().count())
+                .max()
+                .unwrap_or(0)
+                + 1;
             let pat_w = longest.min(col2_w.saturating_sub(result_w + 1));
             let pat_trunc: String = pat.chars().take(pat_w).collect();
             right_lines.push(Line::from(vec![
@@ -173,9 +178,5 @@ fn render_citekey_help(f: &mut Frame, area: Rect, app: &App) {
         }
     }
 
-    f.render_widget(
-        Paragraph::new(right_lines)
-            .style(Style::default()),
-        cols[1],
-    );
+    f.render_widget(Paragraph::new(right_lines).style(Style::default()), cols[1]);
 }

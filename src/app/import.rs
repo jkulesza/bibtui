@@ -18,25 +18,42 @@ impl App {
     /// Spawn a background thread to fetch the entry, storing the receiver for polling.
     pub(super) fn spawn_import(&mut self, doi_or_url: String) {
         if self.pending_import.is_some() {
-            self.status_message =
-                Some("Import already in progress — please wait".to_string());
+            self.status_message = Some("Import already in progress — please wait".to_string());
             return;
         }
         let bib_dir = effective_file_dir(
             &self.bib_path,
             self.database.jabref_meta.file_directory.as_deref(),
         );
-        let max_pdf_bytes = self.config.import.max_pdf_size_mb.saturating_mul(1024 * 1024);
+        let max_pdf_bytes = self
+            .config
+            .import
+            .max_pdf_size_mb
+            .saturating_mul(1024 * 1024);
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
             let result = (|| {
                 let http = crate::util::import::http::HttpClient::new()?;
                 let mut entry = crate::util::import::pipeline::run_with(&doi_or_url, &http)?;
                 if entry.pdf_path.is_none() && !entry.pdf_urls.is_empty() {
-                    let doi = entry.fields.get("doi").cloned().unwrap_or_else(|| "import".to_string());
+                    let doi = entry
+                        .fields
+                        .get("doi")
+                        .cloned()
+                        .unwrap_or_else(|| "import".to_string());
                     for pdf_url in &entry.pdf_urls {
-                        match crate::util::import::download_pdf_with(pdf_url, &bib_dir, &doi, &http, max_pdf_bytes) {
-                            Ok(path) => { entry.pdf_path = Some(path); entry.pdf_error = None; break; }
+                        match crate::util::import::download_pdf_with(
+                            pdf_url,
+                            &bib_dir,
+                            &doi,
+                            &http,
+                            max_pdf_bytes,
+                        ) {
+                            Ok(path) => {
+                                entry.pdf_path = Some(path);
+                                entry.pdf_error = None;
+                                break;
+                            }
                             Err(error) => entry.pdf_error = Some(error.to_string()),
                         }
                     }
@@ -61,9 +78,15 @@ impl App {
                 let template = self.resolve_citekey_template(&type_name, display_name);
                 let temp_key = {
                     let mut gen_fields = imported.fields.clone();
-                    gen_fields.entry("entrytype".to_string()).or_insert_with(|| display_name.to_string());
+                    gen_fields
+                        .entry("entrytype".to_string())
+                        .or_insert_with(|| display_name.to_string());
                     let key = generate_citekey(&template, &gen_fields);
-                    if key.is_empty() { "imported_entry".to_string() } else { key }
+                    if key.is_empty() {
+                        "imported_entry".to_string()
+                    } else {
+                        key
+                    }
                 };
 
                 let mut fields = imported.fields;
@@ -135,7 +158,9 @@ impl App {
                 entry.citation_key = key.clone();
 
                 self.database.entries.insert(key.clone(), entry);
-                self.push_undo(UndoItem::EntryAdded { entry_key: key.clone() });
+                self.push_undo(UndoItem::EntryAdded {
+                    entry_key: key.clone(),
+                });
                 self.refresh_view();
                 self.dirty = true;
 
@@ -152,7 +177,10 @@ impl App {
                         pdf_err
                     ))
                 } else if imported.pdf_path.is_some() {
-                    Some("Imported entry with PDF — press 'c' to regenerate citation key".to_string())
+                    Some(
+                        "Imported entry with PDF — press 'c' to regenerate citation key"
+                            .to_string(),
+                    )
                 } else {
                     Some("Imported entry — press 'c' to regenerate citation key".to_string())
                 };
@@ -188,9 +216,9 @@ impl App {
             None => return,
         };
 
-        let title  = entry.fields.get("title").cloned().unwrap_or_default();
+        let title = entry.fields.get("title").cloned().unwrap_or_default();
         let author = entry.fields.get("author").cloned().unwrap_or_default();
-        let year   = entry.fields.get("year").cloned().unwrap_or_default();
+        let year = entry.fields.get("year").cloned().unwrap_or_default();
 
         if title.trim().is_empty() && author.trim().is_empty() {
             self.status_message =
@@ -200,9 +228,7 @@ impl App {
 
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
-            let result = crate::util::import::crossref::search_by_metadata(
-                &title, &author, &year,
-            );
+            let result = crate::util::import::crossref::search_by_metadata(&title, &author, &year);
             let _ = tx.send(result);
         });
 
@@ -232,7 +258,10 @@ impl App {
                     if new_val.is_empty() {
                         continue;
                     }
-                    let old = self.database.entries.get(&entry_key)
+                    let old = self
+                        .database
+                        .entries
+                        .get(&entry_key)
                         .and_then(|e| e.fields.get(field).cloned());
                     if old.as_deref() == Some(new_val) {
                         continue; // No change
@@ -263,8 +292,7 @@ impl App {
                     self.refresh_view();
                     self.status_message = Some(format!("Found DOI: {}", doi));
                 } else {
-                    self.status_message =
-                        Some(format!("DOI already up-to-date: {}", doi));
+                    self.status_message = Some(format!("DOI already up-to-date: {}", doi));
                 }
             }
             Err(e) => {

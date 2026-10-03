@@ -50,7 +50,7 @@ pub fn normalize_separators(raw: &mut RawBibFile) {
         for byte in text.bytes() {
             match byte {
                 b'\n' => trailing_newlines += 1,
-                b'\r' => {},
+                b'\r' => {}
                 _ => trailing_newlines = 0,
             }
         }
@@ -127,20 +127,31 @@ pub fn serialize_entry(
         let req_set: std::collections::HashSet<&str> = required.iter().copied().collect();
         let opt_set: std::collections::HashSet<&str> = optional.iter().copied().collect();
 
-        let mut req_keys: Vec<&String> = entry.fields.keys()
-            .filter(|k| req_set.contains(k.as_str())).collect();
-        let mut opt_keys: Vec<&String> = entry.fields.keys()
-            .filter(|k| opt_set.contains(k.as_str())).collect();
-        let mut other_keys: Vec<&String> = entry.fields.keys()
-            .filter(|k| !req_set.contains(k.as_str()) && !opt_set.contains(k.as_str())).collect();
+        let mut req_keys: Vec<&String> = entry
+            .fields
+            .keys()
+            .filter(|k| req_set.contains(k.as_str()))
+            .collect();
+        let mut opt_keys: Vec<&String> = entry
+            .fields
+            .keys()
+            .filter(|k| opt_set.contains(k.as_str()))
+            .collect();
+        let mut other_keys: Vec<&String> = entry
+            .fields
+            .keys()
+            .filter(|k| !req_set.contains(k.as_str()) && !opt_set.contains(k.as_str()))
+            .collect();
 
         req_keys.sort_unstable_by_key(|a| a.to_lowercase());
         opt_keys.sort_unstable_by_key(|a| a.to_lowercase());
         other_keys.sort_unstable_by_key(|a| a.to_lowercase());
 
-        sorted_keys = req_keys.into_iter()
+        sorted_keys = req_keys
+            .into_iter()
             .chain(opt_keys)
-            .chain(other_keys).cloned()
+            .chain(other_keys)
+            .cloned()
             .collect();
         Box::new(sorted_keys.iter().map(|k| (k, &entry.fields[k])))
     } else {
@@ -149,12 +160,7 @@ pub fn serialize_entry(
 
     // Compute alignment width
     let align_width = if align {
-        entry
-            .fields
-            .keys()
-            .map(|k| k.len())
-            .max()
-            .unwrap_or(0)
+        entry.fields.keys().map(|k| k.len()).max().unwrap_or(0)
     } else {
         0
     };
@@ -171,10 +177,7 @@ pub fn serialize_entry(
         // text; changed or new fields get standard braced formatting.
         let formatted_value = raw_value_for_field(key, value, original).to_source_text();
 
-        out.push_str(&format!(
-            "  {}{} = {},\n",
-            key, padding, formatted_value
-        ));
+        out.push_str(&format!("  {}{} = {},\n", key, padding, formatted_value));
     }
 
     out.push_str("}\n");
@@ -202,8 +205,18 @@ pub fn raw_value_for_field(
         let lower = value.to_lowercase();
         if matches!(
             lower.as_str(),
-            "jan" | "feb" | "mar" | "apr" | "may" | "jun" | "jul" | "aug" | "sep" | "oct"
-                | "nov" | "dec"
+            "jan"
+                | "feb"
+                | "mar"
+                | "apr"
+                | "may"
+                | "jun"
+                | "jul"
+                | "aug"
+                | "sep"
+                | "oct"
+                | "nov"
+                | "dec"
         ) {
             return RawFieldValue::Bare(lower);
         }
@@ -235,8 +248,18 @@ pub fn format_field_value(field_name: &str, value: &str) -> String {
         let lower = value.to_lowercase();
         if matches!(
             lower.as_str(),
-            "jan" | "feb" | "mar" | "apr" | "may" | "jun" | "jul" | "aug" | "sep" | "oct"
-                | "nov" | "dec"
+            "jan"
+                | "feb"
+                | "mar"
+                | "apr"
+                | "may"
+                | "jun"
+                | "jul"
+                | "aug"
+                | "sep"
+                | "oct"
+                | "nov"
+                | "dec"
         ) {
             return value.to_lowercase();
         }
@@ -282,7 +305,11 @@ mod tests {
     fn test_serialize_entry_no_align() {
         let entry = make_test_entry();
         let result = serialize_entry(&entry, false, false, None);
-        assert!(result.starts_with("@Article{Smith2020,"), "result: {}", result);
+        assert!(
+            result.starts_with("@Article{Smith2020,"),
+            "result: {}",
+            result
+        );
         assert!(result.contains("year = {2020}"), "result: {}", result);
         assert!(result.contains("title = {A Test}"), "result: {}", result);
     }
@@ -292,7 +319,11 @@ mod tests {
         let entry = make_test_entry();
         let result = serialize_entry(&entry, true, false, None);
         // max key len is "title" = 5; "year" = 4 gets 1 extra space
-        assert!(result.starts_with("@Article{Smith2020,"), "result: {}", result);
+        assert!(
+            result.starts_with("@Article{Smith2020,"),
+            "result: {}",
+            result
+        );
         assert!(result.contains("year  ="), "result: {}", result);
     }
 
@@ -334,9 +365,9 @@ mod tests {
         let mut fields = IndexMap::new();
         // Insert in reverse order: nonstandard, optional, required
         fields.insert("abstract".to_string(), "Some abstract".to_string()); // nonstandard for Article
-        fields.insert("volume".to_string(), "12".to_string());   // optional
+        fields.insert("volume".to_string(), "12".to_string()); // optional
         fields.insert("pages".to_string(), "1--10".to_string()); // optional
-        fields.insert("year".to_string(), "2020".to_string());   // required
+        fields.insert("year".to_string(), "2020".to_string()); // required
         fields.insert("title".to_string(), "My Title".to_string()); // required
         fields.insert("author".to_string(), "Smith, J".to_string()); // required
         fields.insert("journal".to_string(), "Nature".to_string()); // required
@@ -449,7 +480,9 @@ mod tests {
     #[test]
     fn test_write_bib_file_comment() {
         let raw = RawBibFile {
-            items: vec![RawItem::Comment { raw_text: "@Comment{groups stuff}".to_string() }],
+            items: vec![RawItem::Comment {
+                raw_text: "@Comment{groups stuff}".to_string(),
+            }],
             ..Default::default()
         };
         assert_eq!(write_bib_file(&raw), "@Comment{groups stuff}");
@@ -466,7 +499,9 @@ mod tests {
                     fields: vec![],
                     raw_text: "@Article{k,\n}\n".to_string(),
                 }),
-                RawItem::Comment { raw_text: "@Comment{x}".to_string() },
+                RawItem::Comment {
+                    raw_text: "@Comment{x}".to_string(),
+                },
             ],
             ..Default::default()
         };
@@ -522,12 +557,25 @@ mod tests {
         // Unchanged fields keep their raw source form.
         assert!(
             result.contains("journal = ieee_tps # {, Part B},"),
-            "concat must survive: {}", result
+            "concat must survive: {}",
+            result
         );
-        assert!(result.contains("series = mainseries,"), "bare reference must survive: {}", result);
-        assert!(result.contains("note = \"quoted note\","), "quoted style must survive: {}", result);
+        assert!(
+            result.contains("series = mainseries,"),
+            "bare reference must survive: {}",
+            result
+        );
+        assert!(
+            result.contains("note = \"quoted note\","),
+            "quoted style must survive: {}",
+            result
+        );
         // The changed field gets standard braced formatting.
-        assert!(result.contains("title = {Changed Title},"), "got: {}", result);
+        assert!(
+            result.contains("title = {Changed Title},"),
+            "got: {}",
+            result
+        );
     }
 
     #[test]
@@ -564,7 +612,9 @@ mod tests {
 
     #[test]
     fn test_format_field_value_all_months() {
-        for m in &["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"] {
+        for m in &[
+            "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
+        ] {
             assert_eq!(format_field_value("month", m), *m, "month {}", m);
         }
     }

@@ -1,9 +1,12 @@
 //! A single cancellable worker. Query, sort, group and document changes all
 //! advance one generation; a stale result can never become an active view.
-use std::collections::HashMap;
-use std::sync::{Arc, atomic::{AtomicU64, Ordering}, mpsc};
-use crate::bib::model::Entry;
 use super::{engine::CompiledQuery, index::SearchDocument};
+use crate::bib::model::Entry;
+use std::collections::HashMap;
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    mpsc, Arc,
+};
 
 pub(crate) const BACKGROUND_THRESHOLD: usize = 500;
 
@@ -25,19 +28,33 @@ pub(crate) struct SearchWorker {
 }
 
 impl SearchWorker {
-    pub fn cancel(&self) { self.generation.fetch_add(1, Ordering::Relaxed); }
+    pub fn cancel(&self) {
+        self.generation.fetch_add(1, Ordering::Relaxed);
+    }
 
     pub fn submit(&mut self, entries: &[&Entry], query: &str, changed: bool) {
         self.cancel();
-        #[cfg(test)] { self.submitted += 1; }
-        if changed || self.documents.len() != entries.len()
-            || self.documents.iter().zip(entries).any(|(doc, entry)| doc.key != entry.citation_key) {
+        #[cfg(test)]
+        {
+            self.submitted += 1;
+        }
+        if changed
+            || self.documents.len() != entries.len()
+            || self
+                .documents
+                .iter()
+                .zip(entries)
+                .any(|(doc, entry)| doc.key != entry.citation_key)
+        {
             let mut old = std::mem::take(&mut self.cache);
             let mut documents = Vec::with_capacity(entries.len());
             for entry in entries {
-                let doc = old.remove(&entry.citation_key).filter(|doc| doc.matches(entry))
+                let doc = old
+                    .remove(&entry.citation_key)
+                    .filter(|doc| doc.matches(entry))
                     .unwrap_or_else(|| Arc::new(SearchDocument::new(entry)));
-                self.cache.insert(entry.citation_key.clone(), Arc::clone(&doc));
+                self.cache
+                    .insert(entry.citation_key.clone(), Arc::clone(&doc));
                 documents.push(doc);
             }
             self.documents = Arc::new(documents);
@@ -47,21 +64,36 @@ impl SearchWorker {
             let (results, receiver) = mpsc::channel();
             let generation = Arc::clone(&self.generation);
             std::thread::spawn(move || {
-                let mut matcher = nucleo_matcher::Matcher::new(nucleo_matcher::Config::DEFAULT.match_paths());
+                let mut matcher =
+                    nucleo_matcher::Matcher::new(nucleo_matcher::Config::DEFAULT.match_paths());
                 let mut buffer = Vec::new();
                 while let Ok(mut request) = requests.recv() {
-                    while let Ok(newer) = requests.try_recv() { request = newer; }
+                    while let Ok(newer) = requests.try_recv() {
+                        request = newer;
+                    }
                     let query = CompiledQuery::new(&request.query);
                     let mut matches = Vec::new();
                     for document in request.documents.iter() {
-                        if generation.load(Ordering::Relaxed) != request.generation { break; }
+                        if generation.load(Ordering::Relaxed) != request.generation {
+                            break;
+                        }
                         if let Some(score) = query.score(document, &mut matcher, &mut buffer) {
                             matches.push((document.key.clone(), score));
                         }
                     }
-                    if generation.load(Ordering::Relaxed) != request.generation { continue; }
+                    if generation.load(Ordering::Relaxed) != request.generation {
+                        continue;
+                    }
                     matches.sort_by_key(|(_, score)| std::cmp::Reverse(*score));
-                    if results.send((request.generation, matches.into_iter().map(|(key, _)| key).collect())).is_err() { break; }
+                    if results
+                        .send((
+                            request.generation,
+                            matches.into_iter().map(|(key, _)| key).collect(),
+                        ))
+                        .is_err()
+                    {
+                        break;
+                    }
                 }
             });
             self.sender = Some(sender);
@@ -70,7 +102,8 @@ impl SearchWorker {
         if let Some(sender) = &self.sender {
             let _ = sender.send(Request {
                 generation: self.generation.load(Ordering::Relaxed),
-                documents: Arc::clone(&self.documents), query: query.into(),
+                documents: Arc::clone(&self.documents),
+                query: query.into(),
             });
         }
     }
@@ -79,18 +112,25 @@ impl SearchWorker {
         let mut latest = None;
         if let Some(receiver) = &self.receiver {
             while let Ok((generation, result)) = receiver.try_recv() {
-                if generation == self.generation.load(Ordering::Relaxed) { latest = Some(result); }
+                if generation == self.generation.load(Ordering::Relaxed) {
+                    latest = Some(result);
+                }
             }
         }
         latest
     }
 
     #[cfg(test)]
-    pub fn submission_count(&self) -> usize { self.submitted }
+    pub fn submission_count(&self) -> usize {
+        self.submitted
+    }
 }
 
 impl Drop for SearchWorker {
-    fn drop(&mut self) { self.cancel(); self.sender.take(); }
+    fn drop(&mut self) {
+        self.cancel();
+        self.sender.take();
+    }
 }
 
 #[cfg(test)]
@@ -101,9 +141,14 @@ mod tests {
 
     #[test]
     fn snapshots_reuse_unchanged_entries_and_reject_stale_results() {
-        let mut entry = Entry { citation_key: "A".into(), entry_type: EntryType::Misc,
+        let mut entry = Entry {
+            citation_key: "A".into(),
+            entry_type: EntryType::Misc,
             fields: IndexMap::from([("title".into(), "old".into())]),
-            group_memberships: vec![], raw_index: 0, dirty: false };
+            group_memberships: vec![],
+            raw_index: 0,
+            dirty: false,
+        };
         let mut worker = SearchWorker::default();
         worker.submit(&[&entry], "old", true);
         let original = Arc::clone(&worker.documents[0]);

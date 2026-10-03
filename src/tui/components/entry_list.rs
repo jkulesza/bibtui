@@ -43,8 +43,12 @@ impl EntryListState {
         let selected = self.selected().min(total.saturating_sub(1));
         self.select(selected);
         let mut offset = self.table_state.offset().min(total.saturating_sub(rows));
-        if selected < offset { offset = selected; }
-        if rows > 0 && selected >= offset.saturating_add(rows) { offset = selected + 1 - rows; }
+        if selected < offset {
+            offset = selected;
+        }
+        if rows > 0 && selected >= offset.saturating_add(rows) {
+            offset = selected + 1 - rows;
+        }
         *self.table_state.offset_mut() = offset;
         offset..offset.saturating_add(rows).min(total)
     }
@@ -74,36 +78,57 @@ pub fn render_entry_list(
     bib_dir: &Path,
 ) {
     let range = state.viewport(entries.len(), area.height);
-    render_entry_list_window(f, area, &entries[range], state, columns, theme, focused,
-        show_braces, render_latex_enabled, abbreviate_authors_enabled, abbreviate_journal_enabled, bib_dir);
+    render_entry_list_window(
+        f,
+        area,
+        &entries[range],
+        state,
+        columns,
+        theme,
+        focused,
+        show_braces,
+        render_latex_enabled,
+        abbreviate_authors_enabled,
+        abbreviate_journal_enabled,
+        bib_dir,
+    );
 }
 
 #[allow(clippy::too_many_arguments)]
 pub fn render_entry_list_window(
-    f: &mut Frame, area: Rect, entries: &[&Entry], state: &mut EntryListState,
-    columns: &[ColumnConfig], theme: &Theme, focused: bool, show_braces: bool,
-    render_latex_enabled: bool, abbreviate_authors_enabled: bool,
-    abbreviate_journal_enabled: bool, bib_dir: &Path,
+    f: &mut Frame,
+    area: Rect,
+    entries: &[&Entry],
+    state: &mut EntryListState,
+    columns: &[ColumnConfig],
+    theme: &Theme,
+    focused: bool,
+    show_braces: bool,
+    render_latex_enabled: bool,
+    abbreviate_authors_enabled: bool,
+    abbreviate_journal_enabled: bool,
+    bib_dir: &Path,
 ) {
-    #[cfg(test)] { state.rendered_rows = entries.len(); }
+    #[cfg(test)]
+    {
+        state.rendered_rows = entries.len();
+    }
     let total_width = area.width.saturating_sub(2); // borders
 
     // Build constraints from column config
     let constraints: Vec<Constraint> = columns
         .iter()
-        .map(|col| {
-            match col.width {
-                ColumnWidth::Fixed(w) => Constraint::Length(w),
-                ColumnWidth::Percent(p) => {
-                    let w = (total_width as u32 * p as u32 / 100) as u16;
-                    if let Some(max) = col.max_width {
-                        Constraint::Length(w.min(max))
-                    } else {
-                        Constraint::Length(w)
-                    }
+        .map(|col| match col.width {
+            ColumnWidth::Fixed(w) => Constraint::Length(w),
+            ColumnWidth::Percent(p) => {
+                let w = (total_width as u32 * p as u32 / 100) as u16;
+                if let Some(max) = col.max_width {
+                    Constraint::Length(w.min(max))
+                } else {
+                    Constraint::Length(w)
                 }
-                ColumnWidth::Flex => Constraint::Min(10),
             }
+            ColumnWidth::Flex => Constraint::Min(10),
         })
         .collect();
 
@@ -114,14 +139,21 @@ pub fn render_entry_list_window(
         .collect();
     let header = Row::new(header_cells).style(theme.header).height(1);
 
-    let rows: Vec<Row> = entries.iter().map(|entry| {
+    let rows: Vec<Row> = entries
+        .iter()
+        .map(|entry| {
             let cells: Vec<Cell> = columns
                 .iter()
                 .map(|col| {
                     if col.field == "file_indicator" {
                         return file_indicator_cell(entry, bib_dir);
                     }
-                    let raw = get_field_value(entry, &col.field, abbreviate_authors_enabled, abbreviate_journal_enabled);
+                    let raw = get_field_value(
+                        entry,
+                        &col.field,
+                        abbreviate_authors_enabled,
+                        abbreviate_journal_enabled,
+                    );
                     let value = apply_display_pipeline(&raw, show_braces, render_latex_enabled);
                     Cell::from(value)
                 })
@@ -156,7 +188,12 @@ pub fn render_entry_list_window(
 
     let mut local = TableState::default();
     if !entries.is_empty() {
-        local.select(Some(state.selected().saturating_sub(state.table_state.offset()).min(entries.len() - 1)));
+        local.select(Some(
+            state
+                .selected()
+                .saturating_sub(state.table_state.offset())
+                .min(entries.len() - 1),
+        ));
     }
     f.render_stateful_widget(table, area, &mut local);
 }
@@ -215,7 +252,11 @@ pub fn columns_with_sort_preview(
         return columns.to_vec();
     }
     let mut result = columns.to_vec();
-    let arrow = if sort_ascending { '\u{2191}' } else { '\u{2193}' };
+    let arrow = if sort_ascending {
+        '\u{2191}'
+    } else {
+        '\u{2193}'
+    };
     result.push(ColumnConfig {
         field: sort_field.to_string(),
         header: format!("{} {}", sort_field, arrow),
@@ -225,19 +266,46 @@ pub fn columns_with_sort_preview(
     result
 }
 
-fn get_field_value(entry: &Entry, field: &str, abbreviate_authors_enabled: bool, abbreviate_journal_enabled: bool) -> String {
+fn get_field_value(
+    entry: &Entry,
+    field: &str,
+    abbreviate_authors_enabled: bool,
+    abbreviate_journal_enabled: bool,
+) -> String {
     match field {
-        "dirty" => if entry.dirty { "●".to_string() } else { " ".to_string() },
+        "dirty" => {
+            if entry.dirty {
+                "●".to_string()
+            } else {
+                " ".to_string()
+            }
+        }
         "web_indicator" => {
-            let has_doi = entry.fields.get("doi").map(|v| !v.trim().is_empty()).unwrap_or(false);
-            let has_url = entry.fields.get("url").map(|v| !v.trim().is_empty()).unwrap_or(false);
-            if has_doi || has_url { "\u{238B}".to_string() } else { " ".to_string() }
+            let has_doi = entry
+                .fields
+                .get("doi")
+                .map(|v| !v.trim().is_empty())
+                .unwrap_or(false);
+            let has_url = entry
+                .fields
+                .get("url")
+                .map(|v| !v.trim().is_empty())
+                .unwrap_or(false);
+            if has_doi || has_url {
+                "\u{238B}".to_string()
+            } else {
+                " ".to_string()
+            }
         }
         "entrytype" | "type" => entry.entry_type.display_name().to_string(),
         "citation_key" | "key" | "citekey" => entry.citation_key.clone(),
         "author" => {
             let raw = entry.author_display();
-            if abbreviate_authors_enabled { abbreviate_authors(&raw) } else { raw }
+            if abbreviate_authors_enabled {
+                abbreviate_authors(&raw)
+            } else {
+                raw
+            }
         }
         "title" => entry.title_display(),
         "year" => entry.year_display(),
@@ -246,7 +314,9 @@ fn get_field_value(entry: &Entry, field: &str, abbreviate_authors_enabled: bool,
                 // Use journal_full as the canonical source (present after a save),
                 // fall back to journal, then booktitle. Abbreviate on the fly so
                 // the result is correct even without a stored journal_abbrev field.
-                let full = entry.fields.get("journal_full")
+                let full = entry
+                    .fields
+                    .get("journal_full")
                     .filter(|v| !v.is_empty())
                     .or_else(|| entry.fields.get("journal"))
                     .or_else(|| entry.fields.get("booktitle"))
@@ -296,7 +366,10 @@ mod tests {
         let cols = crate::config::defaults::default_columns();
         let result = columns_with_sort_preview(&cols, "note", false);
         let last = result.last().unwrap();
-        assert!(last.header.contains('\u{2193}'), "descending arrow expected");
+        assert!(
+            last.header.contains('\u{2193}'),
+            "descending arrow expected"
+        );
     }
 
     #[test]
@@ -328,7 +401,9 @@ mod tests {
 
     fn make_entry(key: &str, dirty: bool, fields: &[(&str, &str)]) -> Entry {
         let mut f = IndexMap::new();
-        for (k, v) in fields { f.insert(k.to_string(), v.to_string()); }
+        for (k, v) in fields {
+            f.insert(k.to_string(), v.to_string());
+        }
         Entry {
             entry_type: EntryType::Article,
             citation_key: key.to_string(),
@@ -370,7 +445,10 @@ mod tests {
     #[test]
     fn test_get_field_value_citation_key() {
         let e = make_entry("Smith2020", false, &[]);
-        assert_eq!(get_field_value(&e, "citation_key", false, false), "Smith2020");
+        assert_eq!(
+            get_field_value(&e, "citation_key", false, false),
+            "Smith2020"
+        );
         assert_eq!(get_field_value(&e, "key", false, false), "Smith2020");
         assert_eq!(get_field_value(&e, "citekey", false, false), "Smith2020");
     }
@@ -385,7 +463,11 @@ mod tests {
 
     #[test]
     fn test_get_field_value_author_abbreviated() {
-        let e = make_entry("k", false, &[("author", "Smith, J. and Doe, J. and Brown, K.")]);
+        let e = make_entry(
+            "k",
+            false,
+            &[("author", "Smith, J. and Doe, J. and Brown, K.")],
+        );
         let abbr = get_field_value(&e, "author", true, false);
         assert!(abbr.contains("et al"));
     }
@@ -426,7 +508,11 @@ mod tests {
 
     #[test]
     fn test_get_field_value_journal_raw_when_not_abbreviated() {
-        let e = make_entry("k", false, &[("journal", "Nuclear Science and Engineering")]);
+        let e = make_entry(
+            "k",
+            false,
+            &[("journal", "Nuclear Science and Engineering")],
+        );
         assert_eq!(
             get_field_value(&e, "journal", false, false),
             "Nuclear Science and Engineering"
@@ -435,9 +521,16 @@ mod tests {
 
     #[test]
     fn test_get_field_value_journal_abbreviated_on_the_fly() {
-        let e = make_entry("k", false, &[("journal", "Nuclear Science and Engineering")]);
+        let e = make_entry(
+            "k",
+            false,
+            &[("journal", "Nuclear Science and Engineering")],
+        );
         // ISO 4 abbreviation computed on the fly; no journal_abbrev field needed
-        assert_eq!(get_field_value(&e, "journal", false, true), "Nucl. Sci. Eng.");
+        assert_eq!(
+            get_field_value(&e, "journal", false, true),
+            "Nucl. Sci. Eng."
+        );
     }
 
     #[test]
@@ -453,7 +546,10 @@ mod tests {
                 ("journal_full", "Nuclear Science and Engineering"),
             ],
         );
-        assert_eq!(get_field_value(&e, "journal", false, true), "Nucl. Sci. Eng.");
+        assert_eq!(
+            get_field_value(&e, "journal", false, true),
+            "Nucl. Sci. Eng."
+        );
     }
 
     #[test]
@@ -523,7 +619,11 @@ mod tests {
 
     #[test]
     fn test_file_indicator_cell_missing_file_returns_red_icon() {
-        let e = make_entry("k", false, &[("file", ":/nonexistent/path/Smith2020.pdf:application/pdf")]);
+        let e = make_entry(
+            "k",
+            false,
+            &[("file", ":/nonexistent/path/Smith2020.pdf:application/pdf")],
+        );
         let _ = file_indicator_cell(&e, std::path::Path::new("/tmp"));
     }
 }

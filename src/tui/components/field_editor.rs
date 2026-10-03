@@ -193,9 +193,7 @@ impl FieldEditorState {
         }
         let typed_chars = text.chars().count();
         match self.completions.get(self.completion_idx) {
-            Some(c) if c.chars().count() > typed_chars => {
-                c.chars().skip(typed_chars).collect()
-            }
+            Some(c) if c.chars().count() > typed_chars => c.chars().skip(typed_chars).collect(),
             _ => String::new(),
         }
     }
@@ -284,7 +282,8 @@ impl FieldEditorState {
                     .next()
                     .map(|c| c.len_utf8())
                     .unwrap_or(0);
-                self.field_name.drain(self.name_cursor..self.name_cursor + next_len);
+                self.field_name
+                    .drain(self.name_cursor..self.name_cursor + next_len);
             }
         } else if self.cursor < self.value.len() {
             let next_len = self.value[self.cursor..]
@@ -307,7 +306,12 @@ impl FieldEditorState {
                 && !self.value.is_empty()
                 && self.cursor >= self.value.len()
             {
-                self.cursor = self.value.char_indices().last().map(|(i, _)| i).unwrap_or(0);
+                self.cursor = self
+                    .value
+                    .char_indices()
+                    .last()
+                    .map(|(i, _)| i)
+                    .unwrap_or(0);
             }
         }
     }
@@ -320,7 +324,12 @@ impl FieldEditorState {
             if self.value.is_empty() {
                 self.cursor = 0;
             } else if self.cursor >= self.value.len() {
-                self.cursor = self.value.char_indices().last().map(|(i, _)| i).unwrap_or(0);
+                self.cursor = self
+                    .value
+                    .char_indices()
+                    .last()
+                    .map(|(i, _)| i)
+                    .unwrap_or(0);
             }
         }
     }
@@ -417,7 +426,12 @@ impl FieldEditorState {
     /// Move cursor to the char just after prev occurrence of `c` (`T{c}`).
     pub fn find_to_char_bwd(&mut self, c: char) {
         if let Some(pos) = find_prev_char(&self.value, self.cursor, c) {
-            let next = pos + self.value[pos..].chars().next().map(|ch| ch.len_utf8()).unwrap_or(0);
+            let next = pos
+                + self.value[pos..]
+                    .chars()
+                    .next()
+                    .map(|ch| ch.len_utf8())
+                    .unwrap_or(0);
             if next <= self.cursor {
                 self.cursor = next;
             }
@@ -448,7 +462,12 @@ impl FieldEditorState {
             .unwrap_or(0);
         let start = self.cursor + step;
         if let Some(pos) = find_next_char(&self.value, start, c) {
-            let end = pos + self.value[pos..].chars().next().map(|ch| ch.len_utf8()).unwrap_or(0);
+            let end = pos
+                + self.value[pos..]
+                    .chars()
+                    .next()
+                    .map(|ch| ch.len_utf8())
+                    .unwrap_or(0);
             self.unnamed_register = self.value[self.cursor..end].to_string();
             self.value.drain(self.cursor..end);
             self.cursor = clamp_normal(self.cursor, &self.value);
@@ -458,7 +477,12 @@ impl FieldEditorState {
     /// Delete from (but not including) prev occurrence of `c` to cursor (`dT{c}`).
     pub fn delete_to_char_back(&mut self, c: char) {
         if let Some(pos) = find_prev_char(&self.value, self.cursor, c) {
-            let after = pos + self.value[pos..].chars().next().map(|ch| ch.len_utf8()).unwrap_or(0);
+            let after = pos
+                + self.value[pos..]
+                    .chars()
+                    .next()
+                    .map(|ch| ch.len_utf8())
+                    .unwrap_or(0);
             if after < self.cursor {
                 self.unnamed_register = self.value[after..self.cursor].to_string();
                 self.value.drain(after..self.cursor);
@@ -544,7 +568,10 @@ impl FieldEditorState {
     /// Only meaningful when `is_month` is true.
     pub fn month_navigate(&mut self, delta: i32) {
         let value_lower = self.value.to_lowercase();
-        let current_idx = MONTHS.iter().position(|&m| m == value_lower.as_str()).unwrap_or(0);
+        let current_idx = MONTHS
+            .iter()
+            .position(|&m| m == value_lower.as_str())
+            .unwrap_or(0);
         let new_idx = (current_idx as i32 + delta).rem_euclid(MONTHS.len() as i32) as usize;
         self.value = MONTHS[new_idx].to_string();
         self.cursor = self.value.len();
@@ -563,7 +590,12 @@ impl FieldEditorState {
             self.name_cursor = self.field_name.len();
         } else if self.editing_mode == EditingMode::Normal && !self.value.is_empty() {
             // In Normal mode, land on the last character, not past it
-            self.cursor = self.value.char_indices().last().map(|(i, _)| i).unwrap_or(0);
+            self.cursor = self
+                .value
+                .char_indices()
+                .last()
+                .map(|(i, _)| i)
+                .unwrap_or(0);
         } else {
             self.cursor = self.value.len();
         }
@@ -580,7 +612,12 @@ impl FieldEditorState {
         self.replace_undo_stack.clear();
         // Clamp: cursor cannot be past the last char in Normal mode
         if !self.value.is_empty() && self.cursor >= self.value.len() {
-            self.cursor = self.value.char_indices().last().map(|(i, _)| i).unwrap_or(0);
+            self.cursor = self
+                .value
+                .char_indices()
+                .last()
+                .map(|(i, _)| i)
+                .unwrap_or(0);
         }
     }
 
@@ -602,7 +639,12 @@ impl FieldEditorState {
                 && !self.value.is_empty()
                 && self.cursor >= self.value.len()
             {
-                self.cursor = self.value.char_indices().last().map(|(i, _)| i).unwrap_or(0);
+                self.cursor = self
+                    .value
+                    .char_indices()
+                    .last()
+                    .map(|(i, _)| i)
+                    .unwrap_or(0);
             }
         }
     }
@@ -623,8 +665,13 @@ impl FieldEditorState {
         // Cursor lands on the first char of the inserted text
         self.cursor = insert_pos;
         if self.editing_mode == EditingMode::Normal && !self.value.is_empty() {
-            self.cursor = self.cursor
-                .min(self.value.char_indices().last().map(|(i, _)| i).unwrap_or(0));
+            self.cursor = self.cursor.min(
+                self.value
+                    .char_indices()
+                    .last()
+                    .map(|(i, _)| i)
+                    .unwrap_or(0),
+            );
         }
     }
 
@@ -678,7 +725,10 @@ impl FieldEditorState {
         let title = if self.is_new && self.editing_name {
             format!(" New Field \u{2014} Enter name{} ", mode_suffix)
         } else if self.is_new {
-            format!(" New Field '{}' \u{2014} Enter value{} ", self.field_name, mode_suffix)
+            format!(
+                " New Field '{}' \u{2014} Enter value{} ",
+                self.field_name, mode_suffix
+            )
         } else {
             format!(" Edit: {}{} ", self.field_name, mode_suffix)
         };
@@ -748,7 +798,9 @@ impl FieldEditorState {
         let ghost_display: String = ghost.chars().take(ghost_max).collect();
 
         let indicator_style = theme.label;
-        let ghost_style = Style::default().fg(Color::DarkGray).add_modifier(Modifier::DIM);
+        let ghost_style = Style::default()
+            .fg(Color::DarkGray)
+            .add_modifier(Modifier::DIM);
         let mut spans: Vec<Span> = Vec::new();
         if has_left {
             spans.push(Span::styled("<", indicator_style));
@@ -771,7 +823,9 @@ impl FieldEditorState {
             let highlighted: Option<&str> = if MONTHS.contains(&value_lower.as_str()) {
                 Some(value_lower.as_str())
             } else {
-                self.completions.get(self.completion_idx).map(|s| s.as_str())
+                self.completions
+                    .get(self.completion_idx)
+                    .map(|s| s.as_str())
             };
 
             let month_row = |months: &[&str]| -> Line {
@@ -791,7 +845,10 @@ impl FieldEditorState {
                 Line::from(spans)
             };
 
-            let hint = Line::from(Span::styled(" Tab: cycle month  Enter: save  Esc: cancel", theme.label));
+            let hint = Line::from(Span::styled(
+                " Tab: cycle month  Enter: save  Esc: cancel",
+                theme.label,
+            ));
             let para = Paragraph::new(vec![
                 line,
                 month_row(&MONTHS[..6]),
@@ -848,7 +905,11 @@ fn word_fwd(text: &str, pos: usize) -> usize {
     while i < n && chars[i].1.is_whitespace() {
         i += 1;
     }
-    if i >= n { text.len() } else { chars[i].0 }
+    if i >= n {
+        text.len()
+    } else {
+        chars[i].0
+    }
 }
 
 /// Move to the start of the current or previous word (vim `b`).
@@ -931,7 +992,11 @@ fn big_word_fwd(text: &str, pos: usize) -> usize {
     while i < n && chars[i].1.is_whitespace() {
         i += 1;
     }
-    if i >= n { text.len() } else { chars[i].0 }
+    if i >= n {
+        text.len()
+    } else {
+        chars[i].0
+    }
 }
 
 /// Move to the start of the current or previous WORD (vim `B`).
@@ -995,13 +1060,13 @@ fn find_next_char(text: &str, from: usize, c: char) -> Option<usize> {
 /// Find the byte position of the last occurrence of `c` strictly before `before`.
 fn find_prev_char(text: &str, before: usize, c: char) -> Option<usize> {
     text[..before]
-        .char_indices().rfind(|(_, ch)| *ch == c)
+        .char_indices()
+        .rfind(|(_, ch)| *ch == c)
         .map(|(offset, _)| offset)
 }
 
 const MONTHS: [&str; 12] = [
-    "jan", "feb", "mar", "apr", "may", "jun",
-    "jul", "aug", "sep", "oct", "nov", "dec",
+    "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
 ];
 
 #[cfg(test)]
@@ -1166,7 +1231,10 @@ mod tests {
     #[test]
     fn test_is_month_true_for_month_field() {
         let e = FieldEditorState::new("month", "jan");
-        assert!(e.is_month, "is_month should be true when field_name is 'month'");
+        assert!(
+            e.is_month,
+            "is_month should be true when field_name is 'month'"
+        );
     }
 
     #[test]
@@ -1174,7 +1242,10 @@ mod tests {
         let e = FieldEditorState::new("Month", "jan");
         assert!(e.is_month, "is_month should be case-insensitive");
         let e2 = FieldEditorState::new("MONTH", "jan");
-        assert!(e2.is_month, "is_month should be case-insensitive (uppercase)");
+        assert!(
+            e2.is_month,
+            "is_month should be case-insensitive (uppercase)"
+        );
     }
 
     #[test]
@@ -1289,7 +1360,11 @@ mod tests {
     fn test_ghost_text_empty_for_path_editor() {
         let mut e = FieldEditorState::for_path("file", "");
         e.completions = vec!["some/path.bib".to_string()];
-        assert_eq!(e.ghost_text(), "", "ghost_text should be empty for path editors");
+        assert_eq!(
+            e.ghost_text(),
+            "",
+            "ghost_text should be empty for path editors"
+        );
     }
 
     #[test]
@@ -1502,7 +1577,7 @@ mod tests {
         // move_word_fwd() clamps this to the last char via clamp_normal.
         let text = "hello";
         assert_eq!(word_fwd(text, 4), text.len()); // no next word → past end
-        // method-level clamping is tested in test_move_word_fwd
+                                                   // method-level clamping is tested in test_move_word_fwd
     }
 
     #[test]
@@ -2207,10 +2282,10 @@ mod tests {
         e.cursor = 0;
         e.push_char('X'); // "Xbc", cursor 1
         e.push_char('Y'); // "XYc", cursor 2
-        e.backspace();    // undo Y
+        e.backspace(); // undo Y
         assert_eq!(e.value, "Xbc");
         assert_eq!(e.cursor, 1);
-        e.backspace();    // undo X
+        e.backspace(); // undo X
         assert_eq!(e.value, "abc");
         assert_eq!(e.cursor, 0);
     }

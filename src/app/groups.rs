@@ -77,7 +77,10 @@ impl App {
     }
 
     pub(super) fn finish_add_group(&mut self, name: String, parent_path: Vec<usize>) {
-        self.push_undo(UndoItem::GroupTreeChanged { old_tree: self.database.groups.clone(), active_path: self.group_tree_state.active_path.clone() });
+        self.push_undo(UndoItem::GroupTreeChanged {
+            old_tree: self.database.groups.clone(),
+            active_path: self.group_tree_state.active_path.clone(),
+        });
         let new_node = GroupNode {
             group: Group {
                 name: name.clone(),
@@ -87,9 +90,7 @@ impl App {
             expanded: true,
             original_fields: None,
         };
-        if let Some(parent) =
-            find_group_node_mut(&mut self.database.groups.root, &parent_path)
-        {
+        if let Some(parent) = find_group_node_mut(&mut self.database.groups.root, &parent_path) {
             parent.children.push(new_node);
         }
         self.sync_groups_to_raw();
@@ -102,12 +103,13 @@ impl App {
         if path.is_empty() {
             return;
         }
-        self.push_undo(UndoItem::GroupTreeChanged { old_tree: self.database.groups.clone(), active_path: self.group_tree_state.active_path.clone() });
+        self.push_undo(UndoItem::GroupTreeChanged {
+            old_tree: self.database.groups.clone(),
+            active_path: self.group_tree_state.active_path.clone(),
+        });
         let (parent_path, child_idx) = path.split_at(path.len() - 1);
         let child_idx = child_idx[0];
-        if let Some(parent) =
-            find_group_node_mut(&mut self.database.groups.root, parent_path)
-        {
+        if let Some(parent) = find_group_node_mut(&mut self.database.groups.root, parent_path) {
             if child_idx < parent.children.len() {
                 let removed = parent.children.remove(child_idx);
                 self.sync_groups_to_raw();
@@ -116,13 +118,14 @@ impl App {
                     if active.starts_with(&path) {
                         self.group_tree_state.active_path = None;
                         self.group_tree_state.active_group = None;
-                    } else if active.starts_with(parent_path) && active.len() > parent_path.len()
-                        && active[parent_path.len()] > child_idx {
+                    } else if active.starts_with(parent_path)
+                        && active.len() > parent_path.len()
+                        && active[parent_path.len()] > child_idx
+                    {
                         active[parent_path.len()] -= 1;
                     }
                 }
-                self.status_message =
-                    Some(format!("Group '{}' deleted", removed.group.name));
+                self.status_message = Some(format!("Group '{}' deleted", removed.group.name));
                 // Deleting the group node does not touch the entries: any entry
                 // whose `groups` field listed the group keeps the now-stale
                 // name.  Offer to strip it.
@@ -190,13 +193,15 @@ impl App {
 
     pub(super) fn finish_assign_groups(&mut self, entry_key: &str, selected_groups: Vec<String>) {
         // Snapshot before mutating (avoid holding a mutable borrow while calling push_undo)
-        let undo_item = self.database.entries.get(entry_key).map(|entry| {
-            UndoItem::GroupMembershipChanged {
-                entry_key: entry_key.to_string(),
-                old_memberships: entry.group_memberships.clone(),
-                old_groups_field: entry.fields.get("groups").cloned(),
-            }
-        });
+        let undo_item =
+            self.database
+                .entries
+                .get(entry_key)
+                .map(|entry| UndoItem::GroupMembershipChanged {
+                    entry_key: entry_key.to_string(),
+                    old_memberships: entry.group_memberships.clone(),
+                    old_groups_field: entry.fields.get("groups").cloned(),
+                });
         if let Some(item) = undo_item {
             self.push_undo(item);
         }
@@ -258,7 +263,9 @@ impl App {
 }
 
 fn find_group_path(node: &GroupNode, name: &str) -> Option<Vec<usize>> {
-    if node.group.name == name { return Some(vec![]); }
+    if node.group.name == name {
+        return Some(vec![]);
+    }
     for (index, child) in node.children.iter().enumerate() {
         if let Some(mut path) = find_group_path(child, name) {
             path.insert(0, index);

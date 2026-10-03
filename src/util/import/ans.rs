@@ -1,7 +1,7 @@
 use super::crossref::CrossrefFetcher;
 use super::fetcher::Fetcher;
 use super::http::HttpTransport;
-use super::{ImportedEntry, ImportError};
+use super::{ImportError, ImportedEntry};
 
 /// Fetches BibTeX metadata from American Nuclear Society (ANS) publication URLs.
 ///
@@ -19,7 +19,11 @@ impl Fetcher for AnsFetcher {
         doi_or_url.contains(Self::HOST)
     }
 
-    fn fetch_with(&self, doi_or_url: &str, http: &dyn HttpTransport) -> Result<ImportedEntry, ImportError> {
+    fn fetch_with(
+        &self,
+        doi_or_url: &str,
+        http: &dyn HttpTransport,
+    ) -> Result<ImportedEntry, ImportError> {
         let html = http.get(doi_or_url, super::http::REQUEST_TIMEOUT)?.text()?;
 
         let doi = extract_doi_from_html(&html)
@@ -28,10 +32,15 @@ impl Fetcher for AnsFetcher {
         let mut entry = CrossrefFetcher.fetch_with(&doi, http)?;
 
         // The original ANS URL is more useful to the user than the doi.org resolver
-        entry.fields.insert("url".to_string(), doi_or_url.to_string());
+        entry
+            .fields
+            .insert("url".to_string(), doi_or_url.to_string());
 
         // ANS is the society publisher; Crossref may report the distributor (e.g. T&F)
-        entry.fields.insert("publisher".to_string(), "American Nuclear Society".to_string());
+        entry.fields.insert(
+            "publisher".to_string(),
+            "American Nuclear Society".to_string(),
+        );
 
         // Build PDF URL candidates in priority order; the import thread tries each in sequence.
         entry.pdf_urls = pdf_url_candidates(&html, &doi, doi_or_url);
@@ -176,9 +185,16 @@ mod tests {
     #[test]
     fn test_pdf_candidates_from_meta_tag() {
         let html = r#"<meta name="citation_pdf_url" content="https://www.ans.org/pubs/journals/nse/article-60004/pdf/">"#;
-        let candidates = pdf_url_candidates(html, "10.13182/NSE20-1234", "https://www.ans.org/pubs/journals/nse/article-60004");
+        let candidates = pdf_url_candidates(
+            html,
+            "10.13182/NSE20-1234",
+            "https://www.ans.org/pubs/journals/nse/article-60004",
+        );
         // meta tag URL comes first
-        assert_eq!(candidates[0], "https://www.ans.org/pubs/journals/nse/article-60004/pdf/");
+        assert_eq!(
+            candidates[0],
+            "https://www.ans.org/pubs/journals/nse/article-60004/pdf/"
+        );
         // ANS direct URL would be the same, so only 1 entry (deduped)
         assert_eq!(candidates.len(), 1);
     }
@@ -187,9 +203,19 @@ mod tests {
     fn test_pdf_candidates_no_meta_tandf_doi() {
         // No citation_pdf_url; T&F DOI — should have ANS direct + T&F candidates
         let html = "<html><body>No PDF meta here</body></html>";
-        let candidates = pdf_url_candidates(html, "10.1080/00295639.2025.2483123", "https://www.ans.org/pubs/journals/nse/article-60004");
-        assert_eq!(candidates[0], "https://www.ans.org/pubs/journals/nse/article-60004/pdf/");
-        assert_eq!(candidates[1], "https://www.tandfonline.com/doi/pdf/10.1080/00295639.2025.2483123");
+        let candidates = pdf_url_candidates(
+            html,
+            "10.1080/00295639.2025.2483123",
+            "https://www.ans.org/pubs/journals/nse/article-60004",
+        );
+        assert_eq!(
+            candidates[0],
+            "https://www.ans.org/pubs/journals/nse/article-60004/pdf/"
+        );
+        assert_eq!(
+            candidates[1],
+            "https://www.tandfonline.com/doi/pdf/10.1080/00295639.2025.2483123"
+        );
         assert_eq!(candidates.len(), 2);
     }
 
@@ -197,8 +223,15 @@ mod tests {
     fn test_pdf_candidates_no_meta_ans_doi() {
         // No citation_pdf_url; ANS-prefix DOI (not T&F) — only ANS direct URL
         let html = "<html><body>No PDF meta here</body></html>";
-        let candidates = pdf_url_candidates(html, "10.13182/NSE20-9999", "https://www.ans.org/pubs/journals/nse/article-58027");
-        assert_eq!(candidates[0], "https://www.ans.org/pubs/journals/nse/article-58027/pdf/");
+        let candidates = pdf_url_candidates(
+            html,
+            "10.13182/NSE20-9999",
+            "https://www.ans.org/pubs/journals/nse/article-58027",
+        );
+        assert_eq!(
+            candidates[0],
+            "https://www.ans.org/pubs/journals/nse/article-58027/pdf/"
+        );
         assert_eq!(candidates.len(), 1);
     }
 
@@ -297,14 +330,19 @@ mod tests {
             "https://www.ans.org/pubs/journals/nse/article-60004/", // trailing slash variant
         );
         assert_eq!(candidates.len(), 1);
-        assert_eq!(candidates[0], "https://www.ans.org/pubs/journals/nse/article-60004/pdf/");
+        assert_eq!(
+            candidates[0],
+            "https://www.ans.org/pubs/journals/nse/article-60004/pdf/"
+        );
     }
     #[test]
     fn unicode_before_metadata_preserves_original_byte_offsets() {
         for prefix in ["K".repeat(10), "İ".repeat(10), "😀éê".repeat(10)] {
             let html = format!("{prefix}<META name=\"citation_doi\" data-extra=\"{prefix}\" CONTENT=\"10.1234/test\">");
-            assert_eq!(extract_doi_from_html(&html).as_deref(), Some("10.1234/test"));
+            assert_eq!(
+                extract_doi_from_html(&html).as_deref(),
+                Some("10.1234/test")
+            );
         }
     }
-
 }

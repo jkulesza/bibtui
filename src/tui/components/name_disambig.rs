@@ -71,8 +71,7 @@ impl NameDisambigState {
     pub fn cycle_variant(&mut self) {
         if let Some(cluster) = self.clusters.get_mut(self.cursor) {
             if !cluster.variants.is_empty() {
-                cluster.selected_variant =
-                    (cluster.selected_variant + 1) % cluster.variants.len();
+                cluster.selected_variant = (cluster.selected_variant + 1) % cluster.variants.len();
                 cluster.canonical = cluster.variants[cluster.selected_variant].name.clone();
             }
         }
@@ -83,8 +82,7 @@ impl NameDisambigState {
         if let Some(cluster) = self.clusters.get_mut(self.cursor) {
             if !cluster.variants.is_empty() {
                 let len = cluster.variants.len();
-                cluster.selected_variant =
-                    (cluster.selected_variant + len - 1) % len;
+                cluster.selected_variant = (cluster.selected_variant + len - 1) % len;
                 cluster.canonical = cluster.variants[cluster.selected_variant].name.clone();
             }
         }
@@ -164,14 +162,16 @@ pub fn render_name_disambig(
     f.render_widget(block, popup_area);
 
     if state.clusters.is_empty() {
-        let para = Paragraph::new("All author names are unique — nothing to merge.")
-            .style(theme.value);
+        let para =
+            Paragraph::new("All author names are unique — nothing to merge.").style(theme.value);
         f.render_widget(para, inner);
         return;
     }
 
     let bold = Style::default().add_modifier(Modifier::BOLD);
-    let selected_style = Style::default().fg(Color::Green).add_modifier(Modifier::BOLD);
+    let selected_style = Style::default()
+        .fg(Color::Green)
+        .add_modifier(Modifier::BOLD);
     let dim = theme.label;
     let count_style = Style::default().fg(Color::Yellow);
 
@@ -188,7 +188,11 @@ pub fn render_name_disambig(
         };
 
         // Cluster header: merge target
-        let target_display: String = cluster.canonical.chars().take(max_w.saturating_sub(20)).collect();
+        let target_display: String = cluster
+            .canonical
+            .chars()
+            .take(max_w.saturating_sub(20))
+            .collect();
         lines.push(Line::from(vec![
             Span::styled(marker, header_style),
             Span::styled("Merge to: ", dim),
@@ -199,8 +203,16 @@ pub fn render_name_disambig(
         for (vi, variant) in cluster.variants.iter().enumerate() {
             let is_target = vi == cluster.selected_variant;
             let prefix = if is_target { "  ✓ " } else { "    " };
-            let name_display: String = variant.name.chars().take(max_w.saturating_sub(15)).collect();
-            let name_style = if is_target { selected_style } else { theme.value };
+            let name_display: String = variant
+                .name
+                .chars()
+                .take(max_w.saturating_sub(15))
+                .collect();
+            let name_style = if is_target {
+                selected_style
+            } else {
+                theme.value
+            };
             lines.push(Line::from(vec![
                 Span::styled(prefix, name_style),
                 Span::styled(name_display, name_style),
@@ -254,12 +266,12 @@ pub fn render_name_disambig(
         let preview_inner = preview_block.inner(preview_area);
         f.render_widget(preview_block, preview_area);
 
-        let preview_lines: Vec<Line> = preview.entries
+        let preview_lines: Vec<Line> = preview
+            .entries
             .iter()
             .map(|s| Line::from(Span::styled(s.as_str(), theme.value)))
             .collect();
-        let preview_para = Paragraph::new(preview_lines)
-            .scroll((preview.scroll as u16, 0));
+        let preview_para = Paragraph::new(preview_lines).scroll((preview.scroll as u16, 0));
         f.render_widget(preview_para, preview_inner);
     }
 }
@@ -271,7 +283,10 @@ mod tests {
     fn make_cluster(names: &[(&str, usize)]) -> NameCluster {
         let variants: Vec<NameVariant> = names
             .iter()
-            .map(|(n, c)| NameVariant { name: n.to_string(), count: *c })
+            .map(|(n, c)| NameVariant {
+                name: n.to_string(),
+                count: *c,
+            })
             .collect();
         let canonical = variants[0].name.clone();
         NameCluster {
@@ -307,9 +322,11 @@ mod tests {
 
     #[test]
     fn test_cycle_variant() {
-        let mut s = NameDisambigState::new(vec![
-            make_cluster(&[("Smith, John", 3), ("J. Smith", 1), ("Smith, J.", 2)]),
-        ]);
+        let mut s = NameDisambigState::new(vec![make_cluster(&[
+            ("Smith, John", 3),
+            ("J. Smith", 1),
+            ("Smith, J.", 2),
+        ])]);
         assert_eq!(s.clusters[0].canonical, "Smith, John");
         s.cycle_variant();
         assert_eq!(s.clusters[0].canonical, "J. Smith");
@@ -321,9 +338,8 @@ mod tests {
 
     #[test]
     fn test_cycle_variant_reverse() {
-        let mut s = NameDisambigState::new(vec![
-            make_cluster(&[("Smith, John", 3), ("J. Smith", 1)]),
-        ]);
+        let mut s =
+            NameDisambigState::new(vec![make_cluster(&[("Smith, John", 3), ("J. Smith", 1)])]);
         assert_eq!(s.clusters[0].canonical, "Smith, John");
         s.cycle_variant_reverse(); // wraps to last
         assert_eq!(s.clusters[0].canonical, "J. Smith");
@@ -333,9 +349,11 @@ mod tests {
 
     #[test]
     fn test_remove_variant_from_3_variant_cluster() {
-        let mut s = NameDisambigState::new(vec![
-            make_cluster(&[("Smith, John", 3), ("J. Smith", 1), ("Smith, J.", 2)]),
-        ]);
+        let mut s = NameDisambigState::new(vec![make_cluster(&[
+            ("Smith, John", 3),
+            ("J. Smith", 1),
+            ("Smith, J.", 2),
+        ])]);
         // selected_variant starts at 0 ("Smith, John")
         assert_eq!(s.clusters[0].variants.len(), 3);
         assert!(s.remove_variant());
@@ -360,9 +378,8 @@ mod tests {
 
     #[test]
     fn test_remove_variant_last_cluster() {
-        let mut s = NameDisambigState::new(vec![
-            make_cluster(&[("Smith, John", 3), ("J. Smith", 1)]),
-        ]);
+        let mut s =
+            NameDisambigState::new(vec![make_cluster(&[("Smith, John", 3), ("J. Smith", 1)])]);
         assert!(s.remove_variant());
         assert!(s.clusters.is_empty());
         assert_eq!(s.cursor, 0);
@@ -388,9 +405,8 @@ mod tests {
 
     #[test]
     fn test_preview_state() {
-        let mut s = NameDisambigState::new(vec![
-            make_cluster(&[("Smith, John", 3), ("J. Smith", 1)]),
-        ]);
+        let mut s =
+            NameDisambigState::new(vec![make_cluster(&[("Smith, John", 3), ("J. Smith", 1)])]);
         assert!(s.preview.is_none());
         s.preview = Some(NamePreview {
             variant_name: "Smith, John".to_string(),
@@ -410,9 +426,7 @@ mod tests {
     #[test]
     fn test_remove_selected_variant_at_end_of_list() {
         // When selected_variant is the last index in a 3+ variant cluster
-        let mut s = NameDisambigState::new(vec![
-            make_cluster(&[("A", 1), ("B", 2), ("C", 3)]),
-        ]);
+        let mut s = NameDisambigState::new(vec![make_cluster(&[("A", 1), ("B", 2), ("C", 3)])]);
         s.clusters[0].selected_variant = 2; // select last
         s.clusters[0].canonical = "C".to_string();
         assert!(s.remove_variant());
@@ -427,7 +441,10 @@ mod tests {
         // Edge case: cluster with 1 variant (shouldn't happen normally, but test it)
         let mut s = NameDisambigState::new(vec![NameCluster {
             canonical: "Solo".to_string(),
-            variants: vec![NameVariant { name: "Solo".to_string(), count: 5 }],
+            variants: vec![NameVariant {
+                name: "Solo".to_string(),
+                count: 5,
+            }],
             selected_variant: 0,
         }]);
         s.cycle_variant();
@@ -479,7 +496,8 @@ mod tests {
         let mut term = make_terminal(120, 40);
         let mut state = NameDisambigState::new(vec![]);
         let theme = default_theme();
-        term.draw(|f| render_name_disambig(f, f.area(), &mut state, &theme)).unwrap();
+        term.draw(|f| render_name_disambig(f, f.area(), &mut state, &theme))
+            .unwrap();
     }
 
     #[test]
@@ -490,32 +508,36 @@ mod tests {
             make_cluster(&[("Jones, Alice", 2), ("A. Jones", 1)]),
         ]);
         let theme = default_theme();
-        term.draw(|f| render_name_disambig(f, f.area(), &mut state, &theme)).unwrap();
+        term.draw(|f| render_name_disambig(f, f.area(), &mut state, &theme))
+            .unwrap();
     }
 
     #[test]
     fn test_render_with_preview_does_not_panic() {
         let mut term = make_terminal(120, 40);
-        let mut state = NameDisambigState::new(vec![
-            make_cluster(&[("Smith, John", 3), ("J. Smith", 1)]),
-        ]);
+        let mut state =
+            NameDisambigState::new(vec![make_cluster(&[("Smith, John", 3), ("J. Smith", 1)])]);
         state.preview = Some(NamePreview {
             variant_name: "J. Smith".to_string(),
-            entries: vec!["Smith2020 — A Title".to_string(), "Smith2021 — B Title".to_string()],
+            entries: vec![
+                "Smith2020 — A Title".to_string(),
+                "Smith2021 — B Title".to_string(),
+            ],
             scroll: 0,
         });
         let theme = default_theme();
-        term.draw(|f| render_name_disambig(f, f.area(), &mut state, &theme)).unwrap();
+        term.draw(|f| render_name_disambig(f, f.area(), &mut state, &theme))
+            .unwrap();
     }
 
     #[test]
     fn test_render_tiny_terminal_does_not_panic() {
         let mut term = make_terminal(20, 8);
-        let mut state = NameDisambigState::new(vec![
-            make_cluster(&[("Smith, John", 2), ("J. Smith", 1)]),
-        ]);
+        let mut state =
+            NameDisambigState::new(vec![make_cluster(&[("Smith, John", 2), ("J. Smith", 1)])]);
         let theme = default_theme();
-        term.draw(|f| render_name_disambig(f, f.area(), &mut state, &theme)).unwrap();
+        term.draw(|f| render_name_disambig(f, f.area(), &mut state, &theme))
+            .unwrap();
     }
 
     #[test]
@@ -528,7 +550,8 @@ mod tests {
         let mut state = NameDisambigState::new(clusters);
         state.cursor = 14;
         let theme = default_theme();
-        term.draw(|f| render_name_disambig(f, f.area(), &mut state, &theme)).unwrap();
+        term.draw(|f| render_name_disambig(f, f.area(), &mut state, &theme))
+            .unwrap();
         assert!(state.scroll > 0, "expected nonzero scroll for last cluster");
     }
 }

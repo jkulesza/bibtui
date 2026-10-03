@@ -1,9 +1,9 @@
-use super::*;
 use super::groups::{collect_group_names, find_group_node, find_group_node_mut};
-use std::io::Write;
-use tempfile::NamedTempFile;
+use super::*;
 use crate::config::defaults::default_config;
 use crate::tui::keybindings::InputMode;
+use std::io::Write;
+use tempfile::NamedTempFile;
 
 /// Two-entry bib used by most tests. Sorted by citation_key: Doe2021, Smith2020.
 const TEST_BIB: &str = r#"@Article{Smith2020,
@@ -327,12 +327,16 @@ fn test_execute_command_sort() {
 fn test_execute_command_sort_toggle_direction() {
     let (mut app, _tmp) = make_app();
     app.handle_action(Action::EnterCommand);
-    for c in "sort year".chars() { app.handle_action(Action::CommandChar(c)); }
+    for c in "sort year".chars() {
+        app.handle_action(Action::CommandChar(c));
+    }
     app.handle_action(Action::ExecuteCommand);
     let asc = app.config.display.default_sort.ascending;
     // Same field again: toggle direction
     app.handle_action(Action::EnterCommand);
-    for c in "sort year".chars() { app.handle_action(Action::CommandChar(c)); }
+    for c in "sort year".chars() {
+        app.handle_action(Action::CommandChar(c));
+    }
     app.handle_action(Action::ExecuteCommand);
     assert_eq!(app.config.display.default_sort.ascending, !asc);
 }
@@ -341,7 +345,9 @@ fn test_execute_command_sort_toggle_direction() {
 fn test_execute_command_unknown() {
     let (mut app, _tmp) = make_app();
     app.handle_action(Action::EnterCommand);
-    for c in "foobar".chars() { app.handle_action(Action::CommandChar(c)); }
+    for c in "foobar".chars() {
+        app.handle_action(Action::CommandChar(c));
+    }
     app.handle_action(Action::ExecuteCommand);
     let msg = app.status_message.as_deref().unwrap_or("");
     assert!(msg.contains("Unknown command"));
@@ -352,7 +358,9 @@ fn test_execute_command_quit_with_dirty() {
     let (mut app, _tmp) = make_app();
     app.dirty = true;
     app.handle_action(Action::EnterCommand);
-    for c in "q".chars() { app.handle_action(Action::CommandChar(c)); }
+    for c in "q".chars() {
+        app.handle_action(Action::CommandChar(c));
+    }
     app.handle_action(Action::ExecuteCommand);
     assert!(!app.should_quit);
     assert!(app.dialog_state.is_some(), "quit-confirm dialog must open");
@@ -363,7 +371,9 @@ fn test_execute_command_force_quit() {
     let (mut app, _tmp) = make_app();
     app.dirty = true;
     app.handle_action(Action::EnterCommand);
-    for c in "q!".chars() { app.handle_action(Action::CommandChar(c)); }
+    for c in "q!".chars() {
+        app.handle_action(Action::CommandChar(c));
+    }
     app.handle_action(Action::ExecuteCommand);
     assert!(app.should_quit);
 }
@@ -417,13 +427,22 @@ fn test_field_tab_complete_cycles() {
     e.completions = vec!["Smith, John".to_string(), "Stone, Alice".to_string()];
     // First Tab: common prefix "S" → already there, so fill first match.
     app.handle_action(Action::EditTabComplete);
-    assert_eq!(app.field_editor_state.as_ref().unwrap().value, "Smith, John");
+    assert_eq!(
+        app.field_editor_state.as_ref().unwrap().value,
+        "Smith, John"
+    );
     // Second Tab: cycle to next.
     app.handle_action(Action::EditTabComplete);
-    assert_eq!(app.field_editor_state.as_ref().unwrap().value, "Stone, Alice");
+    assert_eq!(
+        app.field_editor_state.as_ref().unwrap().value,
+        "Stone, Alice"
+    );
     // Third Tab: wrap back.
     app.handle_action(Action::EditTabComplete);
-    assert_eq!(app.field_editor_state.as_ref().unwrap().value, "Smith, John");
+    assert_eq!(
+        app.field_editor_state.as_ref().unwrap().value,
+        "Smith, John"
+    );
 }
 
 #[test]
@@ -484,9 +503,14 @@ fn test_field_value_candidates_skips_doi() {
 fn test_sort_tab_complete_single_match() {
     let (mut app, _tmp) = make_app();
     app.handle_action(Action::EnterCommand);
-    for c in "sort yea".chars() { app.handle_action(Action::CommandChar(c)); }
+    for c in "sort yea".chars() {
+        app.handle_action(Action::CommandChar(c));
+    }
     // completions should contain "year"
-    assert!(app.command_palette_state.completions.contains(&"year".to_string()));
+    assert!(app
+        .command_palette_state
+        .completions
+        .contains(&"year".to_string()));
     app.handle_action(Action::CommandTabComplete);
     assert_eq!(app.command_palette_state.input, "sort year");
 }
@@ -495,7 +519,9 @@ fn test_sort_tab_complete_single_match() {
 fn test_sort_tab_complete_ghost_text() {
     let (mut app, _tmp) = make_app();
     app.handle_action(Action::EnterCommand);
-    for c in "sort yea".chars() { app.handle_action(Action::CommandChar(c)); }
+    for c in "sort yea".chars() {
+        app.handle_action(Action::CommandChar(c));
+    }
     assert_eq!(app.command_palette_state.ghost_text(), "r");
 }
 
@@ -503,9 +529,11 @@ fn test_sort_tab_complete_ghost_text() {
 fn test_sort_tab_complete_cycles() {
     let (mut app, _tmp) = make_app();
     app.handle_action(Action::EnterCommand);
-    for c in "sort yea".chars() { app.handle_action(Action::CommandChar(c)); }
+    for c in "sort yea".chars() {
+        app.handle_action(Action::CommandChar(c));
+    }
     app.handle_action(Action::CommandTabComplete); // fills "year"
-    // Cycling: only one match for "year", so it wraps back
+                                                   // Cycling: only one match for "year", so it wraps back
     app.handle_action(Action::CommandTabComplete);
     assert_eq!(app.command_palette_state.input, "sort year");
 }
@@ -514,7 +542,9 @@ fn test_sort_tab_complete_cycles() {
 fn test_sort_tab_no_completions_outside_sort() {
     let (mut app, _tmp) = make_app();
     app.handle_action(Action::EnterCommand);
-    for c in "write".chars() { app.handle_action(Action::CommandChar(c)); }
+    for c in "write".chars() {
+        app.handle_action(Action::CommandChar(c));
+    }
     assert!(app.command_palette_state.completions.is_empty());
     // Tab should be a no-op
     app.handle_action(Action::CommandTabComplete);
@@ -525,7 +555,9 @@ fn test_sort_tab_no_completions_outside_sort() {
 fn test_sort_completions_cleared_on_clear() {
     let (mut app, _tmp) = make_app();
     app.handle_action(Action::EnterCommand);
-    for c in "sort yea".chars() { app.handle_action(Action::CommandChar(c)); }
+    for c in "sort yea".chars() {
+        app.handle_action(Action::CommandChar(c));
+    }
     assert!(!app.command_palette_state.completions.is_empty());
     app.handle_action(Action::EnterCommand); // clears state
     assert!(app.command_palette_state.completions.is_empty());
@@ -541,13 +573,22 @@ fn test_field_tab_complete_reverse_cycles_backward() {
     e.completions = vec!["Smith, John".to_string(), "Stone, Alice".to_string()];
     // Forward to first match.
     app.handle_action(Action::EditTabComplete);
-    assert_eq!(app.field_editor_state.as_ref().unwrap().value, "Smith, John");
+    assert_eq!(
+        app.field_editor_state.as_ref().unwrap().value,
+        "Smith, John"
+    );
     // Shift-Tab: wrap to last.
     app.handle_action(Action::EditTabCompleteReverse);
-    assert_eq!(app.field_editor_state.as_ref().unwrap().value, "Stone, Alice");
+    assert_eq!(
+        app.field_editor_state.as_ref().unwrap().value,
+        "Stone, Alice"
+    );
     // Shift-Tab again: back to first.
     app.handle_action(Action::EditTabCompleteReverse);
-    assert_eq!(app.field_editor_state.as_ref().unwrap().value, "Smith, John");
+    assert_eq!(
+        app.field_editor_state.as_ref().unwrap().value,
+        "Smith, John"
+    );
 }
 
 #[test]
@@ -558,7 +599,9 @@ fn test_sort_tab_complete_reverse() {
     app.command_palette_state.input = "sort ".to_string();
     app.command_palette_state.cursor = 5;
     app.command_palette_state.completions = vec![
-        "author".to_string(), "title".to_string(), "year".to_string(),
+        "author".to_string(),
+        "title".to_string(),
+        "year".to_string(),
     ];
     app.command_palette_state.completion_idx = 0;
     // Fill first match forward.
@@ -750,7 +793,10 @@ fn test_delete_entry_with_file_option2_cancels() {
     app.dialog_state.as_mut().unwrap().select(2); // "Cancel"
     app.handle_action(Action::DialogConfirm);
 
-    assert!(app.database.entries.contains_key(&key), "entry should survive cancel");
+    assert!(
+        app.database.entries.contains_key(&key),
+        "entry should survive cancel"
+    );
     assert!(pdf_path.exists(), "file should survive cancel");
 }
 
@@ -790,7 +836,11 @@ fn test_duplicate_entry() {
     let initial_count = app.database.entries.len();
     app.handle_action(Action::DuplicateEntry);
     assert_eq!(app.database.entries.len(), initial_count + 1);
-    assert!(app.status_message.as_deref().unwrap().contains("duplicated"));
+    assert!(app
+        .status_message
+        .as_deref()
+        .unwrap()
+        .contains("duplicated"));
 }
 
 #[test]
@@ -820,7 +870,10 @@ fn test_add_entry_of_type_twice_keeps_both() {
     assert!(app.database.entries.contains_key("New_Article_2"));
     // The first entry's edits were not overwritten.
     assert_eq!(
-        app.database.entries["New_Article"].fields.get("title").map(String::as_str),
+        app.database.entries["New_Article"]
+            .fields
+            .get("title")
+            .map(String::as_str),
         Some("Kept")
     );
 }
@@ -895,7 +948,10 @@ fn test_duplicate_entry_twice_keeps_three_distinct_entries() {
     assert_eq!(app.database.entries.len(), before + 2);
     assert!(app.database.entries.contains_key(&key));
     assert!(app.database.entries.contains_key(&format!("{}_copy", key)));
-    assert!(app.database.entries.contains_key(&format!("{}_copy_2", key)));
+    assert!(app
+        .database
+        .entries
+        .contains_key(&format!("{}_copy_2", key)));
 }
 
 #[test]
@@ -953,7 +1009,7 @@ fn test_dialog_cancel_clears_state() {
 fn test_dialog_toggle() {
     let (mut app, _tmp) = make_app();
     app.handle_action(Action::AddEntry); // opens type picker
-    // DialogToggle should not panic even on a type-picker dialog
+                                         // DialogToggle should not panic even on a type-picker dialog
     app.handle_action(Action::DialogToggle);
 }
 
@@ -997,15 +1053,14 @@ fn test_validate_move_down_scrolls_results() {
     if let Some(ref mut vrs) = app.validate_results_state {
         // Manually push enough violations so total_lines > inner_height fallback (24)
         for i in 0..10 {
-            vrs.violations.push(
-                crate::tui::components::validate_results::Violation {
+            vrs.violations
+                .push(crate::tui::components::validate_results::Violation {
                     entry_key: format!("k{}", i),
                     field: "title".to_string(),
                     old_value: "old".to_string(),
                     new_value: "new".to_string(),
                     action_name: "test",
-                },
-            );
+                });
         }
     }
     // In ValidateResults mode, MoveDown scrolls the panel
@@ -1019,15 +1074,14 @@ fn test_validate_move_up_scrolls_results() {
     app.handle_action(Action::Validate);
     if let Some(ref mut vrs) = app.validate_results_state {
         for i in 0..10 {
-            vrs.violations.push(
-                crate::tui::components::validate_results::Violation {
+            vrs.violations
+                .push(crate::tui::components::validate_results::Violation {
                     entry_key: format!("k{}", i),
                     field: "title".to_string(),
                     old_value: "old".to_string(),
                     new_value: "new".to_string(),
                     action_name: "test",
-                },
-            );
+                });
         }
     }
     app.handle_action(Action::MoveDown);
@@ -1152,7 +1206,10 @@ fn test_disambig_navigate_clusters() {
         if state.clusters.len() >= 2 {
             let initial = state.cursor;
             app.handle_action(Action::MoveDown);
-            assert_eq!(app.name_disambig_state.as_ref().unwrap().cursor, initial + 1);
+            assert_eq!(
+                app.name_disambig_state.as_ref().unwrap().cursor,
+                initial + 1
+            );
             app.handle_action(Action::MoveUp);
             assert_eq!(app.name_disambig_state.as_ref().unwrap().cursor, initial);
         }
@@ -1180,38 +1237,59 @@ fn test_apply_name_disambig() {
     {
         let mut fields1 = IndexMap::new();
         fields1.insert("author".to_string(), "Smith, J.".to_string());
-        app.database.entries.insert("k1".to_string(), Entry {
-            entry_type: crate::bib::model::EntryType::Article,
-            citation_key: "k1".to_string(),
-            fields: fields1,
-            group_memberships: vec![],
-            raw_index: 900,
-            dirty: false,
-        });
+        app.database.entries.insert(
+            "k1".to_string(),
+            Entry {
+                entry_type: crate::bib::model::EntryType::Article,
+                citation_key: "k1".to_string(),
+                fields: fields1,
+                group_memberships: vec![],
+                raw_index: 900,
+                dirty: false,
+            },
+        );
         let mut fields2 = IndexMap::new();
         fields2.insert("author".to_string(), "Smith, John".to_string());
-        app.database.entries.insert("k2".to_string(), Entry {
-            entry_type: crate::bib::model::EntryType::Article,
-            citation_key: "k2".to_string(),
-            fields: fields2,
-            group_memberships: vec![],
-            raw_index: 901,
-            dirty: false,
-        });
+        app.database.entries.insert(
+            "k2".to_string(),
+            Entry {
+                entry_type: crate::bib::model::EntryType::Article,
+                citation_key: "k2".to_string(),
+                fields: fields2,
+                group_memberships: vec![],
+                raw_index: 901,
+                dirty: false,
+            },
+        );
     }
     app.handle_action(Action::DisambiguateNames);
     // Find the cluster that contains Smith variants
     if let Some(ref state) = app.name_disambig_state {
-        let has_smith = state.clusters.iter().any(|c|
-            c.variants.iter().any(|v| v.name.contains("Smith"))
-        );
+        let has_smith = state
+            .clusters
+            .iter()
+            .any(|c| c.variants.iter().any(|v| v.name.contains("Smith")));
         if has_smith {
             app.handle_action(Action::ApplyNameDisambig);
             assert!(app.name_disambig_state.is_none());
             assert_eq!(app.mode, InputMode::Normal);
             // Check that at least one entry was updated
-            let a1 = app.database.entries.get("k1").unwrap().fields.get("author").unwrap();
-            let a2 = app.database.entries.get("k2").unwrap().fields.get("author").unwrap();
+            let a1 = app
+                .database
+                .entries
+                .get("k1")
+                .unwrap()
+                .fields
+                .get("author")
+                .unwrap();
+            let a2 = app
+                .database
+                .entries
+                .get("k2")
+                .unwrap()
+                .fields
+                .get("author")
+                .unwrap();
             // After disambiguation, both should have the same name
             assert_eq!(a1, a2);
         }
@@ -1230,14 +1308,17 @@ fn test_disambig_single_undo_restores_all_fields() {
     ] {
         let mut f = IndexMap::new();
         f.insert("author".to_string(), name.to_string());
-        app.database.entries.insert(k.to_string(), Entry {
-            entry_type: crate::bib::model::EntryType::Article,
-            citation_key: k.to_string(),
-            fields: f,
-            group_memberships: vec![],
-            raw_index: idx,
-            dirty: false,
-        });
+        app.database.entries.insert(
+            k.to_string(),
+            Entry {
+                entry_type: crate::bib::model::EntryType::Article,
+                citation_key: k.to_string(),
+                fields: f,
+                group_memberships: vec![],
+                raw_index: idx,
+                dirty: false,
+            },
+        );
     }
     app.handle_action(Action::DisambiguateNames);
     let stack_before = app.undo_stack.len();
@@ -1245,15 +1326,53 @@ fn test_disambig_single_undo_restores_all_fields() {
     // At least two authors changed to the canonical form; exactly one undo item
     // (a Batch) was pushed.
     assert_eq!(app.undo_stack.len(), stack_before + 1, "one batch pushed");
-    let v1_after = app.database.entries.get("v1").unwrap().fields.get("author").unwrap().clone();
-    let v2_after = app.database.entries.get("v2").unwrap().fields.get("author").unwrap().clone();
+    let v1_after = app
+        .database
+        .entries
+        .get("v1")
+        .unwrap()
+        .fields
+        .get("author")
+        .unwrap()
+        .clone();
+    let v2_after = app
+        .database
+        .entries
+        .get("v2")
+        .unwrap()
+        .fields
+        .get("author")
+        .unwrap()
+        .clone();
     assert_eq!(v1_after, "Smith, John");
     assert_eq!(v2_after, "Smith, John");
     // A single undo reverts every field at once.
     app.undo();
-    assert_eq!(app.undo_stack.len(), stack_before, "batch popped as one item");
-    assert_eq!(app.database.entries.get("v1").unwrap().fields.get("author").unwrap(), "Smith, J.");
-    assert_eq!(app.database.entries.get("v2").unwrap().fields.get("author").unwrap(), "Smith, Jo.");
+    assert_eq!(
+        app.undo_stack.len(),
+        stack_before,
+        "batch popped as one item"
+    );
+    assert_eq!(
+        app.database
+            .entries
+            .get("v1")
+            .unwrap()
+            .fields
+            .get("author")
+            .unwrap(),
+        "Smith, J."
+    );
+    assert_eq!(
+        app.database
+            .entries
+            .get("v2")
+            .unwrap()
+            .fields
+            .get("author")
+            .unwrap(),
+        "Smith, Jo."
+    );
 }
 
 #[test]
@@ -1273,9 +1392,16 @@ fn test_regen_all_single_undo_restores_all_keys() {
     assert_eq!(app.undo_stack.len(), stack_before + 1, "one batch pushed");
     // A single undo restores both original keys.
     app.undo();
-    assert_eq!(app.undo_stack.len(), stack_before, "batch popped as one item");
-    assert!(app.database.entries.contains_key("oldkey1"), "keys={:?}",
-        app.database.entries.keys().collect::<Vec<_>>());
+    assert_eq!(
+        app.undo_stack.len(),
+        stack_before,
+        "batch popped as one item"
+    );
+    assert!(
+        app.database.entries.contains_key("oldkey1"),
+        "keys={:?}",
+        app.database.entries.keys().collect::<Vec<_>>()
+    );
     assert!(app.database.entries.contains_key("oldkey2"));
 }
 
@@ -1286,24 +1412,30 @@ fn test_disambig_remove_variant_closes_when_empty() {
     {
         let mut f1 = IndexMap::new();
         f1.insert("author".to_string(), "Doe, J.".to_string());
-        app.database.entries.insert("d1".to_string(), Entry {
-            entry_type: crate::bib::model::EntryType::Article,
-            citation_key: "d1".to_string(),
-            fields: f1,
-            group_memberships: vec![],
-            raw_index: 950,
-            dirty: false,
-        });
+        app.database.entries.insert(
+            "d1".to_string(),
+            Entry {
+                entry_type: crate::bib::model::EntryType::Article,
+                citation_key: "d1".to_string(),
+                fields: f1,
+                group_memberships: vec![],
+                raw_index: 950,
+                dirty: false,
+            },
+        );
         let mut f2 = IndexMap::new();
         f2.insert("author".to_string(), "Doe, Jane".to_string());
-        app.database.entries.insert("d2".to_string(), Entry {
-            entry_type: crate::bib::model::EntryType::Article,
-            citation_key: "d2".to_string(),
-            fields: f2,
-            group_memberships: vec![],
-            raw_index: 951,
-            dirty: false,
-        });
+        app.database.entries.insert(
+            "d2".to_string(),
+            Entry {
+                entry_type: crate::bib::model::EntryType::Article,
+                citation_key: "d2".to_string(),
+                fields: f2,
+                group_memberships: vec![],
+                raw_index: 951,
+                dirty: false,
+            },
+        );
     }
     app.handle_action(Action::DisambiguateNames);
     assert_eq!(app.mode, InputMode::NameDisambig);
@@ -1329,28 +1461,38 @@ fn test_disambig_preview_toggle() {
         let mut f1 = IndexMap::new();
         f1.insert("author".to_string(), "Xu, A.".to_string());
         f1.insert("title".to_string(), "Paper One".to_string());
-        app.database.entries.insert("x1".to_string(), Entry {
-            entry_type: crate::bib::model::EntryType::Article,
-            citation_key: "x1".to_string(),
-            fields: f1,
-            group_memberships: vec![],
-            raw_index: 960,
-            dirty: false,
-        });
+        app.database.entries.insert(
+            "x1".to_string(),
+            Entry {
+                entry_type: crate::bib::model::EntryType::Article,
+                citation_key: "x1".to_string(),
+                fields: f1,
+                group_memberships: vec![],
+                raw_index: 960,
+                dirty: false,
+            },
+        );
         let mut f2 = IndexMap::new();
         f2.insert("author".to_string(), "Xu, Alice".to_string());
         f2.insert("title".to_string(), "Paper Two".to_string());
-        app.database.entries.insert("x2".to_string(), Entry {
-            entry_type: crate::bib::model::EntryType::Article,
-            citation_key: "x2".to_string(),
-            fields: f2,
-            group_memberships: vec![],
-            raw_index: 961,
-            dirty: false,
-        });
+        app.database.entries.insert(
+            "x2".to_string(),
+            Entry {
+                entry_type: crate::bib::model::EntryType::Article,
+                citation_key: "x2".to_string(),
+                fields: f2,
+                group_memberships: vec![],
+                raw_index: 961,
+                dirty: false,
+            },
+        );
     }
     app.handle_action(Action::DisambiguateNames);
-    if app.name_disambig_state.as_ref().is_none_or(|s| s.clusters.is_empty()) {
+    if app
+        .name_disambig_state
+        .as_ref()
+        .is_none_or(|s| s.clusters.is_empty())
+    {
         return; // no clusters to test with
     }
     // Open preview
@@ -1370,27 +1512,37 @@ fn test_disambig_close_dismisses_preview_first() {
     {
         let mut f1 = IndexMap::new();
         f1.insert("author".to_string(), "Lee, B.".to_string());
-        app.database.entries.insert("l1".to_string(), Entry {
-            entry_type: crate::bib::model::EntryType::Article,
-            citation_key: "l1".to_string(),
-            fields: f1,
-            group_memberships: vec![],
-            raw_index: 970,
-            dirty: false,
-        });
+        app.database.entries.insert(
+            "l1".to_string(),
+            Entry {
+                entry_type: crate::bib::model::EntryType::Article,
+                citation_key: "l1".to_string(),
+                fields: f1,
+                group_memberships: vec![],
+                raw_index: 970,
+                dirty: false,
+            },
+        );
         let mut f2 = IndexMap::new();
         f2.insert("author".to_string(), "Lee, Bob".to_string());
-        app.database.entries.insert("l2".to_string(), Entry {
-            entry_type: crate::bib::model::EntryType::Article,
-            citation_key: "l2".to_string(),
-            fields: f2,
-            group_memberships: vec![],
-            raw_index: 971,
-            dirty: false,
-        });
+        app.database.entries.insert(
+            "l2".to_string(),
+            Entry {
+                entry_type: crate::bib::model::EntryType::Article,
+                citation_key: "l2".to_string(),
+                fields: f2,
+                group_memberships: vec![],
+                raw_index: 971,
+                dirty: false,
+            },
+        );
     }
     app.handle_action(Action::DisambiguateNames);
-    if app.name_disambig_state.as_ref().is_none_or(|s| s.clusters.is_empty()) {
+    if app
+        .name_disambig_state
+        .as_ref()
+        .is_none_or(|s| s.clusters.is_empty())
+    {
         return;
     }
     // Open preview
@@ -1410,7 +1562,11 @@ fn test_disambig_close_dismisses_preview_first() {
 fn test_disambig_move_to_top_bottom() {
     let (mut app, _tmp) = make_app();
     app.handle_action(Action::DisambiguateNames);
-    if app.name_disambig_state.as_ref().is_none_or(|s| s.clusters.len() < 2) {
+    if app
+        .name_disambig_state
+        .as_ref()
+        .is_none_or(|s| s.clusters.len() < 2)
+    {
         return;
     }
     app.handle_action(Action::MoveToBottom);
@@ -1424,7 +1580,11 @@ fn test_disambig_move_to_top_bottom() {
 fn test_disambig_page_down_up() {
     let (mut app, _tmp) = make_app();
     app.handle_action(Action::DisambiguateNames);
-    if app.name_disambig_state.as_ref().is_none_or(|s| s.clusters.is_empty()) {
+    if app
+        .name_disambig_state
+        .as_ref()
+        .is_none_or(|s| s.clusters.is_empty())
+    {
         return;
     }
     app.handle_action(Action::PageDown);
@@ -1438,34 +1598,48 @@ fn test_disambig_cycle_variant_reverse_action() {
     {
         let mut f1 = IndexMap::new();
         f1.insert("author".to_string(), "Park, C.".to_string());
-        app.database.entries.insert("p1".to_string(), Entry {
-            entry_type: crate::bib::model::EntryType::Article,
-            citation_key: "p1".to_string(),
-            fields: f1,
-            group_memberships: vec![],
-            raw_index: 980,
-            dirty: false,
-        });
+        app.database.entries.insert(
+            "p1".to_string(),
+            Entry {
+                entry_type: crate::bib::model::EntryType::Article,
+                citation_key: "p1".to_string(),
+                fields: f1,
+                group_memberships: vec![],
+                raw_index: 980,
+                dirty: false,
+            },
+        );
         let mut f2 = IndexMap::new();
         f2.insert("author".to_string(), "Park, Chris".to_string());
-        app.database.entries.insert("p2".to_string(), Entry {
-            entry_type: crate::bib::model::EntryType::Article,
-            citation_key: "p2".to_string(),
-            fields: f2,
-            group_memberships: vec![],
-            raw_index: 981,
-            dirty: false,
-        });
+        app.database.entries.insert(
+            "p2".to_string(),
+            Entry {
+                entry_type: crate::bib::model::EntryType::Article,
+                citation_key: "p2".to_string(),
+                fields: f2,
+                group_memberships: vec![],
+                raw_index: 981,
+                dirty: false,
+            },
+        );
     }
     app.handle_action(Action::DisambiguateNames);
-    if app.name_disambig_state.as_ref().is_none_or(|s| s.clusters.is_empty()) {
+    if app
+        .name_disambig_state
+        .as_ref()
+        .is_none_or(|s| s.clusters.is_empty())
+    {
         return;
     }
     let initial = app.name_disambig_state.as_ref().unwrap().clusters[0].selected_variant;
     app.handle_action(Action::DisambigCycleVariantReverse);
     let after = app.name_disambig_state.as_ref().unwrap().clusters[0].selected_variant;
     // With 2 variants, cycling reverse from 0 wraps to 1
-    if app.name_disambig_state.as_ref().unwrap().clusters[0].variants.len() >= 2 {
+    if app.name_disambig_state.as_ref().unwrap().clusters[0]
+        .variants
+        .len()
+        >= 2
+    {
         assert_ne!(initial, after);
     }
 }
@@ -1539,7 +1713,10 @@ fn test_settings_cursor_restored_on_reopen() {
     assert!(app.settings_state.is_none());
     app.handle_action(Action::EnterSettings);
     let cursor_after = app.settings_state.as_ref().unwrap().cursor;
-    assert_eq!(cursor_after, cursor_before, "cursor should be restored on reopen");
+    assert_eq!(
+        cursor_after, cursor_before,
+        "cursor should be restored on reopen"
+    );
 }
 
 // ── Dirty-flag recheck after field edit ──────────────────────────────────
@@ -1566,7 +1743,10 @@ fn test_dirty_cleared_when_field_reverted_to_original() {
     // Modify the year field — key auto-regens to Article_2099_N_Smith.
     app.field_editor_state = Some(FieldEditorState::new("year", "2099"));
     app.handle_action(Action::ConfirmEdit);
-    assert!(app.database.entries.values().any(|e| e.dirty), "should be dirty after change");
+    assert!(
+        app.database.entries.values().any(|e| e.dirty),
+        "should be dirty after change"
+    );
 
     // Revert the year field to its original value — key regens back.
     app.field_editor_state = Some(FieldEditorState::new("year", "2020"));
@@ -1574,8 +1754,16 @@ fn test_dirty_cleared_when_field_reverted_to_original() {
 
     // After reverting, the entry should no longer be dirty.
     let reverted_key = app.detail_entry_key.clone().unwrap();
-    let entry = app.database.entries.get(&reverted_key).expect("entry must exist");
-    assert!(!entry.dirty, "entry should not be dirty after reverting to original value; key={}", reverted_key);
+    let entry = app
+        .database
+        .entries
+        .get(&reverted_key)
+        .expect("entry must exist");
+    assert!(
+        !entry.dirty,
+        "entry should not be dirty after reverting to original value; key={}",
+        reverted_key
+    );
     let _tmp = tmp;
 }
 
@@ -1599,7 +1787,10 @@ fn test_citekey_auto_updated_on_field_edit() {
         "expected auto-regenerated key Article_2023_N_Smith; keys: {:?}",
         app.database.entries.keys().collect::<Vec<_>>()
     );
-    assert!(!app.database.entries.contains_key("Smith2020"), "old key should be gone");
+    assert!(
+        !app.database.entries.contains_key("Smith2020"),
+        "old key should be gone"
+    );
 }
 
 // ── unique_citekey / collision resolution ────────────────────────────────
@@ -1638,7 +1829,10 @@ fn test_unique_citekey_suffix_slot_is_current_key() {
     tmp.flush().unwrap();
     let app = App::new(tmp.path().to_path_buf(), default_config()).unwrap();
     // Smith2020_2 is being renamed; its own slot should be chosen, not _3.
-    assert_eq!(app.unique_citekey("Smith2020", "Smith2020_2"), "Smith2020_2");
+    assert_eq!(
+        app.unique_citekey("Smith2020", "Smith2020_2"),
+        "Smith2020_2"
+    );
     let _tmp = tmp;
 }
 
@@ -1658,9 +1852,15 @@ fn test_regen_citekey_collision_resolved_with_suffix() {
         app.detail_state = Some(EntryDetailState::new(e, app.config.field_groups.clone()));
     }
     app.handle_action(Action::RegenCitekey);
-    assert!(app.database.entries.contains_key("Article_2020_N_Smith_2"),
-        "collision should produce _2 suffix; keys={:?}", app.database.entries.keys().collect::<Vec<_>>());
-    assert!(!app.database.entries.contains_key("OldKey"), "old key should be gone");
+    assert!(
+        app.database.entries.contains_key("Article_2020_N_Smith_2"),
+        "collision should produce _2 suffix; keys={:?}",
+        app.database.entries.keys().collect::<Vec<_>>()
+    );
+    assert!(
+        !app.database.entries.contains_key("OldKey"),
+        "old key should be gone"
+    );
     let _tmp = tmp;
 }
 
@@ -1676,12 +1876,20 @@ fn test_regen_all_citekeys_preserves_suffix_not_bumps_to_3() {
     tmp.flush().unwrap();
     let mut app = App::new(tmp.path().to_path_buf(), default_config()).unwrap();
     app.handle_action(Action::RegenAllCitekeys);
-    assert!(app.database.entries.contains_key("Article_2020_N_Smith"),
-        "primary key must survive; keys={:?}", app.database.entries.keys().collect::<Vec<_>>());
-    assert!(app.database.entries.contains_key("Article_2020_N_Smith_2"),
-        "_2 must be preserved, not bumped to _3; keys={:?}", app.database.entries.keys().collect::<Vec<_>>());
-    assert!(!app.database.entries.contains_key("Article_2020_N_Smith_3"),
-        "must not create spurious _3");
+    assert!(
+        app.database.entries.contains_key("Article_2020_N_Smith"),
+        "primary key must survive; keys={:?}",
+        app.database.entries.keys().collect::<Vec<_>>()
+    );
+    assert!(
+        app.database.entries.contains_key("Article_2020_N_Smith_2"),
+        "_2 must be preserved, not bumped to _3; keys={:?}",
+        app.database.entries.keys().collect::<Vec<_>>()
+    );
+    assert!(
+        !app.database.entries.contains_key("Article_2020_N_Smith_3"),
+        "must not create spurious _3"
+    );
     let _tmp = tmp;
 }
 
@@ -1800,16 +2008,25 @@ fn test_compare_sort_values_mixed_numeric_non_numeric_stability() {
     assert_eq!(compare_sort_values("volume", "2", "foo"), Ordering::Less);
     assert_eq!(compare_sort_values("volume", "", "2"), Ordering::Less);
     // Equal numeric keys compare Equal, so a stable sort preserves input order.
-    assert_eq!(compare_sort_values("pages", "100--110", "100--200"), Ordering::Equal);
+    assert_eq!(
+        compare_sort_values("pages", "100--110", "100--200"),
+        Ordering::Equal
+    );
 }
 
 #[test]
 fn test_compare_sort_values_non_numeric_field_stays_lexical() {
     use std::cmp::Ordering;
     // A non-numeric field always compares lexically, including integer text.
-    assert_eq!(compare_sort_values("citation_key", "9", "10"), Ordering::Greater);
+    assert_eq!(
+        compare_sort_values("citation_key", "9", "10"),
+        Ordering::Greater
+    );
     // The same policy applies to ordinary text.
-    assert_eq!(compare_sort_values("citation_key", "b", "a"), Ordering::Greater);
+    assert_eq!(
+        compare_sort_values("citation_key", "b", "a"),
+        Ordering::Greater
+    );
 }
 
 // ── get_sort_value ────────────────────────────────────────────────────────
@@ -1866,13 +2083,20 @@ fn test_sort_command_none_sets_file_order() {
     assert_eq!(app.sorted_keys[0], "Doe2021");
     // Now reset to file order via command.
     app.handle_action(Action::EnterCommand);
-    for c in "sort none".chars() { app.handle_action(Action::CommandChar(c)); }
+    for c in "sort none".chars() {
+        app.handle_action(Action::CommandChar(c));
+    }
     app.handle_action(Action::ExecuteCommand);
     assert_eq!(app.config.display.default_sort.field, "none");
-    assert_eq!(app.sorted_keys[0], "Smith2020",
-        "sorted_keys[0] should be Smith2020 (file order) after :sort none");
+    assert_eq!(
+        app.sorted_keys[0], "Smith2020",
+        "sorted_keys[0] should be Smith2020 (file order) after :sort none"
+    );
     let msg = app.status_message.as_deref().unwrap_or("");
-    assert!(msg.contains("file order"), "status should mention file order");
+    assert!(
+        msg.contains("file order"),
+        "status should mention file order"
+    );
 }
 
 #[test]
@@ -1882,12 +2106,16 @@ fn test_sort_command_none_reruns_active_search() {
     let (mut app, _tmp) = make_app();
     // Search for "Smith" — matches Smith2020 only.
     app.handle_action(Action::EnterSearch);
-    for c in "Smith".chars() { app.handle_action(Action::SearchChar(c)); }
+    for c in "Smith".chars() {
+        app.handle_action(Action::SearchChar(c));
+    }
     app.handle_action(Action::ConfirmSearch);
     assert!(app.filtered_indices.is_some());
     // Now change sort order.
     app.handle_action(Action::EnterCommand);
-    for c in "sort none".chars() { app.handle_action(Action::CommandChar(c)); }
+    for c in "sort none".chars() {
+        app.handle_action(Action::CommandChar(c));
+    }
     app.handle_action(Action::ExecuteCommand);
     // filtered_indices should still be Some (search is still active)
     // and its single entry should index Smith2020 in the new sorted_keys.
@@ -1903,15 +2131,26 @@ fn test_reset_sort_clears_active_search_filter() {
     // instead of touching the sort config.
     let (mut app, _tmp) = make_app();
     app.handle_action(Action::EnterSearch);
-    for c in "Smith".chars() { app.handle_action(Action::SearchChar(c)); }
+    for c in "Smith".chars() {
+        app.handle_action(Action::SearchChar(c));
+    }
     app.handle_action(Action::ConfirmSearch);
     assert!(app.filtered_indices.is_some(), "filter should be active");
     // ESC in Normal mode.
     app.handle_action(Action::ResetSort);
-    assert!(app.filtered_indices.is_none(), "ESC should clear the filter");
-    assert!(app.search_bar_state.query.is_empty(), "search query should be cleared");
+    assert!(
+        app.filtered_indices.is_none(),
+        "ESC should clear the filter"
+    );
+    assert!(
+        app.search_bar_state.query.is_empty(),
+        "search query should be cleared"
+    );
     let msg = app.status_message.as_deref().unwrap_or("");
-    assert!(msg.contains("cleared"), "status should say search was cleared");
+    assert!(
+        msg.contains("cleared"),
+        "status should say search was cleared"
+    );
 }
 
 #[test]
@@ -1921,7 +2160,9 @@ fn test_reset_sort_falls_through_to_sort_reset_when_no_filter() {
     let (mut app, _tmp) = make_app();
     // Change the sort away from the default.
     app.handle_action(Action::EnterCommand);
-    for c in "sort year".chars() { app.handle_action(Action::CommandChar(c)); }
+    for c in "sort year".chars() {
+        app.handle_action(Action::CommandChar(c));
+    }
     app.handle_action(Action::ExecuteCommand);
     assert_eq!(app.config.display.default_sort.field, "year");
     // No search filter active.
@@ -1937,12 +2178,16 @@ fn test_sort_command_reruns_search_after_sort_change() {
     // against the new sorted_keys order.
     let (mut app, _tmp) = make_app();
     app.handle_action(Action::EnterSearch);
-    for c in "Doe".chars() { app.handle_action(Action::SearchChar(c)); }
+    for c in "Doe".chars() {
+        app.handle_action(Action::SearchChar(c));
+    }
     app.handle_action(Action::ConfirmSearch);
     let before = app.filtered_indices.clone().unwrap();
     // Change sort — sorted_keys order changes.
     app.handle_action(Action::EnterCommand);
-    for c in "sort year".chars() { app.handle_action(Action::CommandChar(c)); }
+    for c in "sort year".chars() {
+        app.handle_action(Action::CommandChar(c));
+    }
     app.handle_action(Action::ExecuteCommand);
     let after = app.filtered_indices.as_ref().expect("filter stays active");
     // The matched key must still be Doe2021 regardless of index position.
@@ -1957,17 +2202,23 @@ fn test_sort_command_preserves_active_group_filter() {
     // Filtering on a group, then applying a sort, must keep the group
     // filter active instead of falling back to the full (unfiltered) list.
     let (mut app, _tmp) = make_app();
-    app.database.groups.root.children.push(
-        make_group_node("Nature Papers", GroupType::Keyword {
+    app.database.groups.root.children.push(make_group_node(
+        "Nature Papers",
+        GroupType::Keyword {
             field: "journal".to_string(),
             search_term: "Nature".to_string(),
             case_sensitive: false,
             regex: false,
-        }, vec![]));
+        },
+        vec![],
+    ));
     app.group_tree_state.refresh(&app.database.groups);
 
     app.apply_group_filter("Nature Papers");
-    assert_eq!(app.group_tree_state.active_group.as_deref(), Some("Nature Papers"));
+    assert_eq!(
+        app.group_tree_state.active_group.as_deref(),
+        Some("Nature Papers")
+    );
     let before = app.filtered_indices.clone().expect("group filter applied");
     assert_eq!(before.len(), 1);
     assert_eq!(app.sorted_keys[before[0]], "Smith2020");
@@ -1975,13 +2226,20 @@ fn test_sort_command_preserves_active_group_filter() {
     // Change sort — sorted_keys order changes (year descending puts
     // Doe2021 first instead of Smith2020).
     app.handle_action(Action::EnterCommand);
-    for c in "sort year".chars() { app.handle_action(Action::CommandChar(c)); }
+    for c in "sort year".chars() {
+        app.handle_action(Action::CommandChar(c));
+    }
     app.handle_action(Action::ExecuteCommand);
 
     // The group filter must still be active and still resolve to Smith2020,
     // not silently reset to showing every entry.
-    assert_eq!(app.group_tree_state.active_group.as_deref(), Some("Nature Papers"));
-    let after = app.filtered_indices.expect("group filter should still be active after sort");
+    assert_eq!(
+        app.group_tree_state.active_group.as_deref(),
+        Some("Nature Papers")
+    );
+    let after = app
+        .filtered_indices
+        .expect("group filter should still be active after sort");
     assert_eq!(after.len(), 1);
     assert_eq!(app.sorted_keys[after[0]], "Smith2020");
 }
@@ -2055,7 +2313,10 @@ fn test_lcp_empty() {
 
 #[test]
 fn test_lcp_single() {
-    assert_eq!(longest_common_prefix(&["bibtui.yaml".to_string()]), "bibtui.yaml");
+    assert_eq!(
+        longest_common_prefix(&["bibtui.yaml".to_string()]),
+        "bibtui.yaml"
+    );
 }
 
 #[test]
@@ -2146,8 +2407,12 @@ fn test_request_sync_filenames_no_file_fields_sets_status() {
     let (mut app, _tmp) = make_app();
     app.handle_action(Action::SyncFilenames);
     assert!(
-        app.status_message.as_deref().unwrap_or("").contains("already match"),
-        "expected 'already match' status; got {:?}", app.status_message
+        app.status_message
+            .as_deref()
+            .unwrap_or("")
+            .contains("already match"),
+        "expected 'already match' status; got {:?}",
+        app.status_message
     );
     assert_eq!(app.mode, InputMode::Normal, "mode should stay Normal");
 }
@@ -2176,7 +2441,10 @@ fn test_focus_groups_shows_hidden_panel() {
     let (mut app, _tmp) = make_app();
     app.show_groups = false;
     app.handle_action(Action::FocusGroups);
-    assert!(app.show_groups, "FocusGroups should reveal the panel when hidden");
+    assert!(
+        app.show_groups,
+        "FocusGroups should reveal the panel when hidden"
+    );
     assert_eq!(app.focus, Focus::Groups);
 }
 
@@ -2196,10 +2464,16 @@ fn test_settings_export_enters_path_editing() {
     app.handle_action(Action::EnterSettings);
     app.handle_action(Action::SettingsExport);
     assert_eq!(app.mode, InputMode::Editing);
-    let editor = app.field_editor_state.as_ref().expect("editor should be set");
+    let editor = app
+        .field_editor_state
+        .as_ref()
+        .expect("editor should be set");
     assert!(editor.is_path);
     assert_eq!(editor.value, "bibtui.yaml");
-    assert!(matches!(app.pending_action, Some(PendingAction::ExportSettings)));
+    assert!(matches!(
+        app.pending_action,
+        Some(PendingAction::ExportSettings)
+    ));
 }
 
 #[test]
@@ -2208,9 +2482,15 @@ fn test_settings_import_enters_path_editing() {
     app.handle_action(Action::EnterSettings);
     app.handle_action(Action::SettingsImport);
     assert_eq!(app.mode, InputMode::Editing);
-    let editor = app.field_editor_state.as_ref().expect("editor should be set");
+    let editor = app
+        .field_editor_state
+        .as_ref()
+        .expect("editor should be set");
     assert!(editor.is_path);
-    assert!(matches!(app.pending_action, Some(PendingAction::ImportSettings)));
+    assert!(matches!(
+        app.pending_action,
+        Some(PendingAction::ImportSettings)
+    ));
 }
 
 #[test]
@@ -2242,7 +2522,10 @@ fn test_new_empty_app_has_no_entries() {
 #[test]
 fn test_new_empty_app_has_path_editor() {
     let app = App::new_empty(default_config()).unwrap();
-    let editor = app.field_editor_state.as_ref().expect("editor should be set");
+    let editor = app
+        .field_editor_state
+        .as_ref()
+        .expect("editor should be set");
     assert!(editor.is_path, "new_empty should open a path editor");
 }
 
@@ -2256,7 +2539,10 @@ fn test_new_empty_app_has_new_file_pending_action() {
 fn test_new_empty_app_cancel_sets_should_quit() {
     let mut app = App::new_empty(default_config()).unwrap();
     app.handle_action(Action::CancelEdit);
-    assert!(app.should_quit, "cancelling on a NewFile prompt should quit");
+    assert!(
+        app.should_quit,
+        "cancelling on a NewFile prompt should quit"
+    );
 }
 
 // ── Month mode in the field editor ───────────────────────────────────────
@@ -2314,7 +2600,10 @@ fn test_edit_cursor_left_in_month_mode_navigates_backward() {
     app.handle_action(Action::EditCursorLeft);
     let val = app.field_editor_state.as_ref().unwrap().value.clone();
     // jan backward → dec
-    assert_eq!(val, "dec", "EditCursorLeft in month mode should go to dec from jan");
+    assert_eq!(
+        val, "dec",
+        "EditCursorLeft in month mode should go to dec from jan"
+    );
 }
 
 #[test]
@@ -2324,7 +2613,10 @@ fn test_edit_cursor_right_in_month_mode_navigates_forward() {
     app.handle_action(Action::EditCursorRight);
     let val = app.field_editor_state.as_ref().unwrap().value.clone();
     // jan forward → feb
-    assert_eq!(val, "feb", "EditCursorRight in month mode should go to feb from jan");
+    assert_eq!(
+        val, "feb",
+        "EditCursorRight in month mode should go to feb from jan"
+    );
 }
 
 #[test]
@@ -2344,7 +2636,10 @@ fn test_edit_cursor_down_in_month_mode_navigates_plus_6() {
     // value starts at "jan" (index 0); +6 → jul (index 6)
     app.handle_action(Action::EditCursorDown);
     let val = app.field_editor_state.as_ref().unwrap().value.clone();
-    assert_eq!(val, "jul", "EditCursorDown in month mode should navigate +6");
+    assert_eq!(
+        val, "jul",
+        "EditCursorDown in month mode should navigate +6"
+    );
 }
 
 #[test]
@@ -2370,11 +2665,24 @@ fn test_month_completions_filtered_by_prefix() {
     app.field_editor_state.as_mut().unwrap().is_month = true;
     app.update_field_completions();
     let completions = app.field_editor_state.as_ref().unwrap().completions.clone();
-    assert!(completions.contains(&"jan".to_string()), "should contain jan");
-    assert!(completions.contains(&"jun".to_string()), "should contain jun");
-    assert!(completions.contains(&"jul".to_string()), "should contain jul");
+    assert!(
+        completions.contains(&"jan".to_string()),
+        "should contain jan"
+    );
+    assert!(
+        completions.contains(&"jun".to_string()),
+        "should contain jun"
+    );
+    assert!(
+        completions.contains(&"jul".to_string()),
+        "should contain jul"
+    );
     for c in &completions {
-        assert!(c.starts_with('j'), "all completions should start with 'j': {}", c);
+        assert!(
+            c.starts_with('j'),
+            "all completions should start with 'j': {}",
+            c
+        );
     }
 }
 
@@ -2402,11 +2710,17 @@ fn test_confirm_edit_normalizes_month() {
     app.detail_entry_key = Some("Smith2020".to_string());
     app.handle_action(Action::ConfirmEdit);
     // The saved value should be normalized to "jan"
-    let saved = app.database.entries.get("Smith2020")
+    let saved = app
+        .database
+        .entries
+        .get("Smith2020")
         .and_then(|e| e.fields.get("month"))
         .cloned()
         .unwrap_or_default();
-    assert_eq!(saved, "jan", "month should be normalized to 3-letter abbreviation");
+    assert_eq!(
+        saved, "jan",
+        "month should be normalized to 3-letter abbreviation"
+    );
 }
 
 #[test]
@@ -2415,7 +2729,7 @@ fn test_advance_phase_sets_is_month_when_field_name_is_month() {
     // and field_name == "month", App should set is_month.
     let (mut app, _tmp) = make_app();
     app.handle_action(Action::OpenDetail); // enter detail
-    // Inject a new-field editor with "month" as the name
+                                           // Inject a new-field editor with "month" as the name
     use crate::tui::components::field_editor::FieldEditorState;
     let mut editor = FieldEditorState::new_field();
     editor.field_name = "month".to_string();
@@ -2425,8 +2739,15 @@ fn test_advance_phase_sets_is_month_when_field_name_is_month() {
     // ConfirmEdit while in name phase → advance to value phase
     app.handle_action(Action::ConfirmEdit);
     // After advancing, is_month should be true
-    let is_month = app.field_editor_state.as_ref().map(|e| e.is_month).unwrap_or(false);
-    assert!(is_month, "is_month should be set after phase transition to 'month' field");
+    let is_month = app
+        .field_editor_state
+        .as_ref()
+        .map(|e| e.is_month)
+        .unwrap_or(false);
+    assert!(
+        is_month,
+        "is_month should be set after phase transition to 'month' field"
+    );
 }
 
 // ── Toggle / show_groups init ────────────────────────────────────────────
@@ -2440,7 +2761,10 @@ fn test_show_groups_respects_config() {
     let mut cfg = default_config();
     cfg.display.show_groups = false;
     let app = App::new(path, cfg).unwrap();
-    assert!(!app.show_groups, "App::new should honour config.display.show_groups");
+    assert!(
+        !app.show_groups,
+        "App::new should honour config.display.show_groups"
+    );
 }
 
 // ── handle_doi_fetch_result ──────────────────────────────────────────────
@@ -2454,14 +2778,22 @@ fn test_handle_doi_fetch_result_sets_doi_field() {
 
     app.handle_doi_fetch_result(
         key.clone(),
-        Ok(("10.1234/test".to_string(), "https://doi.org/10.1234/test".to_string())),
+        Ok((
+            "10.1234/test".to_string(),
+            "https://doi.org/10.1234/test".to_string(),
+        )),
     );
 
     let entry = app.database.entries.get(&key).unwrap();
-    assert_eq!(entry.fields.get("doi").map(String::as_str), Some("10.1234/test"));
+    assert_eq!(
+        entry.fields.get("doi").map(String::as_str),
+        Some("10.1234/test")
+    );
     // URL is redundant (same DOI), so it should NOT be set
-    assert!(entry.fields.get("url").is_none() || entry.fields["url"].is_empty(),
-        "redundant DOI URL should not be stored in url field");
+    assert!(
+        entry.fields.get("url").is_none() || entry.fields["url"].is_empty(),
+        "redundant DOI URL should not be stored in url field"
+    );
 }
 
 #[test]
@@ -2479,7 +2811,10 @@ fn test_handle_doi_fetch_result_sets_distinct_url() {
     );
 
     let entry = app.database.entries.get(&key).unwrap();
-    assert_eq!(entry.fields.get("doi").map(String::as_str), Some("10.1234/test"));
+    assert_eq!(
+        entry.fields.get("doi").map(String::as_str),
+        Some("10.1234/test")
+    );
     assert_eq!(
         entry.fields.get("url").map(String::as_str),
         Some("https://publisher.example.com/article/42")
@@ -2506,18 +2841,22 @@ fn test_handle_doi_fetch_result_already_up_to_date() {
     let key = app.detail_entry_key.clone().unwrap();
 
     // Set doi first
-    app.database.entries.get_mut(&key).unwrap()
-        .fields.insert("doi".to_string(), "10.1234/test".to_string());
+    app.database
+        .entries
+        .get_mut(&key)
+        .unwrap()
+        .fields
+        .insert("doi".to_string(), "10.1234/test".to_string());
 
-    app.handle_doi_fetch_result(
-        key.clone(),
-        Ok(("10.1234/test".to_string(), String::new())),
-    );
+    app.handle_doi_fetch_result(key.clone(), Ok(("10.1234/test".to_string(), String::new())));
 
     // Should report already-up-to-date, not set dirty
     let msg = app.status_message.as_deref().unwrap_or("");
-    assert!(msg.contains("already") || msg.contains("up-to-date"),
-        "expected already-up-to-date message, got: {}", msg);
+    assert!(
+        msg.contains("already") || msg.contains("up-to-date"),
+        "expected already-up-to-date message, got: {}",
+        msg
+    );
 }
 
 #[test]
@@ -2529,7 +2868,11 @@ fn test_handle_doi_fetch_result_error_sets_status() {
     app.handle_doi_fetch_result(key, Err("Network error: timeout".to_string()));
 
     let msg = app.status_message.as_deref().unwrap_or("");
-    assert!(msg.contains("failed") || msg.contains("Network"), "msg: {}", msg);
+    assert!(
+        msg.contains("failed") || msg.contains("Network"),
+        "msg: {}",
+        msg
+    );
 }
 
 #[test]
@@ -2541,7 +2884,10 @@ fn test_handle_doi_fetch_result_pushes_undo() {
 
     app.handle_doi_fetch_result(key, Ok(("10.9999/z".to_string(), String::new())));
 
-    assert!(app.undo_stack.len() > before, "undo record should have been pushed");
+    assert!(
+        app.undo_stack.len() > before,
+        "undo record should have been pushed"
+    );
 }
 
 #[test]
@@ -2563,10 +2909,19 @@ fn test_start_fetch_doi_spawns_background_task() {
     app.handle_action(Action::OpenDetail);
     assert!(app.pending_doi_fetch.is_none());
     app.start_fetch_doi();
-    assert!(app.pending_doi_fetch.is_some(), "background fetch should be pending");
-    assert!(app.status_message.as_deref().unwrap_or("").contains("earch") ||
-            app.status_message.as_deref().unwrap_or("").contains("etch"),
-            "status: {:?}", app.status_message);
+    assert!(
+        app.pending_doi_fetch.is_some(),
+        "background fetch should be pending"
+    );
+    assert!(
+        app.status_message
+            .as_deref()
+            .unwrap_or("")
+            .contains("earch")
+            || app.status_message.as_deref().unwrap_or("").contains("etch"),
+        "status: {:?}",
+        app.status_message
+    );
 }
 
 // ── open_web / ISBN ──────────────────────────────────────────────────────
@@ -2595,15 +2950,25 @@ fn test_open_web_isbn_and_url_shows_picker() {
     // Entry has both isbn and url — expect a picker dialog with 2 options.
     let (mut app, _tmp) = make_isbn_app();
     app.handle_action(Action::OpenWeb);
-    assert_eq!(app.mode, InputMode::Dialog, "should enter dialog mode for picker");
+    assert_eq!(
+        app.mode,
+        InputMode::Dialog,
+        "should enter dialog mode for picker"
+    );
     match &app.pending_action {
         Some(PendingAction::OpenWeb(urls)) => {
             assert_eq!(urls.len(), 2, "should have URL and ISBN options");
             let isbn_url = urls.iter().find(|u| u.contains("openlibrary.org"));
-            assert!(isbn_url.is_some(), "isbn openlibrary.org URL should be in list");
+            assert!(
+                isbn_url.is_some(),
+                "isbn openlibrary.org URL should be in list"
+            );
             // ISBN digits stripped of hyphens/spaces, using search endpoint
-            assert!(isbn_url.unwrap().contains("search?isbn=9780136798477"),
-                "openlibrary URL should use search endpoint with clean ISBN: {}", isbn_url.unwrap());
+            assert!(
+                isbn_url.unwrap().contains("search?isbn=9780136798477"),
+                "openlibrary URL should use search endpoint with clean ISBN: {}",
+                isbn_url.unwrap()
+            );
         }
         other => panic!("expected PendingAction::OpenWeb, got {:?}", other),
     }
@@ -2617,7 +2982,11 @@ fn test_open_web_isbn_hyphenated_strips_cleanly() {
     if let Some(PendingAction::OpenWeb(urls)) = &app.pending_action {
         let isbn_url = urls.iter().find(|u| u.contains("openlibrary.org")).unwrap();
         // Should not contain hyphens in the URL
-        assert!(!isbn_url.contains('-'), "hyphens should be stripped from ISBN URL: {}", isbn_url);
+        assert!(
+            !isbn_url.contains('-'),
+            "hyphens should be stripped from ISBN URL: {}",
+            isbn_url
+        );
     }
 }
 
@@ -2665,8 +3034,12 @@ fn test_sync_entry_filename_no_file_field_shows_status() {
     // Smith2020 has no `file` field.
     app.handle_action(Action::SyncEntryFilename);
     assert!(
-        app.status_message.as_deref().unwrap_or("").contains("No file"),
-        "expected 'No file' status, got: {:?}", app.status_message
+        app.status_message
+            .as_deref()
+            .unwrap_or("")
+            .contains("No file"),
+        "expected 'No file' status, got: {:?}",
+        app.status_message
     );
     assert!(app.undo_stack.is_empty());
 }
@@ -2678,10 +3051,17 @@ fn test_sync_entry_filename_already_matches_no_undo_pushed() {
     let (mut app, _dir, _, _) = make_app_with_file(citekey, citekey);
     app.handle_action(Action::SyncEntryFilename);
     assert!(
-        app.status_message.as_deref().unwrap_or("").contains("already"),
-        "expected 'already matches' status, got: {:?}", app.status_message
+        app.status_message
+            .as_deref()
+            .unwrap_or("")
+            .contains("already"),
+        "expected 'already matches' status, got: {:?}",
+        app.status_message
     );
-    assert!(app.undo_stack.is_empty(), "no undo item should be pushed when nothing changed");
+    assert!(
+        app.undo_stack.is_empty(),
+        "no undo item should be pushed when nothing changed"
+    );
 }
 
 #[test]
@@ -2699,14 +3079,21 @@ fn test_sync_entry_filename_renames_disk_file_and_updates_field() {
 
     // `file` field in the entry is updated.
     let file_val = app.database.entries[&key].fields["file"].clone();
-    assert!(file_val.contains(citekey), "file field should contain new stem: {}", file_val);
+    assert!(
+        file_val.contains(citekey),
+        "file field should contain new stem: {}",
+        file_val
+    );
 
     // Entry is dirty.
     assert!(app.database.entries[&key].dirty);
 
     // An undo item was pushed.
     assert_eq!(app.undo_stack.len(), 1);
-    assert!(matches!(app.undo_stack[0], UndoItem::FilenamesSynced { .. }));
+    assert!(matches!(
+        app.undo_stack[0],
+        UndoItem::FilenamesSynced { .. }
+    ));
 }
 
 #[test]
@@ -2722,7 +3109,10 @@ fn test_sync_entry_filename_undo_reverts_field_and_renames_back() {
     // Undo should rename the file back and restore the field.
     app.handle_action(Action::Undo);
 
-    assert!(old_abs.exists(), "original file should be restored after undo");
+    assert!(
+        old_abs.exists(),
+        "original file should be restored after undo"
+    );
     let new_abs = dir.path().join(format!("{}.pdf", citekey));
     assert!(!new_abs.exists(), "new file should be gone after undo");
 
@@ -2730,7 +3120,8 @@ fn test_sync_entry_filename_undo_reverts_field_and_renames_back() {
     assert_eq!(file_val, old_file_val, "file field should be reverted");
     assert!(
         app.status_message.as_deref().unwrap_or("").contains("Undo"),
-        "status should mention undo, got: {:?}", app.status_message
+        "status should mention undo, got: {:?}",
+        app.status_message
     );
 }
 
@@ -2765,13 +3156,21 @@ fn test_open_web_isbn_with_doi_shows_picker_not_fetch() {
     let mut app = App::new(path, default_config()).unwrap();
     app.handle_action(Action::OpenWeb);
     // Picker shown (2 URLs: doi + isbn) — no browser opened, no DOI fetch
-    assert_eq!(app.mode, InputMode::Dialog, "should show picker for doi + isbn");
-    assert!(app.pending_doi_fetch.is_none(),
-        "should not start DOI fetch when isbn/doi already provide URLs");
+    assert_eq!(
+        app.mode,
+        InputMode::Dialog,
+        "should show picker for doi + isbn"
+    );
+    assert!(
+        app.pending_doi_fetch.is_none(),
+        "should not start DOI fetch when isbn/doi already provide URLs"
+    );
     if let Some(PendingAction::OpenWeb(urls)) = &app.pending_action {
         assert_eq!(urls.len(), 2);
-        assert!(urls.iter().any(|u| u.contains("openlibrary.org")),
-            "isbn openlibrary URL should be present");
+        assert!(
+            urls.iter().any(|u| u.contains("openlibrary.org")),
+            "isbn openlibrary URL should be present"
+        );
     } else {
         panic!("expected PendingAction::OpenWeb");
     }
@@ -2813,9 +3212,20 @@ fn test_parse_field_header_strips_whitespace() {
 fn test_sort_field_candidates_includes_virtual_fields() {
     let (app, _tmp) = make_app();
     let fields = sort_field_candidates(&app.database);
-    for required in ["author", "citation_key", "entrytype", "journal", "title", "year"] {
-        assert!(fields.iter().any(|f| f == required),
-            "expected '{}' in sort fields, got {:?}", required, fields);
+    for required in [
+        "author",
+        "citation_key",
+        "entrytype",
+        "journal",
+        "title",
+        "year",
+    ] {
+        assert!(
+            fields.iter().any(|f| f == required),
+            "expected '{}' in sort fields, got {:?}",
+            required,
+            fields
+        );
     }
 }
 
@@ -2849,8 +3259,15 @@ fn test_action_label_for_field_url_with_cleanup_disabled_falls_through() {
     // Falls through to text-field defaults
     let label = action_label_for_field("url", &cfg);
     // url has no specific match → falls into the `_` arm
-    assert!(["unicode→latex", "esc_underscores", "esc_ampersands",
-             "latex_cleanup", "ordinals", "save_action"].contains(&label));
+    assert!([
+        "unicode→latex",
+        "esc_underscores",
+        "esc_ampersands",
+        "latex_cleanup",
+        "ordinals",
+        "save_action"
+    ]
+    .contains(&label));
 }
 
 #[test]
@@ -2879,7 +3296,10 @@ fn test_action_label_for_field_author_normalize_names() {
     };
     assert_eq!(action_label_for_field("author", &cfg), "normalize_names");
     assert_eq!(action_label_for_field("editor", &cfg), "normalize_names");
-    assert_eq!(action_label_for_field("translator", &cfg), "normalize_names");
+    assert_eq!(
+        action_label_for_field("translator", &cfg),
+        "normalize_names"
+    );
 }
 
 #[test]
@@ -2888,8 +3308,14 @@ fn test_action_label_for_field_journal_abbreviate() {
         save_action_abbreviate_journal: true,
         ..Default::default()
     };
-    assert_eq!(action_label_for_field("journal", &cfg), "abbreviate_journal");
-    assert_eq!(action_label_for_field("journal_full", &cfg), "abbreviate_journal");
+    assert_eq!(
+        action_label_for_field("journal", &cfg),
+        "abbreviate_journal"
+    );
+    assert_eq!(
+        action_label_for_field("journal_full", &cfg),
+        "abbreviate_journal"
+    );
 }
 
 #[test]
@@ -2985,10 +3411,16 @@ fn test_trim_whitespace_is_idempotent() {
     let (mut app, _tmp) = make_padded_app(default_config());
     app.apply_save_actions();
     let first: Vec<(String, String)> = app.database.entries["Pad2020"]
-        .fields.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        .fields
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
     app.apply_save_actions();
     let second: Vec<(String, String)> = app.database.entries["Pad2020"]
-        .fields.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        .fields
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
     assert_eq!(first, second);
     // A second pass finds nothing to change.
     assert!(app.compute_violations().is_empty());
@@ -3000,14 +3432,18 @@ fn test_trim_whitespace_reported_by_validate() {
     let violations = app.compute_violations();
 
     // A field only the trim touches is attributed to the trim action.
-    let doi = violations.iter().find(|v| v.field == "doi")
+    let doi = violations
+        .iter()
+        .find(|v| v.field == "doi")
         .expect("padded doi should be reported");
     assert_eq!(doi.old_value, " 10.1234/abc");
     assert_eq!(doi.new_value, "10.1234/abc");
     assert_eq!(doi.action_name, "trim_whitespace");
 
     // A TEXT field the other actions leave alone is attributed to it too.
-    let title = violations.iter().find(|v| v.field == "title")
+    let title = violations
+        .iter()
+        .find(|v| v.field == "title")
         .expect("padded title should be reported");
     assert_eq!(title.new_value, "A Padded Title");
     assert_eq!(title.action_name, "trim_whitespace");
@@ -3026,7 +3462,8 @@ fn test_trim_whitespace_violations_match_apply() {
     for v in &violations {
         assert_eq!(
             app.database.entries[&v.entry_key].fields[&v.field], v.new_value,
-            "violation for {}.{} did not match the applied value", v.entry_key, v.field
+            "violation for {}.{} did not match the applied value",
+            v.entry_key, v.field
         );
     }
 }
@@ -3040,7 +3477,11 @@ fn test_trim_whitespace_written_to_file() {
     app.save();
 
     let written = std::fs::read_to_string(tmp.path()).unwrap();
-    assert!(written.contains("{University of Texas}"), "got:\n{}", written);
+    assert!(
+        written.contains("{University of Texas}"),
+        "got:\n{}",
+        written
+    );
     assert!(written.contains("{A Padded Title}"), "got:\n{}", written);
     assert!(!written.contains("Texas }"), "got:\n{}", written);
 }
@@ -3050,11 +3491,18 @@ fn test_trim_whitespace_runs_after_space_collapsing() {
     // latex_cleanup collapses "  " to " ", which can leave a single space of
     // padding behind; the trim runs last so the field still ends up clean.
     let mut tmp = NamedTempFile::new().unwrap();
-    write!(tmp, "@Article{{Sp2020,\n  title = {{  Spaced  Title  }},\n  year = {{2020}},\n}}\n").unwrap();
+    write!(
+        tmp,
+        "@Article{{Sp2020,\n  title = {{  Spaced  Title  }},\n  year = {{2020}},\n}}\n"
+    )
+    .unwrap();
     tmp.flush().unwrap();
     let mut app = App::new(tmp.path().to_path_buf(), default_config()).unwrap();
     app.apply_save_actions();
-    assert_eq!(app.database.entries["Sp2020"].fields["title"], "Spaced Title");
+    assert_eq!(
+        app.database.entries["Sp2020"].fields["title"],
+        "Spaced Title"
+    );
 }
 
 // ── collect_group_names / find_group_node ─────────────────────────────────
@@ -3077,22 +3525,36 @@ fn test_select_group_resolves_same_named_groups_by_path() {
     // Two Keyword groups both named "X" under different parents, with
     // different match criteria: the first matches Smith2020 (Nature), the
     // second matches Doe2021 (ACM Press).
-    let x_under_a = make_group_node("X", GroupType::Keyword {
-        field: "journal".to_string(),
-        search_term: "Nature".to_string(),
-        case_sensitive: false,
-        regex: false,
-    }, vec![]);
-    let x_under_b = make_group_node("X", GroupType::Keyword {
-        field: "publisher".to_string(),
-        search_term: "ACM".to_string(),
-        case_sensitive: false,
-        regex: false,
-    }, vec![]);
-    app.database.groups.root.children.push(
-        make_group_node("A", GroupType::Static, vec![x_under_a]));
-    app.database.groups.root.children.push(
-        make_group_node("B", GroupType::Static, vec![x_under_b]));
+    let x_under_a = make_group_node(
+        "X",
+        GroupType::Keyword {
+            field: "journal".to_string(),
+            search_term: "Nature".to_string(),
+            case_sensitive: false,
+            regex: false,
+        },
+        vec![],
+    );
+    let x_under_b = make_group_node(
+        "X",
+        GroupType::Keyword {
+            field: "publisher".to_string(),
+            search_term: "ACM".to_string(),
+            case_sensitive: false,
+            regex: false,
+        },
+        vec![],
+    );
+    app.database.groups.root.children.push(make_group_node(
+        "A",
+        GroupType::Static,
+        vec![x_under_a],
+    ));
+    app.database.groups.root.children.push(make_group_node(
+        "B",
+        GroupType::Static,
+        vec![x_under_b],
+    ));
     app.group_tree_state.refresh(&app.database.groups);
 
     // Flat order: root, A, X(A), B, X(B). Select the second "X" (index 4).
@@ -3140,8 +3602,14 @@ fn test_delete_group_offers_to_strip_memberships() {
 
     for key in ["Smith2020", "Doe2021"] {
         let entry = app.database.entries.get(key).unwrap();
-        assert!(entry.group_memberships.is_empty(), "{key} memberships stripped");
-        assert!(entry.fields.get("groups").is_none(), "{key} groups field dropped");
+        assert!(
+            entry.group_memberships.is_empty(),
+            "{key} memberships stripped"
+        );
+        assert!(
+            entry.fields.get("groups").is_none(),
+            "{key} groups field dropped"
+        );
         assert!(entry.dirty, "{key} marked dirty");
     }
     assert_eq!(app.undo_stack.len(), stack_before + 1, "one batch pushed");
@@ -3189,7 +3657,10 @@ fn test_delete_group_without_members_opens_no_dialog() {
     app.group_tree_state.refresh(&app.database.groups);
 
     app.finish_delete_group(vec![0]);
-    assert!(app.dialog_state.is_none(), "no follow-up dialog without members");
+    assert!(
+        app.dialog_state.is_none(),
+        "no follow-up dialog without members"
+    );
     assert!(app.pending_action.is_none());
 }
 
@@ -3213,13 +3684,11 @@ fn test_collect_group_names_includes_nested() {
     let root = make_group_node(
         "All Entries",
         GroupType::AllEntries,
-        vec![
-            make_group_node(
-                "Physics",
-                GroupType::Static,
-                vec![make_group_node("Quantum", GroupType::Static, vec![])],
-            ),
-        ],
+        vec![make_group_node(
+            "Physics",
+            GroupType::Static,
+            vec![make_group_node("Quantum", GroupType::Static, vec![])],
+        )],
     );
     let mut names = Vec::new();
     collect_group_names(&root, &mut names);
@@ -3266,9 +3735,11 @@ fn test_find_group_node_mut_navigates_path() {
         "Root",
         GroupType::AllEntries,
         vec![
-            make_group_node("A", GroupType::Static, vec![
-                make_group_node("A1", GroupType::Static, vec![]),
-            ]),
+            make_group_node(
+                "A",
+                GroupType::Static,
+                vec![make_group_node("A1", GroupType::Static, vec![])],
+            ),
             make_group_node("B", GroupType::Static, vec![]),
         ],
     );
@@ -3322,7 +3793,8 @@ fn insert_new_entry(app: &mut App, key: &str) {
 fn test_save_writes_dirty_entry_and_preserves_clean_bytes() {
     let (mut app, tmp) = make_app_no_sort();
     if let Some(e) = app.database.entries.get_mut("Smith2020") {
-        e.fields.insert("title".to_string(), "Updated Title".to_string());
+        e.fields
+            .insert("title".to_string(), "Updated Title".to_string());
         e.dirty = true;
     }
     app.save();
@@ -3330,7 +3802,11 @@ fn test_save_writes_dirty_entry_and_preserves_clean_bytes() {
     assert!(out.contains("Updated Title"), "got: {}", out);
     // The untouched entry round-trips byte-for-byte, including alignment.
     let doe_block = "@Book{Doe2021,\n  author    = {Doe, Jane},\n  title     = {Rust Programming},\n  year      = {2021},\n  publisher = {ACM Press},\n}";
-    assert!(out.contains(doe_block), "clean entry must keep original bytes: {}", out);
+    assert!(
+        out.contains(doe_block),
+        "clean entry must keep original bytes: {}",
+        out
+    );
     assert!(app.database.entries.values().all(|e| !e.dirty));
     assert!(!app.dirty);
 }
@@ -3359,7 +3835,8 @@ fn test_save_dirty_entry_preserves_concat_and_string_refs() {
 
     // Edit an unrelated field; entry becomes dirty and is re-serialized.
     if let Some(e) = app.database.entries.get_mut("Concat2020") {
-        e.fields.insert("title".to_string(), "Updated Title".to_string());
+        e.fields
+            .insert("title".to_string(), "Updated Title".to_string());
         e.dirty = true;
     }
     app.save();
@@ -3367,16 +3844,19 @@ fn test_save_dirty_entry_preserves_concat_and_string_refs() {
     assert!(out.contains("Updated Title"), "got: {}", out);
     assert!(
         out.contains("series  = mainseries # {, Part B},"),
-        "concat field bytes must be unchanged: {}", out
+        "concat field bytes must be unchanged: {}",
+        out
     );
     assert!(
         out.contains("journal = jnlref,"),
-        "bare @String reference must be unchanged: {}", out
+        "bare @String reference must be unchanged: {}",
+        out
     );
 
     // A second edit + save must still preserve the untouched raw values.
     if let Some(e) = app.database.entries.get_mut("Concat2020") {
-        e.fields.insert("title".to_string(), "Second Title".to_string());
+        e.fields
+            .insert("title".to_string(), "Second Title".to_string());
         e.dirty = true;
     }
     app.save();
@@ -3384,7 +3864,8 @@ fn test_save_dirty_entry_preserves_concat_and_string_refs() {
     assert!(out.contains("Second Title"), "got: {}", out);
     assert!(
         out.contains("series  = mainseries # {, Part B},"),
-        "concat must survive a second save: {}", out
+        "concat must survive a second save: {}",
+        out
     );
     assert!(out.contains("journal = jnlref,"), "got: {}", out);
     assert!(parse_bib_file(&out).is_ok());
@@ -3394,7 +3875,8 @@ fn test_save_dirty_entry_preserves_concat_and_string_refs() {
 fn test_save_is_atomic_and_leaves_no_tmp_file() {
     let (mut app, tmp) = make_app_no_sort();
     if let Some(e) = app.database.entries.get_mut("Smith2020") {
-        e.fields.insert("title".to_string(), "Atomic Title".to_string());
+        e.fields
+            .insert("title".to_string(), "Atomic Title".to_string());
         e.dirty = true;
     }
     app.save();
@@ -3403,7 +3885,10 @@ fn test_save_is_atomic_and_leaves_no_tmp_file() {
     assert!(out.contains("Atomic Title"), "got: {}", out);
     // The temp file used for the atomic rename must not remain behind.
     let tmp_path = tmp.path().with_extension("bib.tmp");
-    assert!(!tmp_path.exists(), "temp file should be gone after a successful save");
+    assert!(
+        !tmp_path.exists(),
+        "temp file should be gone after a successful save"
+    );
 }
 
 #[test]
@@ -3425,15 +3910,18 @@ fn test_save_failure_preserves_original_file() {
     app.save_io = Box::new(super::review_tests::FailingSaveIo);
 
     if let Some(e) = app.database.entries.get_mut("Smith2020") {
-        e.fields.insert("title".to_string(), "Should Not Persist".to_string());
+        e.fields
+            .insert("title".to_string(), "Should Not Persist".to_string());
         e.dirty = true;
     }
     app.save();
 
     // Original file is unchanged (not truncated).
     let after = std::fs::read_to_string(&bib_path).unwrap();
-    assert_eq!(after, original, "original file must be untouched on save failure");
-
+    assert_eq!(
+        after, original,
+        "original file must be untouched on save failure"
+    );
 }
 
 #[test]
@@ -3473,14 +3961,17 @@ fn test_save_new_entry_then_edit_does_not_duplicate() {
     );
 
     if let Some(e) = app.database.entries.get_mut("New2024") {
-        e.fields.insert("title".to_string(), "Renamed Work".to_string());
+        e.fields
+            .insert("title".to_string(), "Renamed Work".to_string());
         e.dirty = true;
     }
     app.save();
     let out = std::fs::read_to_string(tmp.path()).unwrap();
     assert_eq!(
-        out.matches("@Misc{New2024,").count(), 1,
-        "second save must not duplicate the entry: {}", out
+        out.matches("@Misc{New2024,").count(),
+        1,
+        "second save must not duplicate the entry: {}",
+        out
     );
     assert!(out.contains("Renamed Work"));
     assert!(parse_bib_file(&out).is_ok());
@@ -3502,7 +3993,8 @@ fn test_delete_save_delete_save_removes_correct_entries() {
     let out = std::fs::read_to_string(tmp.path()).unwrap();
     assert!(
         !out.contains("Doe2021"),
-        "second delete must remove the right entry: {}", out
+        "second delete must remove the right entry: {}",
+        out
     );
     assert!(parse_bib_file(&out).is_ok());
 }
@@ -3517,8 +4009,16 @@ fn test_duplicate_entry_then_save_keeps_original() {
     assert!(app.database.entries.contains_key("Doe2021_copy"));
     app.save();
     let out = std::fs::read_to_string(tmp.path()).unwrap();
-    assert!(out.contains("@Book{Doe2021,"), "original must survive save: {}", out);
-    assert!(out.contains("@Book{Doe2021_copy,"), "copy must be written: {}", out);
+    assert!(
+        out.contains("@Book{Doe2021,"),
+        "original must survive save: {}",
+        out
+    );
+    assert!(
+        out.contains("@Book{Doe2021_copy,"),
+        "copy must be written: {}",
+        out
+    );
 }
 
 /// Add + delete in the same session, then save — both effects must land.
@@ -3567,7 +4067,11 @@ fn test_save_sorts_entries_when_configured() {
     let out = std::fs::read_to_string(tmp.path()).unwrap();
     let doe_pos = out.find("Doe2021").unwrap();
     let smith_pos = out.find("Smith2020").unwrap();
-    assert!(doe_pos < smith_pos, "entries must be sorted by citation key: {}", out);
+    assert!(
+        doe_pos < smith_pos,
+        "entries must be sorted by citation key: {}",
+        out
+    );
 }
 
 #[test]
@@ -3583,7 +4087,11 @@ fn test_app_warns_on_duplicate_citation_keys() {
     let msg = app.status_message.clone().unwrap_or_default();
     assert!(msg.contains("duplicate"), "got: {}", msg);
     assert!(msg.contains("k1"), "got: {}", msg);
-    assert!(msg.contains("renamed"), "warning must say copies were renamed: {}", msg);
+    assert!(
+        msg.contains("renamed"),
+        "warning must say copies were renamed: {}",
+        msg
+    );
     // Both copies are kept; the later one is renamed.
     assert_eq!(app.database.entries.len(), 2);
     assert!(app.database.entries.contains_key("k1"));
@@ -3613,8 +4121,16 @@ fn test_save_with_duplicate_keys_keeps_both_entries() {
     let out = std::fs::read_to_string(tmp.path()).unwrap();
     assert_eq!(out.matches("@Article{k1,").count(), 1, "got: {}", out);
     assert_eq!(out.matches("@Article{k1_dup2,").count(), 1, "got: {}", out);
-    assert!(out.contains("{A}"), "first copy's content must survive: {}", out);
-    assert!(out.contains("{B}"), "second copy's content must survive: {}", out);
+    assert!(
+        out.contains("{A}"),
+        "first copy's content must survive: {}",
+        out
+    );
+    assert!(
+        out.contains("{B}"),
+        "second copy's content must survive: {}",
+        out
+    );
 
     // A further edit to the renamed copy must land in its own raw slot.
     if let Some(e) = app.database.entries.get_mut("k1_dup2") {
@@ -3816,7 +4332,11 @@ fn test_handle_import_result_success_adds_entry() {
     assert!(entry.dirty);
     assert_eq!(entry.raw_index, usize::MAX);
     // Title is titlecased and brace-protected.
-    assert!(entry.fields["title"].starts_with('{'), "got: {:?}", entry.fields["title"]);
+    assert!(
+        entry.fields["title"].starts_with('{'),
+        "got: {:?}",
+        entry.fields["title"]
+    );
     assert!(app.detail_entry_key.as_deref() == Some(key.as_str()));
     assert!(app.status_message.unwrap().contains("Imported entry"));
 }
@@ -3842,8 +4362,12 @@ fn test_handle_import_result_doi_keeps_trailing_slash() {
     let mut imported = imported_article();
     // A trailing slash can be a meaningful part of a DOI; only whitespace
     // may be trimmed. URLs still get their trailing slash removed.
-    imported.fields.insert("doi".to_string(), " 10.1000/xyz/ ".to_string());
-    imported.fields.insert("url".to_string(), "https://example.org/paper/".to_string());
+    imported
+        .fields
+        .insert("doi".to_string(), " 10.1000/xyz/ ".to_string());
+    imported
+        .fields
+        .insert("url".to_string(), "https://example.org/paper/".to_string());
     app.handle_import_result(Ok(imported));
     let entry = app
         .database
@@ -4045,7 +4569,10 @@ fn test_render_main_screen_with_status_message() {
     let (mut app, _tmp) = make_app();
     app.status_message = Some("hello status".to_string());
     let content = render_to_string(&mut app, 120, 30);
-    assert!(content.contains("hello status"), "status bar should show message");
+    assert!(
+        content.contains("hello status"),
+        "status bar should show message"
+    );
 }
 
 #[test]
@@ -4054,7 +4581,10 @@ fn test_render_edit_screen_shows_fields() {
     app.open_detail();
     assert!(app.detail_state.is_some());
     let content = render_to_string(&mut app, 120, 30);
-    assert!(content.contains("author"), "detail screen should show field names");
+    assert!(
+        content.contains("author"),
+        "detail screen should show field names"
+    );
 }
 
 #[test]
@@ -4063,7 +4593,10 @@ fn test_render_settings_screen() {
     app.settings_state = Some(SettingsState::new(&app.config));
     app.mode = InputMode::Settings;
     let content = render_to_string(&mut app, 120, 40);
-    assert!(!content.trim().is_empty(), "settings screen should render content");
+    assert!(
+        !content.trim().is_empty(),
+        "settings screen should render content"
+    );
 }
 
 #[test]
@@ -4105,10 +4638,7 @@ fn test_render_dialog_variants() {
     let cases: Vec<(DialogState, &str)> = vec![
         (DialogState::message("Info", "All good"), "All good"),
         (
-            DialogState::file_sync_preview(vec![(
-                "old.pdf".to_string(),
-                "new.pdf".to_string(),
-            )]),
+            DialogState::file_sync_preview(vec![("old.pdf".to_string(), "new.pdf".to_string())]),
             "old.pdf",
         ),
         (
@@ -4135,7 +4665,11 @@ fn test_render_dialog_variants() {
         app.dialog_state = Some(dialog);
         app.mode = InputMode::Dialog;
         let content = render_to_string(&mut app, 100, 30);
-        assert!(content.contains(expected), "dialog should render {:?}", expected);
+        assert!(
+            content.contains(expected),
+            "dialog should render {:?}",
+            expected
+        );
     }
 }
 
@@ -4160,7 +4694,10 @@ fn test_render_delete_dialog_shows_full_filename() {
         "delete dialog should show the whole filename, got:\n{}",
         content
     );
-    assert!(content.contains("Delete 'Smith2020'"), "title should be intact");
+    assert!(
+        content.contains("Delete 'Smith2020'"),
+        "title should be intact"
+    );
 }
 
 #[test]
@@ -4216,12 +4753,25 @@ fn test_render_tiny_terminal_does_not_panic() {
 fn test_render_main_screen_with_filtered_indices() {
     // A search filter narrows the list to a subset of sorted_keys.
     let (mut app, _tmp) = make_app();
-    let smith_idx = app.sorted_keys.iter().position(|k| k == "Smith2020").unwrap();
+    let smith_idx = app
+        .sorted_keys
+        .iter()
+        .position(|k| k == "Smith2020")
+        .unwrap();
     app.filtered_indices = Some(vec![smith_idx]);
     let content = render_to_string(&mut app, 100, 20);
-    assert!(content.contains("Smith2020"), "filtered entry should render");
-    assert!(!content.contains("Doe2021"), "filtered-out entry should not render");
-    assert!(content.contains("1 entries"), "status bar counts filtered entries");
+    assert!(
+        content.contains("Smith2020"),
+        "filtered entry should render"
+    );
+    assert!(
+        !content.contains("Doe2021"),
+        "filtered-out entry should not render"
+    );
+    assert!(
+        content.contains("1 entries"),
+        "status bar counts filtered entries"
+    );
 }
 
 #[test]
@@ -4250,7 +4800,10 @@ fn test_render_main_screen_search_mode_shows_search_bar() {
     app.mode = InputMode::Search;
     app.search_bar_state.query = "smith".to_string();
     let content = render_to_string(&mut app, 100, 20);
-    assert!(content.contains("smith"), "active search query should render");
+    assert!(
+        content.contains("smith"),
+        "active search query should render"
+    );
 }
 
 #[test]
@@ -4259,7 +4812,10 @@ fn test_render_main_screen_command_mode_shows_palette() {
     app.handle_action(Action::EnterCommand);
     app.handle_action(Action::CommandChar('s'));
     let content = render_to_string(&mut app, 100, 20);
-    assert!(content.contains(":s"), "command palette prompt should render");
+    assert!(
+        content.contains(":s"),
+        "command palette prompt should render"
+    );
 }
 
 #[test]
@@ -4267,7 +4823,10 @@ fn test_render_main_screen_field_editor_overlay() {
     let (mut app, _tmp) = make_app();
     app.field_editor_state = Some(FieldEditorState::new("group name", "Physics"));
     let content = render_to_string(&mut app, 100, 20);
-    assert!(content.contains("Physics"), "field editor overlay should render");
+    assert!(
+        content.contains("Physics"),
+        "field editor overlay should render"
+    );
 }
 
 #[test]
@@ -4280,7 +4839,10 @@ fn test_render_main_screen_citation_preview_overlay() {
         style_name: "ieeetran".to_string(),
     });
     let content = render_to_string(&mut app, 100, 20);
-    assert!(content.contains("My Paper"), "citation preview should render");
+    assert!(
+        content.contains("My Paper"),
+        "citation preview should render"
+    );
 }
 
 #[test]
@@ -4294,7 +4856,10 @@ fn test_render_main_screen_validate_results_overlay() {
         action_name: "titlecase",
     }]));
     let content = render_to_string(&mut app, 100, 20);
-    assert!(content.contains("Smith2020"), "validate overlay should render");
+    assert!(
+        content.contains("Smith2020"),
+        "validate overlay should render"
+    );
 }
 
 #[test]
@@ -4361,7 +4926,9 @@ struct MockOpener {
 
 impl crate::util::open::Opener for MockOpener {
     fn open_path(&self, path: &std::path::Path) -> Result<()> {
-        self.opened.borrow_mut().push(format!("path:{}", path.display()));
+        self.opened
+            .borrow_mut()
+            .push(format!("path:{}", path.display()));
         Ok(())
     }
     fn open_url(&self, url: &str) -> Result<()> {
@@ -4373,7 +4940,9 @@ impl crate::util::open::Opener for MockOpener {
 /// Install a recording opener on `app`; returns the shared open log.
 fn install_mock_opener(app: &mut App) -> Rc<RefCell<Vec<String>>> {
     let opened = Rc::new(RefCell::new(Vec::new()));
-    app.opener = Box::new(MockOpener { opened: Rc::clone(&opened) });
+    app.opener = Box::new(MockOpener {
+        opened: Rc::clone(&opened),
+    });
     opened
 }
 
@@ -4387,7 +4956,10 @@ fn test_yank_citekey_prompt_format_opens_picker() {
     assert!(copied.borrow().is_empty());
     assert!(app.dialog_state.is_some());
     assert_eq!(app.mode, InputMode::Dialog);
-    assert!(matches!(app.pending_action, Some(PendingAction::YankPrompt { .. })));
+    assert!(matches!(
+        app.pending_action,
+        Some(PendingAction::YankPrompt { .. })
+    ));
 }
 
 #[test]
@@ -4398,7 +4970,11 @@ fn test_yank_citekey_direct_format_copies_key() {
     app.handle_action(Action::YankCitekey);
     // First entry in citation_key sort order is Doe2021.
     assert_eq!(copied.borrow().as_slice(), ["Doe2021"]);
-    assert!(app.status_message.as_deref().unwrap().contains("Copied key 'Doe2021'"));
+    assert!(app
+        .status_message
+        .as_deref()
+        .unwrap()
+        .contains("Copied key 'Doe2021'"));
 }
 
 #[test]
@@ -4420,7 +4996,11 @@ fn test_do_yank_citation_copies_formatted_citation() {
     let copied = copied.borrow();
     assert_eq!(copied.len(), 1);
     assert!(copied[0].contains("Smith"));
-    assert!(app.status_message.as_deref().unwrap().contains("citation for 'Smith2020'"));
+    assert!(app
+        .status_message
+        .as_deref()
+        .unwrap()
+        .contains("citation for 'Smith2020'"));
 }
 
 #[test]
@@ -4432,7 +5012,11 @@ fn test_do_yank_clipboard_error_sets_status() {
         fail: true,
     });
     app.do_yank("Smith2020", "citation_key");
-    assert!(app.status_message.as_deref().unwrap().contains("Clipboard error"));
+    assert!(app
+        .status_message
+        .as_deref()
+        .unwrap()
+        .contains("Clipboard error"));
 }
 
 #[test]
@@ -4465,7 +5049,10 @@ fn test_edit_yank_copies_field_value_and_sets_register() {
     app.field_editor_state = Some(FieldEditorState::new("title", "Hello"));
     app.handle_field_editor_action(Action::EditYank);
     assert_eq!(copied.borrow().as_slice(), ["Hello"]);
-    assert_eq!(app.field_editor_state.as_ref().unwrap().unnamed_register, "Hello");
+    assert_eq!(
+        app.field_editor_state.as_ref().unwrap().unnamed_register,
+        "Hello"
+    );
 }
 
 #[test]
@@ -4478,7 +5065,12 @@ fn test_edit_put_falls_back_to_clipboard() {
     });
     app.field_editor_state = Some(FieldEditorState::new("title", ""));
     app.handle_field_editor_action(Action::EditPut);
-    assert!(app.field_editor_state.as_ref().unwrap().value.contains("pasted"));
+    assert!(app
+        .field_editor_state
+        .as_ref()
+        .unwrap()
+        .value
+        .contains("pasted"));
 }
 
 #[test]
@@ -4518,7 +5110,11 @@ fn test_open_file_no_attachment_sets_status() {
     let opened = install_mock_opener(&mut app);
     app.open_file();
     assert!(opened.borrow().is_empty());
-    assert!(app.status_message.as_deref().unwrap().contains("No file attached"));
+    assert!(app
+        .status_message
+        .as_deref()
+        .unwrap()
+        .contains("No file attached"));
 }
 
 #[test]
@@ -4526,10 +5122,14 @@ fn test_open_web_single_doi_opens_url() {
     let (mut app, _tmp) = make_app();
     let opened = install_mock_opener(&mut app);
     if let Some(e) = app.database.entries.get_mut("Doe2021") {
-        e.fields.insert("doi".to_string(), "10.1000/xyz".to_string());
+        e.fields
+            .insert("doi".to_string(), "10.1000/xyz".to_string());
     }
     app.open_web(); // Doe2021 is the selected entry
-    assert_eq!(opened.borrow().as_slice(), ["url:https://doi.org/10.1000/xyz"]);
+    assert_eq!(
+        opened.borrow().as_slice(),
+        ["url:https://doi.org/10.1000/xyz"]
+    );
 }
 
 #[test]
@@ -4649,8 +5249,6 @@ fn test_edit_put_clipboard_multiline_collapsed() {
         "xLine One Line Two"
     );
 }
-
-
 
 #[test]
 fn test_dialog_move_to_top_bottom_and_page() {

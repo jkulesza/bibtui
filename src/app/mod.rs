@@ -7,41 +7,45 @@ use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
 use indexmap::IndexMap;
 
 use crate::bib::citekey::generate_citekey;
-use crate::bib::normalize::{
-    cleanup_url, escape_ampersands, escape_underscores, latex_cleanup,
-    normalize_date, normalize_isbn, normalize_month, normalize_page_numbers,
-    ordinals_to_superscript, trim_field_whitespace, unicode_to_latex,
-};
 use crate::bib::jabref::serialize_group_tree;
 use crate::bib::model::*;
-use crate::util::clipboard::{Clipboard, SystemClipboard};
-use crate::util::open::{effective_file_dir, parse_file_field, serialize_file_field, Opener, SystemOpener};
-use crate::tui::components::citation_preview::CitationPreviewState;
-use crate::tui::components::help::{HelpContext, HelpState};
-use crate::tui::components::name_disambig::{NameCluster, NameDisambigState, NamePreview, NameVariant};
-use crate::tui::components::validate_results::{Violation, ValidateResultsState};
-use crate::util::citation::format_citation;
-use crate::util::export::{export_csl_json, export_ris};
+use crate::bib::normalize::{
+    cleanup_url, escape_ampersands, escape_underscores, latex_cleanup, normalize_date,
+    normalize_isbn, normalize_month, normalize_page_numbers, ordinals_to_superscript,
+    trim_field_whitespace, unicode_to_latex,
+};
 use crate::bib::parser::{build_database, parse_bib_file};
 use crate::bib::writer::{merged_raw_fields, serialize_entry, write_bib_file};
 use crate::config::schema::{Config, SortConfig};
 use crate::search::engine::SearchEngine;
 use crate::search::filter::filter_by_group;
+use crate::tui::components::citation_preview::CitationPreviewState;
 use crate::tui::components::command_palette::CommandPaletteState;
 use crate::tui::components::dialog::{DialogKind, DialogState};
 use crate::tui::components::entry_detail::EntryDetailState;
 use crate::tui::components::entry_list::EntryListState;
 use crate::tui::components::field_editor::{collapse_newlines, EditingMode, FieldEditorState};
 use crate::tui::components::group_tree::GroupTreeState;
+use crate::tui::components::help::{HelpContext, HelpState};
+use crate::tui::components::name_disambig::{
+    NameCluster, NameDisambigState, NamePreview, NameVariant,
+};
 use crate::tui::components::search_bar::SearchBarState;
+use crate::tui::components::settings::{SettingValue, SettingsState};
+use crate::tui::components::validate_results::{ValidateResultsState, Violation};
 use crate::tui::event::poll_event;
 use crate::tui::keybindings::{build_user_bindings, map_key, InputMode};
-use crate::tui::components::settings::{SettingValue, SettingsState};
-use crate::tui::screens::main_screen::{render_main_screen, Focus};
 use crate::tui::screens::edit_screen::render_edit_screen;
+use crate::tui::screens::main_screen::{render_main_screen, Focus};
 use crate::tui::screens::settings_screen::render_settings_screen;
 use crate::tui::theme::Theme;
 use crate::tui::Term;
+use crate::util::citation::format_citation;
+use crate::util::clipboard::{Clipboard, SystemClipboard};
+use crate::util::export::{export_csl_json, export_ris};
+use crate::util::open::{
+    effective_file_dir, parse_file_field, serialize_file_field, Opener, SystemOpener,
+};
 
 mod actions;
 mod completions;
@@ -50,10 +54,10 @@ mod groups;
 mod import;
 mod name_disambig;
 mod save;
+pub use actions::Action;
+use actions::{PendingAction, UndoItem, MAX_UNDO};
 use completions::*;
 use save::*;
-pub use actions::Action;
-use actions::{UndoItem, PendingAction, MAX_UNDO};
 
 /// Channel for a background DOI-from-metadata lookup: Ok((doi, url)) or an error message.
 type DoiFetchReceiver = mpsc::Receiver<Result<(String, String), String>>;
@@ -166,7 +170,14 @@ impl App {
                 .with_context(|| format!("Failed to parse {}", bib_path.display()))?;
             (raw, false, Some(content.into_bytes()))
         } else {
-            (RawBibFile { items: vec![], ..Default::default() }, true, None)
+            (
+                RawBibFile {
+                    items: vec![],
+                    ..Default::default()
+                },
+                true,
+                None,
+            )
         };
         let database = build_database(raw);
 
@@ -205,10 +216,7 @@ impl App {
         }
         let parse_warnings = &database.raw_file.warnings;
         if !parse_warnings.is_empty() {
-            let lines: Vec<String> = parse_warnings
-                .iter()
-                .map(|w| w.line.to_string())
-                .collect();
+            let lines: Vec<String> = parse_warnings.iter().map(|w| w.line.to_string()).collect();
             let warning = format!(
                 "Parse warning: skipped {} malformed item(s) at line(s) {} (bytes preserved)",
                 parse_warnings.len(),
@@ -318,10 +326,7 @@ impl App {
             search_bar_state: SearchBarState::new(),
             detail_state: None,
             detail_entry_key: None,
-            field_editor_state: Some(FieldEditorState::for_path(
-                "Save new library as",
-                "",
-            )),
+            field_editor_state: Some(FieldEditorState::for_path("Save new library as", "")),
             dialog_state: None,
             command_palette_state: CommandPaletteState::new(),
             citation_preview_state: None,
@@ -366,7 +371,9 @@ impl App {
                 self.handle_event(event);
                 needs_redraw = true;
             }
-            if self.poll_search() { needs_redraw = true; }
+            if self.poll_search() {
+                needs_redraw = true;
+            }
             // Poll background import task
             if self.pending_import.is_some() {
                 match self.pending_import.as_ref().unwrap().try_recv() {
@@ -390,12 +397,7 @@ impl App {
             }
             // Poll background DOI-from-metadata lookup
             if self.pending_doi_fetch.is_some() {
-                let result = self
-                    .pending_doi_fetch
-                    .as_ref()
-                    .unwrap()
-                    .1
-                    .try_recv();
+                let result = self.pending_doi_fetch.as_ref().unwrap().1.try_recv();
                 match result {
                     Ok(fetch_result) => {
                         let entry_key = self.pending_doi_fetch.take().unwrap().0;
@@ -420,7 +422,9 @@ impl App {
     }
 
     fn render(&mut self, f: &mut ratatui::Frame) {
-        if self.view_dirty { self.refresh_view(); }
+        if self.view_dirty {
+            self.refresh_view();
+        }
         if self.settings_state.is_some() {
             render_settings_screen(f, self);
         } else if self.detail_state.is_some() {
@@ -461,7 +465,9 @@ impl App {
         }
         match self.mode {
             InputMode::Search => {
-                self.search_bar_state.query.insert_str(self.search_bar_state.cursor, &text);
+                self.search_bar_state
+                    .query
+                    .insert_str(self.search_bar_state.cursor, &text);
                 self.search_bar_state.cursor += text.len();
                 self.update_search();
             }
@@ -480,7 +486,9 @@ impl App {
     }
 
     fn handle_key(&mut self, mut key: KeyEvent) {
-        if key.kind == KeyEventKind::Release { return; }
+        if key.kind == KeyEventKind::Release {
+            return;
+        }
         let repeat = key.kind == KeyEventKind::Repeat;
         key.kind = KeyEventKind::Press; // user bindings describe keys, not backend event kinds
 
@@ -490,17 +498,17 @@ impl App {
 
         // Update key-history tracking.  Only char keys advance the chain;
         // non-char keys (arrows, Esc, …) reset both slots.
-        if !repeat { match key.code {
-            KeyCode::Char(c) => {
-                self.second_last_key = self.last_key;
-                self.last_key = Some(c);
+        if !repeat {
+            match key.code {
+                KeyCode::Char(c) => {
+                    self.second_last_key = self.last_key;
+                    self.last_key = Some(c);
+                }
+                _ => {
+                    self.second_last_key = None;
+                    self.last_key = None;
+                }
             }
-            _ => {
-                self.second_last_key = None;
-                self.last_key = None;
-            }
-        }
-
         }
 
         let is_message_dialog = matches!(
@@ -516,7 +524,9 @@ impl App {
 
         // User-configured bindings override built-in defaults.
         let current_mode = self.mode.clone();
-        if let Some(action) = self.user_bindings.iter()
+        if let Some(action) = self
+            .user_bindings
+            .iter()
             .find(|(m, k, _)| *m == current_mode && *k == key)
             .map(|(_, _, a)| a.clone())
         {
@@ -524,7 +534,14 @@ impl App {
             return;
         }
 
-        if let Some(action) = map_key(key, &self.mode, second_last, last, is_message_dialog, edit_normal) {
+        if let Some(action) = map_key(
+            key,
+            &self.mode,
+            second_last,
+            last,
+            is_message_dialog,
+            edit_normal,
+        ) {
             self.dispatch_key_action(action, repeat);
         }
     }
@@ -532,16 +549,34 @@ impl App {
     fn dispatch_key_action(&mut self, action: Action, repeat: bool) {
         // Repeats support navigation and text editing, but cannot finish a
         // multi-key command or repeat destructive library/dialog actions.
-        if !repeat || matches!(action,
-            Action::MoveDown | Action::MoveUp | Action::PageDown | Action::PageUp
-            | Action::EditCursorLeft | Action::EditCursorRight | Action::EditCursorUp
-            | Action::EditCursorDown | Action::EditCursorHome | Action::EditCursorEnd
-            | Action::EditChar(_) | Action::EditBackspace | Action::EditDelete
-            | Action::SearchChar(_) | Action::SearchBackspace
-            | Action::DetailSearchChar(_) | Action::DetailSearchBackspace
-            | Action::CommandChar(_) | Action::CommandBackspace
-            | Action::SettingsMoveDown | Action::SettingsMoveUp
-            | Action::SettingsPageDown | Action::SettingsPageUp) {
+        if !repeat
+            || matches!(
+                action,
+                Action::MoveDown
+                    | Action::MoveUp
+                    | Action::PageDown
+                    | Action::PageUp
+                    | Action::EditCursorLeft
+                    | Action::EditCursorRight
+                    | Action::EditCursorUp
+                    | Action::EditCursorDown
+                    | Action::EditCursorHome
+                    | Action::EditCursorEnd
+                    | Action::EditChar(_)
+                    | Action::EditBackspace
+                    | Action::EditDelete
+                    | Action::SearchChar(_)
+                    | Action::SearchBackspace
+                    | Action::DetailSearchChar(_)
+                    | Action::DetailSearchBackspace
+                    | Action::CommandChar(_)
+                    | Action::CommandBackspace
+                    | Action::SettingsMoveDown
+                    | Action::SettingsMoveUp
+                    | Action::SettingsPageDown
+                    | Action::SettingsPageUp
+            )
+        {
             self.handle_action(action);
         }
     }
@@ -630,11 +665,17 @@ impl App {
                     self.status_message = Some("Search cleared".to_string());
                 } else {
                     let current = &self.config.display.default_sort;
-                    if current.field != self.default_sort.field || current.ascending != self.default_sort.ascending {
+                    if current.field != self.default_sort.field
+                        || current.ascending != self.default_sort.ascending
+                    {
                         self.config.display.default_sort = self.default_sort.clone();
                         self.refresh_view();
                         self.entry_list_state.select(0);
-                        let dir = if self.default_sort.ascending { "↑" } else { "↓" };
+                        let dir = if self.default_sort.ascending {
+                            "↑"
+                        } else {
+                            "↓"
+                        };
                         self.status_message = Some(format!(
                             "Sort reset to default: {} {}",
                             self.default_sort.field, dir
@@ -668,7 +709,9 @@ impl App {
             Action::OpenDetail => self.open_detail(),
             Action::CloseDetail => {
                 // If a search is active, Esc first clears the search; second Esc closes detail.
-                let has_search = self.detail_state.as_ref()
+                let has_search = self
+                    .detail_state
+                    .as_ref()
                     .map(|d| !d.search_query.is_empty())
                     .unwrap_or(false);
                 if has_search {
@@ -725,8 +768,7 @@ impl App {
             Action::SyncFilenames => self.request_sync_filenames(),
             Action::ConfirmEdit => self.confirm_edit(),
             Action::CancelEdit => {
-                let is_new_file =
-                    matches!(self.pending_action, Some(PendingAction::NewFile));
+                let is_new_file = matches!(self.pending_action, Some(PendingAction::NewFile));
                 self.field_editor_state = None;
                 self.pending_action = None;
                 if is_new_file {
@@ -858,9 +900,7 @@ impl App {
                             self.status_message =
                                 Some(format!("Copied citation for '{}' to clipboard", key))
                         }
-                        Err(e) => {
-                            self.status_message = Some(format!("Clipboard error: {}", e))
-                        }
+                        Err(e) => self.status_message = Some(format!("Clipboard error: {}", e)),
                     }
                 }
             }
@@ -872,10 +912,7 @@ impl App {
                 if count == 0 {
                     self.status_message = Some("All entries are valid".to_string());
                 } else {
-                    self.status_message = Some(format!(
-                        "{} field(s) would change on save",
-                        count
-                    ));
+                    self.status_message = Some(format!("{} field(s) would change on save", count));
                 }
             }
             Action::CloseValidateResults => {
@@ -928,12 +965,11 @@ impl App {
                         for (key, entry) in &self.database.entries {
                             for &field in Self::NAME_FIELDS {
                                 if let Some(val) = entry.fields.get(field) {
-                                    let has_name = val.split(" and ")
-                                        .any(|n| n.trim() == variant_name);
+                                    let has_name =
+                                        val.split(" and ").any(|n| n.trim() == variant_name);
                                     if has_name {
-                                        let title = entry.fields.get("title")
-                                            .cloned()
-                                            .unwrap_or_default();
+                                        let title =
+                                            entry.fields.get("title").cloned().unwrap_or_default();
                                         entries.push(format!("{} — {}", key, title));
                                         break;
                                     }
@@ -1004,7 +1040,10 @@ impl App {
                     if let DialogKind::Message { message, .. } = &dialog.kind {
                         let text = message.clone();
                         match self.clipboard.copy(&text) {
-                            Ok(()) => self.status_message = Some("Error message copied to clipboard".to_string()),
+                            Ok(()) => {
+                                self.status_message =
+                                    Some("Error message copied to clipboard".to_string())
+                            }
                             Err(e) => self.status_message = Some(format!("Clipboard error: {}", e)),
                         }
                     }
@@ -1090,14 +1129,18 @@ impl App {
             // ── Import / Export ──
             Action::ImportEntry => self.start_import_entry(),
             Action::ExportJson => {
-                self.field_editor_state =
-                    Some(FieldEditorState::for_path("Export path (CSL-JSON)", "export.json"));
+                self.field_editor_state = Some(FieldEditorState::for_path(
+                    "Export path (CSL-JSON)",
+                    "export.json",
+                ));
                 self.pending_action = Some(PendingAction::ExportJson);
                 self.mode = InputMode::Editing;
             }
             Action::ExportRis => {
-                self.field_editor_state =
-                    Some(FieldEditorState::for_path("Export path (RIS)", "export.ris"));
+                self.field_editor_state = Some(FieldEditorState::for_path(
+                    "Export path (RIS)",
+                    "export.ris",
+                ));
                 self.pending_action = Some(PendingAction::ExportRis);
                 self.mode = InputMode::Editing;
             }
@@ -1121,7 +1164,9 @@ impl App {
             Action::EditTabComplete => self.do_field_tab_complete_dir(true),
             Action::EditTabCompleteReverse => self.do_field_tab_complete_dir(false),
         }
-        if self.view_dirty { self.refresh_view(); }
+        if self.view_dirty {
+            self.refresh_view();
+        }
     }
 
     // ── Navigation ──
@@ -1210,12 +1255,20 @@ impl App {
     /// Rebuild sort and all active filters together. Stored offsets never
     /// survive a change to the vector they index. Preserve selection by key.
     fn refresh_view(&mut self) {
-        let selected = self.selected_entry_key().or_else(|| self.pending_search_selection.clone());
+        let selected = self
+            .selected_entry_key()
+            .or_else(|| self.pending_search_selection.clone());
         let old_position = self.entry_list_state.selected();
         self.sorted_keys = sort_entries(&self.database.entries, &self.config);
-        let entries: Vec<&Entry> = self.sorted_keys.iter()
-            .filter_map(|key| self.database.entries.get(key)).collect();
-        let group = self.group_tree_state.active_path.as_deref()
+        let entries: Vec<&Entry> = self
+            .sorted_keys
+            .iter()
+            .filter_map(|key| self.database.entries.get(key))
+            .collect();
+        let group = self
+            .group_tree_state
+            .active_path
+            .as_deref()
             .and_then(|path| groups::find_group_node_by_path(&self.database.groups.root, path));
         let group_indices = group.map(|node| filter_by_group(&entries, node));
         if let Some(node) = group {
@@ -1231,39 +1284,84 @@ impl App {
         self.filtered_indices = if self.search_bar_state.query.is_empty() {
             group_indices
         } else if entries.len() > crate::search::worker::BACKGROUND_THRESHOLD {
-            self.pending_search_group = group_indices.map(|indices| indices.into_iter()
-                .map(|index| entries[index].citation_key.clone()).collect());
+            self.pending_search_group = group_indices.map(|indices| {
+                indices
+                    .into_iter()
+                    .map(|index| entries[index].citation_key.clone())
+                    .collect()
+            });
             self.pending_search_selection = selected.clone();
-            self.search_worker.submit(&entries, &self.search_bar_state.query, self.search_cache_dirty);
+            self.search_worker.submit(
+                &entries,
+                &self.search_bar_state.query,
+                self.search_cache_dirty,
+            );
             self.search_cache_dirty = false;
             self.search_bar_state.searching = true;
             Some(Vec::new())
         } else {
-            let allowed = group_indices.map(|indices| indices.into_iter().collect::<std::collections::HashSet<_>>());
-            Some(self.search_engine.search(&entries, &self.search_bar_state.query).into_iter()
-                .map(|(index, _)| index)
-                .filter(|index| allowed.as_ref().is_none_or(|allowed| allowed.contains(index))).collect())
+            let allowed = group_indices.map(|indices| {
+                indices
+                    .into_iter()
+                    .collect::<std::collections::HashSet<_>>()
+            });
+            Some(
+                self.search_engine
+                    .search(&entries, &self.search_bar_state.query)
+                    .into_iter()
+                    .map(|(index, _)| index)
+                    .filter(|index| {
+                        allowed
+                            .as_ref()
+                            .is_none_or(|allowed| allowed.contains(index))
+                    })
+                    .collect(),
+            )
         };
         let count = self.visible_entry_count();
         self.search_bar_state.result_count = count;
         let selected_index = selected.and_then(|key| {
             if let Some(indices) = &self.filtered_indices {
                 indices.iter().position(|&i| self.sorted_keys[i] == key)
-            } else { self.sorted_keys.iter().position(|candidate| *candidate == key) }
+            } else {
+                self.sorted_keys
+                    .iter()
+                    .position(|candidate| *candidate == key)
+            }
         });
-        self.entry_list_state.select(selected_index.unwrap_or(old_position.min(count.saturating_sub(1))));
+        self.entry_list_state
+            .select(selected_index.unwrap_or(old_position.min(count.saturating_sub(1))));
         self.view_dirty = false;
     }
 
     fn poll_search(&mut self) -> bool {
-        let Some(keys) = self.search_worker.poll() else { return false };
-        let positions: std::collections::HashMap<&str, usize> = self.sorted_keys.iter()
-            .enumerate().map(|(index, key)| (key.as_str(), index)).collect();
-        let indices: Vec<usize> = keys.iter()
-            .filter(|key| self.pending_search_group.as_ref().is_none_or(|group| group.contains(*key)))
-            .filter_map(|key| positions.get(key.as_str()).copied()).collect();
-        let selection = self.pending_search_selection.take().and_then(|key|
-            indices.iter().position(|&index| self.sorted_keys[index] == key)).unwrap_or(0);
+        let Some(keys) = self.search_worker.poll() else {
+            return false;
+        };
+        let positions: std::collections::HashMap<&str, usize> = self
+            .sorted_keys
+            .iter()
+            .enumerate()
+            .map(|(index, key)| (key.as_str(), index))
+            .collect();
+        let indices: Vec<usize> = keys
+            .iter()
+            .filter(|key| {
+                self.pending_search_group
+                    .as_ref()
+                    .is_none_or(|group| group.contains(*key))
+            })
+            .filter_map(|key| positions.get(key.as_str()).copied())
+            .collect();
+        let selection = self
+            .pending_search_selection
+            .take()
+            .and_then(|key| {
+                indices
+                    .iter()
+                    .position(|&index| self.sorted_keys[index] == key)
+            })
+            .unwrap_or(0);
         self.search_bar_state.result_count = indices.len();
         self.filtered_indices = Some(indices);
         self.search_bar_state.searching = false;
@@ -1332,7 +1430,10 @@ impl App {
         }
         if let Some(key) = self.selected_entry_key() {
             if let Some(entry) = self.database.entries.get(&key) {
-                self.detail_state = Some(EntryDetailState::new(entry, self.config.field_groups.clone()));
+                self.detail_state = Some(EntryDetailState::new(
+                    entry,
+                    self.config.field_groups.clone(),
+                ));
                 self.detail_entry_key = Some(key);
                 self.mode = InputMode::Detail;
             }
@@ -1349,7 +1450,9 @@ impl App {
     // ── Entry CRUD ──
 
     fn start_change_entry_type(&mut self) {
-        let Some(entry_key) = self.detail_entry_key.clone() else { return };
+        let Some(entry_key) = self.detail_entry_key.clone() else {
+            return;
+        };
         let types: Vec<String> = ENTRY_TYPE_CHOICES.iter().map(|s| s.to_string()).collect();
         // Pre-select the entry's current type in the picker
         let current = self
@@ -1396,13 +1499,18 @@ impl App {
         };
 
         self.database.entries.insert(key.clone(), entry);
-        self.push_undo(UndoItem::EntryAdded { entry_key: key.clone() });
+        self.push_undo(UndoItem::EntryAdded {
+            entry_key: key.clone(),
+        });
         self.refresh_view();
 
         // Open detail view for the new entry
         self.detail_entry_key = Some(key.clone());
         if let Some(entry) = self.database.entries.get(&key) {
-            self.detail_state = Some(EntryDetailState::new(entry, self.config.field_groups.clone()));
+            self.detail_state = Some(EntryDetailState::new(
+                entry,
+                self.config.field_groups.clone(),
+            ));
         }
         self.mode = InputMode::Detail;
         self.status_message = Some(format!("Added new {} entry", type_name));
@@ -1438,7 +1546,9 @@ impl App {
     }
 
     fn start_delete_entry(&mut self) {
-        let Some(key) = self.selected_entry_key() else { return };
+        let Some(key) = self.selected_entry_key() else {
+            return;
+        };
 
         let local_files = self.resolve_entry_local_files(&key);
 
@@ -1467,8 +1577,10 @@ impl App {
                         "Cancel".to_string(),
                     ],
                 ));
-                self.pending_action =
-                    Some(PendingAction::DeleteEntryWithFile { entry_key: key, file });
+                self.pending_action = Some(PendingAction::DeleteEntryWithFile {
+                    entry_key: key,
+                    file,
+                });
             }
             _ => {
                 // Multiple local files — checkbox multi-select (default: all checked).
@@ -1520,7 +1632,9 @@ impl App {
 
     fn delete_entry(&mut self, key: &str) {
         if let Some(entry) = self.database.entries.get(key).cloned() {
-            self.push_undo(UndoItem::EntryDeleted { entry: entry.clone() });
+            self.push_undo(UndoItem::EntryDeleted {
+                entry: entry.clone(),
+            });
             if entry.raw_index != usize::MAX {
                 self.deleted_raw_indices.push(entry.raw_index);
             }
@@ -1555,18 +1669,24 @@ impl App {
     }
 
     fn action_entry_key(&self) -> Option<String> {
-        self.detail_entry_key.clone().or_else(|| self.selected_entry_key())
+        self.detail_entry_key
+            .clone()
+            .or_else(|| self.selected_entry_key())
     }
 
     fn open_file(&mut self) {
-        use crate::util::open::{parse_file_field, resolve_file_path, effective_file_dir};
+        use crate::util::open::{effective_file_dir, parse_file_field, resolve_file_path};
 
         let key = match self.action_entry_key() {
             Some(k) => k,
             None => return,
         };
-        let file_value = match self.database.entries.get(&key)
-            .and_then(|e| e.fields.get("file")).cloned()
+        let file_value = match self
+            .database
+            .entries
+            .get(&key)
+            .and_then(|e| e.fields.get("file"))
+            .cloned()
         {
             Some(v) if !v.trim().is_empty() => v,
             _ => {
@@ -1582,7 +1702,10 @@ impl App {
         }
 
         // If in detail mode with a specific FileEntry row selected, open that file directly.
-        let selected_idx = self.detail_state.as_ref().and_then(|d| d.selected_file_index());
+        let selected_idx = self
+            .detail_state
+            .as_ref()
+            .and_then(|d| d.selected_file_index());
 
         let bib_dir = effective_file_dir(
             &self.bib_path,
@@ -1608,10 +1731,7 @@ impl App {
             }
         } else {
             let options: Vec<String> = files.iter().map(|f| f.label()).collect();
-            self.dialog_state = Some(DialogState::type_picker_titled(
-                "Open File",
-                options,
-            ));
+            self.dialog_state = Some(DialogState::type_picker_titled("Open File", options));
             self.pending_action = Some(PendingAction::OpenFile(files));
             self.mode = InputMode::Dialog;
         }
@@ -1629,14 +1749,20 @@ impl App {
             None => return,
         };
 
-        let doi_url = entry.fields.get("doi")
+        let doi_url = entry
+            .fields
+            .get("doi")
             .filter(|v| !v.trim().is_empty())
             .map(|v| doi_to_url(v.trim()));
-        let raw_url = entry.fields.get("url")
+        let raw_url = entry
+            .fields
+            .get("url")
             .filter(|v| !v.trim().is_empty())
             .map(|v| v.trim().to_string());
 
-        let isbn_url = entry.fields.get("isbn")
+        let isbn_url = entry
+            .fields
+            .get("isbn")
             .filter(|v| !v.trim().is_empty())
             .map(|v| {
                 // Strip spaces and hyphens to get a clean ISBN for the URL
@@ -1670,10 +1796,7 @@ impl App {
             _ => {
                 let labels: Vec<String> = urls.iter().map(|(l, _)| l.clone()).collect();
                 let raw_urls: Vec<String> = urls.into_iter().map(|(_, u)| u).collect();
-                self.dialog_state = Some(DialogState::type_picker_titled(
-                    "Open Web Link",
-                    labels,
-                ));
+                self.dialog_state = Some(DialogState::type_picker_titled("Open Web Link", labels));
                 self.pending_action = Some(PendingAction::OpenWeb(raw_urls));
                 self.mode = InputMode::Dialog;
             }
@@ -1718,7 +1841,12 @@ impl App {
                 format!("key '{}'", entry.citation_key),
             ),
             "bibtex" => (
-                serialize_entry(entry, self.config.save.align_fields, self.config.save.field_order == "alphabetical", None),
+                serialize_entry(
+                    entry,
+                    self.config.save.align_fields,
+                    self.config.save.field_order == "alphabetical",
+                    None,
+                ),
                 format!("BibTeX entry for '{}'", entry.citation_key),
             ),
             _ => (
@@ -1786,19 +1914,40 @@ impl App {
                     // Toggle ascending/descending on current sort field
                     self.config.display.default_sort.ascending =
                         !self.config.display.default_sort.ascending;
-                    let dir = if self.config.display.default_sort.ascending { "↑" } else { "↓" };
-                    format!("Sorted by {} {}", self.config.display.default_sort.field, dir)
+                    let dir = if self.config.display.default_sort.ascending {
+                        "↑"
+                    } else {
+                        "↓"
+                    };
+                    format!(
+                        "Sorted by {} {}",
+                        self.config.display.default_sort.field, dir
+                    )
                 } else if self.config.display.default_sort.field == field {
                     // Same field: toggle direction
                     self.config.display.default_sort.ascending =
                         !self.config.display.default_sort.ascending;
-                    let dir = if self.config.display.default_sort.ascending { "↑" } else { "↓" };
-                    format!("Sorted by {} {}", self.config.display.default_sort.field, dir)
+                    let dir = if self.config.display.default_sort.ascending {
+                        "↑"
+                    } else {
+                        "↓"
+                    };
+                    format!(
+                        "Sorted by {} {}",
+                        self.config.display.default_sort.field, dir
+                    )
                 } else {
                     self.config.display.default_sort.field = field.clone();
                     self.config.display.default_sort.ascending = true;
-                    let dir = if self.config.display.default_sort.ascending { "↑" } else { "↓" };
-                    format!("Sorted by {} {}", self.config.display.default_sort.field, dir)
+                    let dir = if self.config.display.default_sort.ascending {
+                        "↑"
+                    } else {
+                        "↓"
+                    };
+                    format!(
+                        "Sorted by {} {}",
+                        self.config.display.default_sort.field, dir
+                    )
                 };
                 self.refresh_view();
                 self.status_message = Some(msg);
@@ -1876,7 +2025,10 @@ impl App {
             Some(PendingAction::DeleteEntryWithFileSelect { entry_key, files }) => {
                 // Delete the entry unconditionally; delete only the checked files.
                 if let Some(ref d) = dialog {
-                    if let DialogKind::FileDeleteSelect { files: ref labels, .. } = d.kind {
+                    if let DialogKind::FileDeleteSelect {
+                        files: ref labels, ..
+                    } = d.kind
+                    {
                         for (path, (_, delete)) in files.iter().zip(labels.iter()) {
                             if *delete {
                                 let _ = std::fs::remove_file(path);
@@ -1916,8 +2068,9 @@ impl App {
                         );
                         let path = crate::util::open::resolve_file_path(&file.path, &bib_dir);
                         match self.opener.open_path(&path) {
-                            Ok(()) => self.status_message =
-                                Some(format!("Opening {}", path.display())),
+                            Ok(()) => {
+                                self.status_message = Some(format!("Opening {}", path.display()))
+                            }
                             Err(e) => self.status_message = Some(format!("Error: {}", e)),
                         }
                     }
@@ -2010,8 +2163,7 @@ impl App {
         match serde_yaml::to_string(&self.config) {
             Ok(yaml) => match std::fs::write(path, yaml) {
                 Ok(()) => {
-                    self.status_message =
-                        Some(format!("Settings exported to {}", path));
+                    self.status_message = Some(format!("Settings exported to {}", path));
                 }
                 Err(e) => {
                     self.status_message = Some(format!("Export failed: {}", e));
@@ -2028,7 +2180,11 @@ impl App {
         match export_csl_json(&self.database) {
             Ok(json) => match std::fs::write(&path, json) {
                 Ok(()) => {
-                    self.status_message = Some(format!("Exported {} entries as CSL-JSON to {}", self.database.entries.len(), path));
+                    self.status_message = Some(format!(
+                        "Exported {} entries as CSL-JSON to {}",
+                        self.database.entries.len(),
+                        path
+                    ));
                 }
                 Err(e) => {
                     self.status_message = Some(format!("Export failed: {}", e));
@@ -2045,7 +2201,11 @@ impl App {
         let ris = export_ris(&self.database);
         match std::fs::write(&path, ris) {
             Ok(()) => {
-                self.status_message = Some(format!("Exported {} entries as RIS to {}", self.database.entries.len(), path));
+                self.status_message = Some(format!(
+                    "Exported {} entries as RIS to {}",
+                    self.database.entries.len(),
+                    path
+                ));
             }
             Err(e) => {
                 self.status_message = Some(format!("Export failed: {}", e));
@@ -2057,9 +2217,9 @@ impl App {
     /// Call this whenever the config is mutated (settings toggle, edit, or import).
     fn sync_runtime_from_config(&mut self) {
         self.render_latex = self.config.display.render_latex;
-        self.show_braces  = self.config.display.show_braces;
-        self.show_groups  = self.config.display.show_groups;
-        self.theme        = Theme::from_config(&self.config.theme);
+        self.show_braces = self.config.display.show_braces;
+        self.show_groups = self.config.display.show_groups;
+        self.theme = Theme::from_config(&self.config.theme);
         // If the detail view is open, rebuild display items with current field groups.
         if let Some(key) = self.detail_entry_key.clone() {
             if let Some(entry) = self.database.entries.get(&key) {
@@ -2074,20 +2234,21 @@ impl App {
 
     fn import_settings(&mut self, path: &str) {
         match std::fs::read_to_string(path) {
-            Ok(contents) => match serde_yaml::from_str::<crate::config::schema::Config>(&contents) {
-                Ok(mut cfg) => {
-                    crate::config::defaults::normalize_citekey_templates(&mut cfg);
-                    self.config = cfg;
-                    self.sync_runtime_from_config();
-                    // Refresh settings panel to reflect imported values
-                    self.settings_state = Some(SettingsState::new(&self.config));
-                    self.status_message =
-                        Some(format!("Settings imported from {}", path));
+            Ok(contents) => {
+                match serde_yaml::from_str::<crate::config::schema::Config>(&contents) {
+                    Ok(mut cfg) => {
+                        crate::config::defaults::normalize_citekey_templates(&mut cfg);
+                        self.config = cfg;
+                        self.sync_runtime_from_config();
+                        // Refresh settings panel to reflect imported values
+                        self.settings_state = Some(SettingsState::new(&self.config));
+                        self.status_message = Some(format!("Settings imported from {}", path));
+                    }
+                    Err(e) => {
+                        self.status_message = Some(format!("Parse failed: {}", e));
+                    }
                 }
-                Err(e) => {
-                    self.status_message = Some(format!("Parse failed: {}", e));
-                }
-            },
+            }
             Err(e) => {
                 self.status_message = Some(format!("Read failed: {}", e));
             }
@@ -2099,7 +2260,10 @@ impl App {
     fn push_undo(&mut self, item: UndoItem) {
         // A new edit after undo abandons the saved branch; an equal future
         // stack depth must never be mistaken for the same document.
-        if self.save_generation.is_some_and(|saved| saved > self.undo_stack.len()) {
+        if self
+            .save_generation
+            .is_some_and(|saved| saved > self.undo_stack.len())
+        {
             self.save_generation = None;
         }
         if self.undo_stack.len() >= MAX_UNDO {
@@ -2120,7 +2284,10 @@ impl App {
             return;
         };
 
-        let count = match &item { UndoItem::Batch(items) => items.len(), _ => 1 };
+        let count = match &item {
+            UndoItem::Batch(items) => items.len(),
+            _ => 1,
+        };
         let succeeded = self.undo_apply(item);
         self.search_cache_dirty = true;
         self.refresh_view();
@@ -2155,11 +2322,19 @@ impl App {
                 }
                 return succeeded;
             }
-            UndoItem::FieldChanged { entry_key, field_name, old_value } => {
+            UndoItem::FieldChanged {
+                entry_key,
+                field_name,
+                old_value,
+            } => {
                 if let Some(entry) = self.database.entries.get_mut(&entry_key) {
                     match old_value {
-                        Some(v) => { entry.fields.insert(field_name.clone(), v); }
-                        None    => { entry.fields.shift_remove(&field_name); }
+                        Some(v) => {
+                            entry.fields.insert(field_name.clone(), v);
+                        }
+                        None => {
+                            entry.fields.shift_remove(&field_name);
+                        }
                     }
                     entry.dirty = true;
                     if self.detail_entry_key.as_deref() == Some(entry_key.as_str()) {
@@ -2175,10 +2350,18 @@ impl App {
                 let key = entry.citation_key.clone();
                 // A save may have removed/reordered this entry's historical slot.
                 // Bind to the current raw document, never to the undo snapshot's index.
-                entry.raw_index = self.database.raw_file.items.iter().position(|item| {
-                    matches!(item, RawItem::Entry(raw) if raw.citation_key == key)
-                }).unwrap_or(usize::MAX);
-                if let Some(pos) = self.deleted_raw_indices.iter().position(|&i| i == entry.raw_index) {
+                entry.raw_index = self
+                    .database
+                    .raw_file
+                    .items
+                    .iter()
+                    .position(|item| matches!(item, RawItem::Entry(raw) if raw.citation_key == key))
+                    .unwrap_or(usize::MAX);
+                if let Some(pos) = self
+                    .deleted_raw_indices
+                    .iter()
+                    .position(|&i| i == entry.raw_index)
+                {
                     self.deleted_raw_indices.remove(pos);
                 }
                 entry.dirty = true;
@@ -2197,7 +2380,10 @@ impl App {
                 }
                 self.status_message = Some(format!("Undo: removed '{}'", entry_key));
             }
-            UndoItem::EntryTypeChanged { entry_key, old_type } => {
+            UndoItem::EntryTypeChanged {
+                entry_key,
+                old_type,
+            } => {
                 let old_name = old_type.display_name().to_string();
                 if let Some(entry) = self.database.entries.get_mut(&entry_key) {
                     entry.entry_type = old_type;
@@ -2211,14 +2397,21 @@ impl App {
                 }
                 self.status_message = Some(format!("Undo: type reverted to {}", old_name));
             }
-            UndoItem::CitekeyChanged { old_key, new_key, entry_snapshot, original_index } => {
+            UndoItem::CitekeyChanged {
+                old_key,
+                new_key,
+                entry_snapshot,
+                original_index,
+            } => {
                 let current = self.database.entries.shift_remove(&new_key);
                 let mut entry = entry_snapshot;
                 entry.raw_index = current.map(|e| e.raw_index).unwrap_or(usize::MAX);
                 entry.dirty = true;
                 entry.citation_key = old_key.clone();
                 let position = original_index.min(self.database.entries.len());
-                self.database.entries.shift_insert(position, old_key.clone(), entry);
+                self.database
+                    .entries
+                    .shift_insert(position, old_key.clone(), entry);
                 if self.detail_entry_key.as_deref() == Some(new_key.as_str()) {
                     self.detail_entry_key = Some(old_key.clone());
                     if let Some(e) = self.database.entries.get(&old_key) {
@@ -2230,19 +2423,30 @@ impl App {
                 }
                 self.status_message = Some(format!("Undo: key reverted to '{}'", old_key));
             }
-            UndoItem::GroupTreeChanged { old_tree, active_path } => {
+            UndoItem::GroupTreeChanged {
+                old_tree,
+                active_path,
+            } => {
                 self.group_tree_state.active_path = active_path;
                 self.database.groups = old_tree;
                 self.sync_groups_to_raw();
                 self.group_tree_state.refresh(&self.database.groups);
                 self.status_message = Some("Undo: group change".to_string());
             }
-            UndoItem::GroupMembershipChanged { entry_key, old_memberships, old_groups_field } => {
+            UndoItem::GroupMembershipChanged {
+                entry_key,
+                old_memberships,
+                old_groups_field,
+            } => {
                 if let Some(entry) = self.database.entries.get_mut(&entry_key) {
                     entry.group_memberships = old_memberships;
                     match old_groups_field {
-                        Some(v) => { entry.fields.insert("groups".to_string(), v); }
-                        None    => { entry.fields.shift_remove("groups"); }
+                        Some(v) => {
+                            entry.fields.insert("groups".to_string(), v);
+                        }
+                        None => {
+                            entry.fields.shift_remove("groups");
+                        }
                     }
                     entry.dirty = true;
                     if self.detail_entry_key.as_deref() == Some(entry_key.as_str()) {
@@ -2254,7 +2458,11 @@ impl App {
                 }
                 self.status_message = Some("Undo: group membership".to_string());
             }
-            UndoItem::FilenamesSynced { entry_key, old_file_value, renames } => {
+            UndoItem::FilenamesSynced {
+                entry_key,
+                old_file_value,
+                renames,
+            } => {
                 return self.undo_filename_sync(&entry_key, old_file_value, renames);
             }
         }
@@ -2313,7 +2521,10 @@ impl App {
             }
             Action::SettingsToggle => {
                 if let Some(ref mut s) = self.settings_state {
-                    if s.selected_item().map(|i| i.value.is_cyclic()).unwrap_or(false) {
+                    if s.selected_item()
+                        .map(|i| i.value.is_cyclic())
+                        .unwrap_or(false)
+                    {
                         s.toggle_selected();
                         s.apply_to_config(&mut self.config);
                         self.sync_runtime_from_config();
@@ -2324,36 +2535,48 @@ impl App {
                 if let Some(ref s) = self.settings_state {
                     if s.selected_is_column() {
                         if let Some(idx) = s.selected_column_index() {
-                            let width_spec = s.columns.get(idx)
-                                .map(|(_, _, w)| w.clone()).unwrap_or_default();
-                            self.field_editor_state =
-                                Some(FieldEditorState::new("Width (fixed:N / percent:N / flex [max:N])", &width_spec));
+                            let width_spec = s
+                                .columns
+                                .get(idx)
+                                .map(|(_, _, w)| w.clone())
+                                .unwrap_or_default();
+                            self.field_editor_state = Some(FieldEditorState::new(
+                                "Width (fixed:N / percent:N / flex [max:N])",
+                                &width_spec,
+                            ));
                             self.pending_action =
                                 Some(PendingAction::EditColumnWidth { index: idx });
                             self.mode = InputMode::Editing;
                         }
                     } else if s.selected_is_field_group() {
                         if let Some(idx) = s.selected_field_group_index() {
-                            let fields_csv = s.field_groups.get(idx)
-                                .map(|(_, f)| f.clone()).unwrap_or_default();
-                            self.field_editor_state =
-                                Some(FieldEditorState::new("Fields (comma-separated)", &fields_csv));
+                            let fields_csv = s
+                                .field_groups
+                                .get(idx)
+                                .map(|(_, f)| f.clone())
+                                .unwrap_or_default();
+                            self.field_editor_state = Some(FieldEditorState::new(
+                                "Fields (comma-separated)",
+                                &fields_csv,
+                            ));
                             self.pending_action =
                                 Some(PendingAction::EditFieldGroupFields { index: idx });
                             self.mode = InputMode::Editing;
                         }
                     } else if let Some(id) = s.selected_id() {
-                        let is_str = s.selected_item()
+                        let is_str = s
+                            .selected_item()
                             .map(|i| matches!(i.value, SettingValue::Str(_)))
                             .unwrap_or(false);
                         if is_str {
                             let current = s.selected_value_str();
-                            let label = s.selected_item().map(|i| i.label.clone()).unwrap_or_else(|| id.to_string());
+                            let label = s
+                                .selected_item()
+                                .map(|i| i.label.clone())
+                                .unwrap_or_else(|| id.to_string());
                             let setting_id = id.to_string();
-                            self.field_editor_state =
-                                Some(FieldEditorState::new(&label, &current));
-                            self.pending_action =
-                                Some(PendingAction::EditSetting { setting_id });
+                            self.field_editor_state = Some(FieldEditorState::new(&label, &current));
+                            self.pending_action = Some(PendingAction::EditSetting { setting_id });
                             self.mode = InputMode::Editing;
                         }
                     }
@@ -2361,12 +2584,16 @@ impl App {
             }
             Action::SettingsAddFieldGroup => {
                 if self.settings_state.is_some() {
-                    let in_columns = self.settings_state.as_ref()
+                    let in_columns = self
+                        .settings_state
+                        .as_ref()
                         .map(|s| s.current_section() == Some("Columns"))
                         .unwrap_or(false);
                     if in_columns {
-                        self.field_editor_state =
-                            Some(FieldEditorState::new("Column field name (field or field|header)", ""));
+                        self.field_editor_state = Some(FieldEditorState::new(
+                            "Column field name (field or field|header)",
+                            "",
+                        ));
                         self.pending_action = Some(PendingAction::AddColumn);
                     } else {
                         self.field_editor_state =
@@ -2393,22 +2620,30 @@ impl App {
                 if let Some(ref s) = self.settings_state {
                     if s.selected_is_column() {
                         if let Some(idx) = s.selected_column_index() {
-                            let current = s.columns.get(idx)
-                                .map(|(f, h, _)| if f == h { f.clone() } else { format!("{}|{}", f, h) })
+                            let current = s
+                                .columns
+                                .get(idx)
+                                .map(|(f, h, _)| {
+                                    if f == h {
+                                        f.clone()
+                                    } else {
+                                        format!("{}|{}", f, h)
+                                    }
+                                })
                                 .unwrap_or_default();
                             self.field_editor_state =
                                 Some(FieldEditorState::new("field or field|header", &current));
-                            self.pending_action =
-                                Some(PendingAction::RenameColumn { index: idx });
+                            self.pending_action = Some(PendingAction::RenameColumn { index: idx });
                             self.mode = InputMode::Editing;
                         }
                     } else if let Some(idx) = s.selected_field_group_index() {
-                        let name = s.field_groups.get(idx)
-                            .map(|(n, _)| n.clone()).unwrap_or_default();
-                        self.field_editor_state =
-                            Some(FieldEditorState::new("Group name", &name));
-                        self.pending_action =
-                            Some(PendingAction::RenameFieldGroup { index: idx });
+                        let name = s
+                            .field_groups
+                            .get(idx)
+                            .map(|(n, _)| n.clone())
+                            .unwrap_or_default();
+                        self.field_editor_state = Some(FieldEditorState::new("Group name", &name));
+                        self.pending_action = Some(PendingAction::RenameFieldGroup { index: idx });
                         self.mode = InputMode::Editing;
                     }
                 }
@@ -2421,8 +2656,7 @@ impl App {
                 self.mode = InputMode::Editing;
             }
             Action::SettingsImport => {
-                self.field_editor_state =
-                    Some(FieldEditorState::for_path("Import path", ""));
+                self.field_editor_state = Some(FieldEditorState::for_path("Import path", ""));
                 self.path_completions.clear();
                 self.pending_action = Some(PendingAction::ImportSettings);
                 self.mode = InputMode::Editing;
@@ -2445,7 +2679,11 @@ fn parse_field_header(s: &str) -> (String, String) {
     if let Some(pos) = s.find('|') {
         let field = s[..pos].trim().to_string();
         let header = s[pos + 1..].trim().to_string();
-        let header = if header.is_empty() { field.clone() } else { header };
+        let header = if header.is_empty() {
+            field.clone()
+        } else {
+            header
+        };
         (field, header)
     } else {
         let field = s.trim().to_string();

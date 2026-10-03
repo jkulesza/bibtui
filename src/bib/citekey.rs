@@ -63,8 +63,14 @@ fn parse_template(template: &str, fields: &IndexMap<String, String>) -> String {
                 let mut depth = 0usize;
                 for ch in chars.by_ref() {
                     match ch {
-                        '[' => { depth += 1; inner.push(ch); }
-                        ']' if depth > 0 => { depth -= 1; inner.push(ch); }
+                        '[' => {
+                            depth += 1;
+                            inner.push(ch);
+                        }
+                        ']' if depth > 0 => {
+                            depth -= 1;
+                            inner.push(ch);
+                        }
                         ']' => break,
                         _ => inner.push(ch),
                     }
@@ -75,7 +81,9 @@ fn parse_template(template: &str, fields: &IndexMap<String, String>) -> String {
                 // Legacy {token} — collect until '}'
                 let mut inner = String::new();
                 for ch in chars.by_ref() {
-                    if ch == '}' { break; }
+                    if ch == '}' {
+                        break;
+                    }
                     inner.push(ch);
                 }
                 result.push_str(&resolve_legacy_token(&inner, fields));
@@ -126,13 +134,11 @@ fn split_on_colon(s: &str) -> Vec<&str> {
 
 /// JabRef function words — excluded from significant-word title tokens.
 const FUNCTION_WORDS: &[&str] = &[
-    "a", "about", "above", "across", "against", "along", "among", "an",
-    "and", "around", "at", "before", "behind", "below", "beneath",
-    "beside", "between", "beyond", "but", "by", "down", "during",
-    "except", "for", "from", "in", "inside", "into", "like", "near",
-    "nor", "of", "off", "on", "onto", "or", "since", "so", "the",
-    "through", "to", "toward", "under", "until", "up", "upon", "with",
-    "within", "without", "yet",
+    "a", "about", "above", "across", "against", "along", "among", "an", "and", "around", "at",
+    "before", "behind", "below", "beneath", "beside", "between", "beyond", "but", "by", "down",
+    "during", "except", "for", "from", "in", "inside", "into", "like", "near", "nor", "of", "off",
+    "on", "onto", "or", "since", "so", "the", "through", "to", "toward", "under", "until", "up",
+    "upon", "with", "within", "without", "yet",
 ];
 
 fn is_function_word(w: &str) -> bool {
@@ -141,7 +147,8 @@ fn is_function_word(w: &str) -> bool {
 
 /// Return the author or editor field (author preferred, editor as fallback).
 fn get_author_or_editor(fields: &IndexMap<String, String>) -> Option<&String> {
-    fields.get("author")
+    fields
+        .get("author")
         .filter(|v| !v.is_empty())
         .or_else(|| fields.get("editor").filter(|v| !v.is_empty()))
 }
@@ -152,7 +159,11 @@ fn get_author_or_editor(fields: &IndexMap<String, String>) -> Option<&String> {
 fn resolve_token(name: &str, fields: &IndexMap<String, String>) -> String {
     // ── pureauth* — author only, no editor fallback ──────────────────────
     if let Some(rest) = name.strip_prefix("pureauth") {
-        let inner = if rest.is_empty() { "auth".to_string() } else { format!("auth{}", rest) };
+        let inner = if rest.is_empty() {
+            "auth".to_string()
+        } else {
+            format!("auth{}", rest)
+        };
         return resolve_auth_token(&inner, fields.get("author").filter(|v| !v.is_empty()));
     }
 
@@ -173,7 +184,8 @@ fn resolve_token(name: &str, fields: &IndexMap<String, String>) -> String {
             .map(|a| format_authors_for_key(&parse_authors(a)))
             .unwrap_or_default(),
 
-        "editors" => fields.get("editor")
+        "editors" => fields
+            .get("editor")
             .map(|a| format_authors_for_key(&parse_authors(a)))
             .unwrap_or_default(),
 
@@ -183,7 +195,11 @@ fn resolve_token(name: &str, fields: &IndexMap<String, String>) -> String {
             .get("year")
             .map(|y| {
                 let digits: String = y.chars().filter(|c| c.is_ascii_digit()).collect();
-                if digits.len() >= 2 { digits[digits.len()-2..].to_string() } else { digits }
+                if digits.len() >= 2 {
+                    digits[digits.len() - 2..].to_string()
+                } else {
+                    digits
+                }
             })
             .unwrap_or_default(),
 
@@ -209,10 +225,14 @@ fn resolve_token(name: &str, fields: &IndexMap<String, String>) -> String {
 
         "entrytype" => fields.get("entrytype").cloned().unwrap_or_default(),
 
-        "journal"     => fields.get("journal").map(|s| clean_braces(s)).unwrap_or_default(),
+        "journal" => fields
+            .get("journal")
+            .map(|s| clean_braces(s))
+            .unwrap_or_default(),
 
         "journal_abbrev" => {
-            let jname = fields.get("journal_full")
+            let jname = fields
+                .get("journal_full")
                 .filter(|v| !v.is_empty())
                 .or_else(|| fields.get("journal"))
                 .map(|s| clean_braces(s))
@@ -220,8 +240,11 @@ fn resolve_token(name: &str, fields: &IndexMap<String, String>) -> String {
             abbreviate(&jname)
         }
 
-        "booktitle"   => fields.get("booktitle").map(|s| clean_braces(s)).unwrap_or_default(),
-        "volume"      => fields.get("volume").cloned().unwrap_or_default(),
+        "booktitle" => fields
+            .get("booktitle")
+            .map(|s| clean_braces(s))
+            .unwrap_or_default(),
+        "volume" => fields.get("volume").cloned().unwrap_or_default(),
 
         "number" => fields
             .get("number")
@@ -246,22 +269,35 @@ fn resolve_token(name: &str, fields: &IndexMap<String, String>) -> String {
             .map(|p| p.chars().take_while(|c| !c.is_ascii_digit()).collect())
             .unwrap_or_default(),
 
-        "institution" => fields.get("institution").map(|s| clean_braces(s)).unwrap_or_default(),
-        "school"      => fields.get("school").map(|s| clean_braces(s)).unwrap_or_default(),
-        "publisher"   => fields.get("publisher").map(|s| clean_braces(s)).unwrap_or_default(),
+        "institution" => fields
+            .get("institution")
+            .map(|s| clean_braces(s))
+            .unwrap_or_default(),
+        "school" => fields
+            .get("school")
+            .map(|s| clean_braces(s))
+            .unwrap_or_default(),
+        "publisher" => fields
+            .get("publisher")
+            .map(|s| clean_braces(s))
+            .unwrap_or_default(),
 
         "keywords" => fields
             .get("keywords")
             .map(|k| split_keywords(k).into_iter().next().unwrap_or_default())
             .unwrap_or_default(),
 
-        "howpublished" => fields.get("howpublished").map(|s| clean_braces(s)).unwrap_or_default(),
+        "howpublished" => fields
+            .get("howpublished")
+            .map(|s| clean_braces(s))
+            .unwrap_or_default(),
 
         other => {
             // camelN — first N words of title camelized
             if let Some(n_str) = other.strip_prefix("camel") {
                 if let Ok(n) = n_str.parse::<usize>() {
-                    return fields.get("title")
+                    return fields
+                        .get("title")
                         .map(|t| to_camel_case_n(&clean_braces(t), n))
                         .unwrap_or_default();
                 }
@@ -270,7 +306,8 @@ fn resolve_token(name: &str, fields: &IndexMap<String, String>) -> String {
             if let Some(n_str) = other.strip_prefix("keyword") {
                 if !n_str.starts_with('s') {
                     if let Ok(n) = n_str.parse::<usize>() {
-                        return fields.get("keywords")
+                        return fields
+                            .get("keywords")
                             .and_then(|k| split_keywords(k).into_iter().nth(n.saturating_sub(1)))
                             .unwrap_or_default();
                     }
@@ -279,17 +316,34 @@ fn resolve_token(name: &str, fields: &IndexMap<String, String>) -> String {
             // keywordsN — first N keywords joined
             if let Some(n_str) = other.strip_prefix("keywords") {
                 if let Ok(n) = n_str.parse::<usize>() {
-                    return fields.get("keywords")
-                        .map(|k| split_keywords(k).into_iter().take(n).collect::<Vec<_>>().join(""))
+                    return fields
+                        .get("keywords")
+                        .map(|k| {
+                            split_keywords(k)
+                                .into_iter()
+                                .take(n)
+                                .collect::<Vec<_>>()
+                                .join("")
+                        })
                         .unwrap_or_default();
                 }
             }
             // [ALLCAPS] → raw field value
-            if !other.is_empty() && other.chars().all(|c| c.is_uppercase() || !c.is_alphabetic()) {
+            if !other.is_empty()
+                && other
+                    .chars()
+                    .all(|c| c.is_uppercase() || !c.is_alphabetic())
+            {
                 let lower = other.to_lowercase();
-                return fields.get(&lower).map(|s| clean_braces(s)).unwrap_or_default();
+                return fields
+                    .get(&lower)
+                    .map(|s| clean_braces(s))
+                    .unwrap_or_default();
             }
-            fields.get(other).map(|s| clean_braces(s)).unwrap_or_default()
+            fields
+                .get(other)
+                .map(|s| clean_braces(s))
+                .unwrap_or_default()
         }
     }
 }
@@ -323,7 +377,12 @@ fn resolve_auth_token(name: &str, author_field: Option<&String>) -> String {
 
     // Exact-match compound tokens (before strip_prefix catches them)
     match name {
-        "auth" => return parse_authors(author_str).into_iter().next().unwrap_or_default(),
+        "auth" => {
+            return parse_authors(author_str)
+                .into_iter()
+                .next()
+                .unwrap_or_default()
+        }
 
         "auth.etal" => {
             let authors = parse_authors(author_str);
@@ -356,17 +415,23 @@ fn resolve_auth_token(name: &str, author_field: Option<&String>) -> String {
                 0 => String::new(),
                 1 => authors[0].clone(),
                 n => {
-                    let mut s: String = authors.iter()
+                    let mut s: String = authors
+                        .iter()
                         .take(3)
                         .filter_map(|a| a.chars().next())
                         .collect();
-                    if n > 3 { s.push('+'); }
+                    if n > 3 {
+                        s.push('+');
+                    }
                     s
                 }
             };
         }
         "authorLast" => {
-            return parse_authors(author_str).into_iter().last().unwrap_or_default();
+            return parse_authors(author_str)
+                .into_iter()
+                .last()
+                .unwrap_or_default();
         }
         "authForeIni" => {
             return parse_forename_initial(author_str, 0);
@@ -380,9 +445,12 @@ fn resolve_auth_token(name: &str, author_field: Option<&String>) -> String {
         }
         "authorIni" => {
             let authors = parse_authors(author_str);
-            if authors.is_empty() { return String::new(); }
+            if authors.is_empty() {
+                return String::new();
+            }
             let first: String = authors[0].chars().take(5).collect();
-            let rest: String = authors[1..].iter()
+            let rest: String = authors[1..]
+                .iter()
                 .filter_map(|a| a.chars().next())
                 .collect();
             return format!("{}{}", first, rest);
@@ -397,7 +465,9 @@ fn resolve_auth_token(name: &str, author_field: Option<&String>) -> String {
     if let Some(n_str) = name.strip_prefix("authIni") {
         if let Ok(n) = n_str.parse::<usize>() {
             let authors = parse_authors(author_str);
-            if authors.is_empty() { return String::new(); }
+            if authors.is_empty() {
+                return String::new();
+            }
             let base = (n / authors.len()).max(1);
             let extra = n - base * authors.len();
             let mut result = String::new();
@@ -405,7 +475,9 @@ fn resolve_auth_token(name: &str, author_field: Option<&String>) -> String {
                 let take = base + if i < extra { 1 } else { 0 };
                 let chunk: String = a.chars().take(take).collect();
                 result.push_str(&chunk);
-                if result.len() >= n { break; }
+                if result.len() >= n {
+                    break;
+                }
             }
             return result.chars().take(n).collect();
         }
@@ -416,7 +488,8 @@ fn resolve_auth_token(name: &str, author_field: Option<&String>) -> String {
         if let Some((n_str, m_str)) = rest.split_once('_') {
             if let (Ok(n), Ok(m)) = (n_str.parse::<usize>(), m_str.parse::<usize>()) {
                 let authors = parse_authors(author_str);
-                return authors.get(m.saturating_sub(1))
+                return authors
+                    .get(m.saturating_sub(1))
                     .map(|a| a.chars().take(n).collect())
                     .unwrap_or_default();
             }
@@ -429,7 +502,9 @@ fn resolve_auth_token(name: &str, author_field: Option<&String>) -> String {
             let authors = parse_authors(author_str);
             let has_more = authors.len() > n;
             let mut result: String = authors.iter().take(n).cloned().collect::<Vec<_>>().join("");
-            if has_more { result.push_str("EtAl"); }
+            if has_more {
+                result.push_str("EtAl");
+            }
             return result;
         }
     }
@@ -471,7 +546,7 @@ fn apply_modifier(value: String, modifier: &str) -> String {
     match modifier {
         "upper" => return value.to_uppercase(),
         "lower" => return value.to_lowercase(),
-        "abbr"  => return abbreviate(&value),
+        "abbr" => return abbreviate(&value),
         "camel" => return to_camel_case(&value),
         "capitalize" => return capitalize_all_words(&value),
         "titlecase" => return titlecase(&value),
@@ -482,7 +557,12 @@ fn apply_modifier(value: String, modifier: &str) -> String {
     // truncateN
     if let Some(n_str) = modifier.strip_prefix("truncate") {
         if let Ok(n) = n_str.parse::<usize>() {
-            return value.chars().take(n).collect::<String>().trim_end().to_string();
+            return value
+                .chars()
+                .take(n)
+                .collect::<String>()
+                .trim_end()
+                .to_string();
         }
     }
 
@@ -500,7 +580,10 @@ fn apply_modifier(value: String, modifier: &str) -> String {
     }
 
     // Regex substitution: regex("pattern","replacement")
-    if let Some(args) = modifier.strip_prefix("regex(").and_then(|s| s.strip_suffix(')')) {
+    if let Some(args) = modifier
+        .strip_prefix("regex(")
+        .and_then(|s| s.strip_suffix(')'))
+    {
         if let Some((pattern, replacement)) = parse_regex_args(args) {
             if let Ok(re) = Regex::new(&pattern) {
                 return re.replace_all(&value, replacement.as_str()).to_string();
@@ -559,31 +642,38 @@ fn parse_regex_args(args: &str) -> Option<(String, String)> {
 /// Resolve a legacy `{token}` to preserve existing behaviour exactly.
 fn resolve_legacy_token(token: &str, fields: &IndexMap<String, String>) -> String {
     match token {
-        "year"               => fields.get("year").cloned().unwrap_or_default(),
-        "author_last"        => fields
+        "year" => fields.get("year").cloned().unwrap_or_default(),
+        "author_last" => fields
             .get("author")
             .map(|a| parse_authors(a).into_iter().next().unwrap_or_default())
             .unwrap_or_default(),
-        "authors"            => fields
+        "authors" => fields
             .get("author")
             .map(|a| format_authors_for_key(&parse_authors(a)))
             .unwrap_or_default(),
-        "title_camel"        => fields
+        "title_camel" => fields
             .get("title")
             .map(|t| to_camel_case(&clean_braces(t)))
             .unwrap_or_default(),
-        "journal_abbrev"     => {
-            let name = fields.get("journal_full")
+        "journal_abbrev" => {
+            let name = fields
+                .get("journal_full")
                 .filter(|v| !v.is_empty())
                 .or_else(|| fields.get("journal"))
                 .map(|s| clean_braces(s))
                 .unwrap_or_default();
             abbreviate(&name)
         }
-        "booktitle_abbrev"   => fields.get("booktitle").map(|b| abbreviate(b)).unwrap_or_default(),
-        "institution_abbrev" => fields.get("institution").map(|i| abbreviate(i)).unwrap_or_default(),
-        "pages"              => fields.get("pages").cloned().unwrap_or_default(),
-        "number"             => fields
+        "booktitle_abbrev" => fields
+            .get("booktitle")
+            .map(|b| abbreviate(b))
+            .unwrap_or_default(),
+        "institution_abbrev" => fields
+            .get("institution")
+            .map(|i| abbreviate(i))
+            .unwrap_or_default(),
+        "pages" => fields.get("pages").cloned().unwrap_or_default(),
+        "number" => fields
             .get("number")
             .or_else(|| fields.get("report-number"))
             .cloned()
@@ -592,11 +682,11 @@ fn resolve_legacy_token(token: &str, fields: &IndexMap<String, String>) -> Strin
             .get("howpublished")
             .map(|h| to_camel_case(&clean_braces(h)))
             .unwrap_or_default(),
-        "category"           => fields
+        "category" => fields
             .get("keywords")
             .map(|k| to_camel_case(k.split(',').next().unwrap_or("").trim()))
             .unwrap_or_default(),
-        other                => format!("{{{}}}", other),
+        other => format!("{{{}}}", other),
     }
 }
 
@@ -605,7 +695,8 @@ fn resolve_legacy_token(token: &str, fields: &IndexMap<String, String>) -> Strin
 /// Extract the forename initial of the Nth author (0-indexed).
 fn parse_forename_initial(author_str: &str, idx: usize) -> String {
     let parts: Vec<&str> = author_str.split(" and ").collect();
-    parts.get(idx)
+    parts
+        .get(idx)
         .map(|a| forename_initial_of(a.trim()))
         .unwrap_or_default()
 }
@@ -621,14 +712,16 @@ fn forename_initial_of(name: &str) -> String {
             .unwrap_or_default()
     } else {
         // "First Last" → first char of "First"
-        name.chars().next()
+        name.chars()
+            .next()
             .map(|c| c.to_uppercase().to_string())
             .unwrap_or_default()
     }
 }
 
 fn extract_first_page(pages: &str) -> String {
-    pages.split(['-', ','])
+    pages
+        .split(['-', ','])
         .next()
         .unwrap_or("")
         .trim()
@@ -636,7 +729,8 @@ fn extract_first_page(pages: &str) -> String {
 }
 
 fn extract_last_page(pages: &str) -> String {
-    pages.split(['-', ','])
+    pages
+        .split(['-', ','])
         .next_back()
         .unwrap_or("")
         .trim()
@@ -717,7 +811,12 @@ fn format_authors_for_key(authors: &[String]) -> String {
 fn abbreviate(name: &str) -> String {
     name.split_whitespace()
         .filter(|w| !is_function_word(w))
-        .map(|w| w.chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_default())
+        .map(|w| {
+            w.chars()
+                .next()
+                .map(|c| c.to_uppercase().to_string())
+                .unwrap_or_default()
+        })
         .collect::<Vec<_>>()
         .join("")
 }
@@ -755,7 +854,9 @@ fn capitalize_all_words(s: &str) -> String {
             match chars.next() {
                 Some(c) => {
                     let mut out = c.to_uppercase().to_string();
-                    for ch in chars { out.extend(ch.to_lowercase()); }
+                    for ch in chars {
+                        out.extend(ch.to_lowercase());
+                    }
                     out
                 }
                 None => String::new(),
@@ -769,7 +870,9 @@ fn capitalize_all_words(s: &str) -> String {
 fn titlecase(s: &str) -> String {
     let words: Vec<&str> = s.split_whitespace().collect();
     let last_idx = words.len().saturating_sub(1);
-    words.iter().enumerate()
+    words
+        .iter()
+        .enumerate()
         .map(|(i, w)| {
             if i == 0 || i == last_idx || !is_function_word(w) {
                 capitalize_word(w)
@@ -913,7 +1016,10 @@ mod tests {
         assert_eq!(generate_citekey("[authshort]", &f1), "Smith");
         let f3 = fields(&[("author", "Smith, Jane and Jones, Bob and Williams, Carol")]);
         assert_eq!(generate_citekey("[authshort]", &f3), "SJW");
-        let f4 = fields(&[("author", "Smith, Jane and Jones, Bob and Williams, Carol and Adams, Dave")]);
+        let f4 = fields(&[(
+            "author",
+            "Smith, Jane and Jones, Bob and Williams, Carol and Adams, Dave",
+        )]);
         assert_eq!(generate_citekey("[authshort]", &f4), "SJW");
     }
 
@@ -1042,13 +1148,19 @@ mod tests {
     #[test]
     fn test_modifier_capitalize() {
         let f = fields(&[("title", "hello WORLD test")]);
-        assert_eq!(generate_citekey("[fulltitle:capitalize]", &f), "HelloWorldTest");
+        assert_eq!(
+            generate_citekey("[fulltitle:capitalize]", &f),
+            "HelloWorldTest"
+        );
     }
 
     #[test]
     fn test_modifier_sentencecase() {
         let f = fields(&[("title", "HELLO WORLD")]);
-        assert_eq!(generate_citekey("[fulltitle:sentencecase]", &f), "Helloworld");
+        assert_eq!(
+            generate_citekey("[fulltitle:sentencecase]", &f),
+            "Helloworld"
+        );
     }
 
     #[test]
@@ -1124,10 +1236,7 @@ mod tests {
 
     #[test]
     fn test_char_stripping() {
-        let f = fields(&[
-            ("author", "Jane Smith"),
-            ("year", "2020"),
-        ]);
+        let f = fields(&[("author", "Jane Smith"), ("year", "2020")]);
         let result = generate_citekey("[auth] [year]", &f);
         assert_eq!(result, "Smith2020");
     }
@@ -1267,7 +1376,10 @@ mod tests {
     #[test]
     fn test_legacy_title_camel() {
         let f = fields(&[("title", "nuclear science engineering")]);
-        assert_eq!(generate_citekey("{title_camel}", &f), "NuclearScienceEngineering");
+        assert_eq!(
+            generate_citekey("{title_camel}", &f),
+            "NuclearScienceEngineering"
+        );
     }
 
     #[test]
@@ -1344,20 +1456,34 @@ mod tests {
     #[test]
     fn test_camel_hyphenated_word() {
         let f = fields(&[("journal", "self-consistent methods")]);
-        assert_eq!(generate_citekey("[journal:camel]", &f), "SelfConsistentMethods");
+        assert_eq!(
+            generate_citekey("[journal:camel]", &f),
+            "SelfConsistentMethods"
+        );
     }
 
     #[test]
     fn test_camel_slash_separated() {
         let f = fields(&[("journal", "nuclear/reactor physics")]);
-        assert_eq!(generate_citekey("[journal:camel]", &f), "NuclearReactorPhysics");
+        assert_eq!(
+            generate_citekey("[journal:camel]", &f),
+            "NuclearReactorPhysics"
+        );
     }
 
     #[test]
     fn test_empty_optional_trailing_underscore_stripped() {
-        let f = fields(&[("year", "2020"), ("author", "Smith, J"), ("journal", "Nuclear Science Engineering")]);
+        let f = fields(&[
+            ("year", "2020"),
+            ("author", "Smith, J"),
+            ("journal", "Nuclear Science Engineering"),
+        ]);
         let result = generate_citekey("{year}_{journal_abbrev}_{author_last}_{pages}", &f);
-        assert!(!result.ends_with('_'), "trailing underscore should be stripped: {}", result);
+        assert!(
+            !result.ends_with('_'),
+            "trailing underscore should be stripped: {}",
+            result
+        );
         assert_eq!(result, "2020_NSE_Smith");
     }
 
@@ -1486,7 +1612,10 @@ mod tests {
 
     #[test]
     fn test_authshort_four_authors() {
-        let f = fields(&[("author", "Smith, Jane and Jones, Bob and Clark, Carol and Davis, Dan")]);
+        let f = fields(&[(
+            "author",
+            "Smith, Jane and Jones, Bob and Clark, Carol and Davis, Dan",
+        )]);
         // 4+ authors: first 3 letters + "+" but "+" stripped by sanitizer
         assert_eq!(generate_citekey("[authshort]", &f), "SJC");
     }
@@ -1507,21 +1636,30 @@ mod tests {
     fn test_titlecase_modifier() {
         let f = fields(&[("title", "the art of computer programming")]);
         // titlecase produces spaces → sanitizer strips them
-        assert_eq!(generate_citekey("[fulltitle:titlecase]", &f), "TheArtofComputerProgramming");
+        assert_eq!(
+            generate_citekey("[fulltitle:titlecase]", &f),
+            "TheArtofComputerProgramming"
+        );
     }
 
     #[test]
     fn test_sentencecase_modifier() {
         let f = fields(&[("title", "MONTE CARLO METHODS")]);
         // sentencecase produces spaces → sanitizer strips them
-        assert_eq!(generate_citekey("[fulltitle:sentencecase]", &f), "Montecarlomethods");
+        assert_eq!(
+            generate_citekey("[fulltitle:sentencecase]", &f),
+            "Montecarlomethods"
+        );
     }
 
     #[test]
     fn test_capitalize_modifier() {
         let f = fields(&[("title", "monte carlo methods")]);
         // capitalize produces spaces → sanitizer strips them
-        assert_eq!(generate_citekey("[fulltitle:capitalize]", &f), "MonteCarloMethods");
+        assert_eq!(
+            generate_citekey("[fulltitle:capitalize]", &f),
+            "MonteCarloMethods"
+        );
     }
 
     #[test]
@@ -1581,7 +1719,10 @@ mod tests {
     #[test]
     fn test_empty_bracket_token_returns_empty() {
         // An empty bracket token `[]` resolves to empty; double underscore collapsed
-        assert_eq!(generate_citekey("prefix_[]_suffix", &fields(&[])), "prefix_suffix");
+        assert_eq!(
+            generate_citekey("prefix_[]_suffix", &fields(&[])),
+            "prefix_suffix"
+        );
     }
 
     #[test]
@@ -1609,6 +1750,9 @@ mod help_example_tests {
         let mut f = IndexMap::new();
         f.insert("author".to_string(), "Smith, John".to_string());
         f.insert("year".to_string(), "2024".to_string());
-        assert_eq!(generate_citekey(r#"[auth][year:regex("^..","")]"#, &f), "Smith24");
+        assert_eq!(
+            generate_citekey(r#"[auth][year:regex("^..","")]"#, &f),
+            "Smith24"
+        );
     }
 }

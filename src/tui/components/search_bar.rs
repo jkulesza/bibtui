@@ -61,7 +61,11 @@ pub fn render_search_bar(
     active: bool,
     theme: &Theme,
 ) {
-    let count = if state.searching { "  (searching…)".to_string() } else { format!("  ({} matches)", state.result_count) };
+    let count = if state.searching {
+        "  (searching…)".to_string()
+    } else {
+        format!("  ({} matches)", state.result_count)
+    };
     let line = if active {
         Line::from(vec![
             Span::styled("/", theme.search_match),

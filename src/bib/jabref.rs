@@ -22,7 +22,12 @@ fn serialize_node(node: &GroupNode, depth: usize, lines: &mut Vec<String>) {
                 set_group_field(&mut fields, 2, expanded.to_string());
             }
             (
-                GroupType::Keyword { field, search_term, case_sensitive, regex },
+                GroupType::Keyword {
+                    field,
+                    search_term,
+                    case_sensitive,
+                    regex,
+                },
                 "KeywordGroup",
             ) => {
                 set_group_field(&mut fields, 0, node.group.name.clone());
@@ -137,8 +142,7 @@ pub fn parse_jabref_comment(raw_text: &str, meta: &mut JabRefMeta) {
                 meta.key_patterns.insert(type_name, value.to_string());
             }
             _ => {
-                meta.unknown_meta
-                    .insert(key.to_string(), value.to_string());
+                meta.unknown_meta.insert(key.to_string(), value.to_string());
             }
         }
     }
@@ -394,8 +398,10 @@ mod tests {
         let raw = "@Comment{jabref-meta: someUnknownKey:someValue;}";
         let mut meta = JabRefMeta::default();
         parse_jabref_comment(raw, &mut meta);
-        assert!(meta.unknown_meta.contains_key("someUnknownKey")
-            || meta.unknown_meta.contains_key("someunknownkey"));
+        assert!(
+            meta.unknown_meta.contains_key("someUnknownKey")
+                || meta.unknown_meta.contains_key("someunknownkey")
+        );
     }
 
     // ── serialize_group_tree ──────────────────────────────────────────────────
@@ -404,7 +410,10 @@ mod tests {
     fn test_serialize_all_entries_group() {
         let tree = GroupTree {
             root: GroupNode {
-                group: Group { name: "All Entries".to_string(), group_type: GroupType::AllEntries },
+                group: Group {
+                    name: "All Entries".to_string(),
+                    group_type: GroupType::AllEntries,
+                },
                 children: vec![],
                 expanded: true,
                 original_fields: None,
@@ -418,9 +427,15 @@ mod tests {
     fn test_serialize_static_group() {
         let tree = GroupTree {
             root: GroupNode {
-                group: Group { name: "All Entries".to_string(), group_type: GroupType::AllEntries },
+                group: Group {
+                    name: "All Entries".to_string(),
+                    group_type: GroupType::AllEntries,
+                },
                 children: vec![GroupNode {
-                    group: Group { name: "MyGroup".to_string(), group_type: GroupType::Static },
+                    group: Group {
+                        name: "MyGroup".to_string(),
+                        group_type: GroupType::Static,
+                    },
                     children: vec![],
                     expanded: false,
                     original_fields: None,
@@ -437,7 +452,10 @@ mod tests {
     fn test_serialize_keyword_group() {
         let tree = GroupTree {
             root: GroupNode {
-                group: Group { name: "All Entries".to_string(), group_type: GroupType::AllEntries },
+                group: Group {
+                    name: "All Entries".to_string(),
+                    group_type: GroupType::AllEntries,
+                },
                 children: vec![GroupNode {
                     group: Group {
                         name: "Nuclear".to_string(),
@@ -496,14 +514,14 @@ mod tests {
             ("saveActions", "enabled;"),
             ("saveOrderConfig", "specified;"),
         ] {
-            let raw = format!("@Comment{{jabref-meta: {}:{};}}",  key, value);
+            let raw = format!("@Comment{{jabref-meta: {}:{};}}", key, value);
             let mut meta = JabRefMeta::default();
             parse_jabref_comment(&raw, &mut meta);
             match *key {
-                "protectedFlag"     => assert!(meta.protected_flag.is_some()),
-                "groupsversion"     => assert!(meta.groups_version.is_some()),
-                "saveActions"       => assert!(meta.save_actions.is_some()),
-                "saveOrderConfig"   => assert!(meta.save_order_config.is_some()),
+                "protectedFlag" => assert!(meta.protected_flag.is_some()),
+                "groupsversion" => assert!(meta.groups_version.is_some()),
+                "saveActions" => assert!(meta.save_actions.is_some()),
+                "saveOrderConfig" => assert!(meta.save_order_config.is_some()),
                 _ => {}
             }
         }
@@ -541,7 +559,10 @@ mod tests {
         // Covers the case_sensitive=true, regex=true, expanded=false branches
         let tree = GroupTree {
             root: GroupNode {
-                group: Group { name: "All Entries".to_string(), group_type: GroupType::AllEntries },
+                group: Group {
+                    name: "All Entries".to_string(),
+                    group_type: GroupType::AllEntries,
+                },
                 children: vec![GroupNode {
                     group: Group {
                         name: "Fission".to_string(),
@@ -574,10 +595,14 @@ mod tests {
         let line = r"1 StaticGroup:Physics\;2\;1\;0x8a8a8aff\;icon-atom\;My description\;;";
         let grouping = format!("0 AllEntriesGroup:;\n{}", line);
         let mut meta = JabRefMeta::default();
-        meta.unknown_meta.insert("grouping".to_string(), grouping.clone());
+        meta.unknown_meta
+            .insert("grouping".to_string(), grouping.clone());
         let tree = build_group_tree(&meta);
         let serialized = serialize_group_tree(&tree);
-        assert_eq!(serialized, grouping, "unchanged tree must round-trip byte-identically");
+        assert_eq!(
+            serialized, grouping,
+            "unchanged tree must round-trip byte-identically"
+        );
     }
 
     #[test]
@@ -602,7 +627,8 @@ mod tests {
             r"1 KeywordGroup:Nuclear\;0\;keywords\;fission\;0\;0\;1\;0x00ff00ff\;icon-x\;Desc\;;";
         let grouping = format!("0 AllEntriesGroup:;\n{}", line);
         let mut meta = JabRefMeta::default();
-        meta.unknown_meta.insert("grouping".to_string(), grouping.clone());
+        meta.unknown_meta
+            .insert("grouping".to_string(), grouping.clone());
         let tree = build_group_tree(&meta);
         let serialized = serialize_group_tree(&tree);
         assert_eq!(serialized, grouping);
@@ -614,7 +640,8 @@ mod tests {
         let line = r"1 SearchGroup:Recent\;0\;year=2024\;0\;0\;1\;\;\;\;;";
         let grouping = format!("0 AllEntriesGroup:;\n{}", line);
         let mut meta = JabRefMeta::default();
-        meta.unknown_meta.insert("grouping".to_string(), grouping.clone());
+        meta.unknown_meta
+            .insert("grouping".to_string(), grouping.clone());
         let tree = build_group_tree(&meta);
         let serialized = serialize_group_tree(&tree);
         assert_eq!(serialized, grouping);
@@ -625,9 +652,15 @@ mod tests {
         // Groups created in bibtui (no original fields) keep the short form.
         let tree = GroupTree {
             root: GroupNode {
-                group: Group { name: "All Entries".to_string(), group_type: GroupType::AllEntries },
+                group: Group {
+                    name: "All Entries".to_string(),
+                    group_type: GroupType::AllEntries,
+                },
                 children: vec![GroupNode {
-                    group: Group { name: "New".to_string(), group_type: GroupType::Static },
+                    group: Group {
+                        name: "New".to_string(),
+                        group_type: GroupType::Static,
+                    },
                     children: vec![],
                     expanded: true,
                     original_fields: None,
@@ -637,7 +670,10 @@ mod tests {
             },
         };
         let out = serialize_group_tree(&tree);
-        assert_eq!(out, "0 AllEntriesGroup:;\n1 StaticGroup:New\\;2\\;1\\;\\;\\;\\;;");
+        assert_eq!(
+            out,
+            "0 AllEntriesGroup:;\n1 StaticGroup:New\\;2\\;1\\;\\;\\;\\;;"
+        );
     }
 
     // ── build_group_tree ──────────────────────────────────────────────────────
@@ -655,7 +691,8 @@ mod tests {
         // Parse grouping text → build tree → serialize → compare
         let grouping = "0 AllEntriesGroup:;\n1 StaticGroup:Physics\\;2\\;1\\;\\;\\;\\;;";
         let mut meta = JabRefMeta::default();
-        meta.unknown_meta.insert("grouping".to_string(), grouping.to_string());
+        meta.unknown_meta
+            .insert("grouping".to_string(), grouping.to_string());
         let tree = build_group_tree(&meta);
         let serialized = serialize_group_tree(&tree);
         assert!(serialized.contains("AllEntriesGroup:"));
@@ -667,10 +704,16 @@ mod tests {
         // A line with no space (no depth prefix) should be skipped
         let grouping = "0 AllEntriesGroup:;\nNOSPACELINE\n1 StaticGroup:X\\;2\\;1\\;\\;\\;\\;;";
         let mut meta = JabRefMeta::default();
-        meta.unknown_meta.insert("grouping".to_string(), grouping.to_string());
+        meta.unknown_meta
+            .insert("grouping".to_string(), grouping.to_string());
         let tree = build_group_tree(&meta);
         // The "NOSPACELINE" entry is skipped; the static group is still parsed
-        let names: Vec<_> = tree.root.children.iter().map(|c| c.group.name.as_str()).collect();
+        let names: Vec<_> = tree
+            .root
+            .children
+            .iter()
+            .map(|c| c.group.name.as_str())
+            .collect();
         assert!(names.contains(&"X"), "got: {:?}", names);
     }
 
@@ -679,7 +722,8 @@ mod tests {
         // Non-numeric depth should default to 0 (child of root)
         let grouping = "abc AllEntriesGroup:;\n0 StaticGroup:Y\\;2\\;1\\;\\;\\;\\;;";
         let mut meta = JabRefMeta::default();
-        meta.unknown_meta.insert("grouping".to_string(), grouping.to_string());
+        meta.unknown_meta
+            .insert("grouping".to_string(), grouping.to_string());
         // Should not panic
         let _tree = build_group_tree(&meta);
     }

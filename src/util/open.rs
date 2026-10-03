@@ -48,7 +48,11 @@ pub fn parse_file_field(s: &str) -> Vec<ParsedFile> {
             .and_then(|e| e.to_str())
             .map(|e| e.to_uppercase())
             .unwrap_or_default();
-        return vec![ParsedFile { description: String::new(), path, file_type }];
+        return vec![ParsedFile {
+            description: String::new(),
+            path,
+            file_type,
+        }];
     }
 
     let mut files = Vec::new();
@@ -70,7 +74,11 @@ pub fn parse_file_field(s: &str) -> Vec<ParsedFile> {
             String::new()
         };
         if !path.is_empty() {
-            files.push(ParsedFile { description, path, file_type });
+            files.push(ParsedFile {
+                description,
+                path,
+                file_type,
+            });
         }
     }
 
@@ -152,7 +160,11 @@ pub fn effective_file_dir(bib_path: &Path, file_directory: Option<&str>) -> Path
     match file_directory {
         Some(fd) if !fd.trim().is_empty() => {
             let fd_path = PathBuf::from(fd.trim());
-            if fd_path.is_absolute() { fd_path } else { bib_dir.join(fd_path) }
+            if fd_path.is_absolute() {
+                fd_path
+            } else {
+                bib_dir.join(fd_path)
+            }
         }
         _ => bib_dir.to_path_buf(),
     }
@@ -164,8 +176,12 @@ pub fn effective_file_dir(bib_path: &Path, file_directory: Option<&str>) -> Path
 /// resolved.  Falls back to the absolute `target` path if canonicalization
 /// fails (e.g. when the file does not yet exist on disk).
 pub fn make_relative(base_dir: &Path, target: &Path) -> PathBuf {
-    let base = base_dir.canonicalize().unwrap_or_else(|_| base_dir.to_path_buf());
-    let tgt = target.canonicalize().unwrap_or_else(|_| target.to_path_buf());
+    let base = base_dir
+        .canonicalize()
+        .unwrap_or_else(|_| base_dir.to_path_buf());
+    let tgt = target
+        .canonicalize()
+        .unwrap_or_else(|_| target.to_path_buf());
 
     let base_parts: Vec<_> = base.components().collect();
     let tgt_parts: Vec<_> = tgt.components().collect();
@@ -187,9 +203,7 @@ pub fn make_relative(base_dir: &Path, target: &Path) -> PathBuf {
 
     if rel.as_os_str().is_empty() {
         // Same path — use the filename only
-        tgt.file_name()
-            .map(PathBuf::from)
-            .unwrap_or(tgt)
+        tgt.file_name().map(PathBuf::from).unwrap_or(tgt)
     } else {
         rel
     }
@@ -289,11 +303,17 @@ impl Opener for SystemOpener {
 
 fn os_open_cmd() -> &'static str {
     #[cfg(target_os = "macos")]
-    { "open" }
+    {
+        "open"
+    }
     #[cfg(target_os = "linux")]
-    { "xdg-open" }
+    {
+        "xdg-open"
+    }
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-    { "xdg-open" }
+    {
+        "xdg-open"
+    }
 }
 
 #[cfg(test)]
@@ -379,8 +399,16 @@ mod tests {
     #[test]
     fn test_serialize_file_field_multiple() {
         let files = vec![
-            ParsedFile { description: "A".into(), path: "a.pdf".into(), file_type: "PDF".into() },
-            ParsedFile { description: "B".into(), path: "b.pdf".into(), file_type: "PS".into() },
+            ParsedFile {
+                description: "A".into(),
+                path: "a.pdf".into(),
+                file_type: "PDF".into(),
+            },
+            ParsedFile {
+                description: "B".into(),
+                path: "b.pdf".into(),
+                file_type: "PS".into(),
+            },
         ];
         assert_eq!(serialize_file_field(&files), "A:a.pdf:PDF;B:b.pdf:PS");
     }
@@ -431,19 +459,13 @@ mod tests {
 
     #[test]
     fn test_effective_file_dir_absolute() {
-        let result = effective_file_dir(
-            Path::new("/home/user/refs.bib"),
-            Some("/data/papers"),
-        );
+        let result = effective_file_dir(Path::new("/home/user/refs.bib"), Some("/data/papers"));
         assert_eq!(result, PathBuf::from("/data/papers"));
     }
 
     #[test]
     fn test_effective_file_dir_relative() {
-        let result = effective_file_dir(
-            Path::new("/home/user/refs.bib"),
-            Some("papers"),
-        );
+        let result = effective_file_dir(Path::new("/home/user/refs.bib"), Some("papers"));
         assert_eq!(result, PathBuf::from("/home/user/papers"));
     }
 
@@ -523,7 +545,10 @@ mod tests {
     #[test]
     fn test_make_relative_no_common_prefix() {
         // /home/alice/bib → up 3 (bib, alice, home) → down into /data/pdfs/foo.pdf
-        let rel = make_relative(Path::new("/home/alice/bib"), Path::new("/data/pdfs/foo.pdf"));
+        let rel = make_relative(
+            Path::new("/home/alice/bib"),
+            Path::new("/data/pdfs/foo.pdf"),
+        );
         assert_eq!(rel, PathBuf::from("../../../data/pdfs/foo.pdf"));
     }
 
@@ -611,7 +636,10 @@ mod tests {
         let reparsed = parse_file_field(&serialized);
         assert_eq!(reparsed.len(), files.len(), "serialized: {serialized:?}");
         for (orig, back) in files.iter().zip(reparsed.iter()) {
-            assert_eq!(back.description, orig.description, "serialized: {serialized:?}");
+            assert_eq!(
+                back.description, orig.description,
+                "serialized: {serialized:?}"
+            );
             assert_eq!(back.path, orig.path, "serialized: {serialized:?}");
             assert_eq!(back.file_type, orig.file_type, "serialized: {serialized:?}");
         }

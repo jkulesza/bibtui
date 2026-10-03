@@ -22,7 +22,9 @@ pub(crate) trait SaveIo {
         // Creating the destination hard link is exclusive: even a file arriving
         // between planning and execution cannot be overwritten. Attachments
         // stay in their original directory, so no cross-device move is needed.
-        if source == destination { return Ok(()); }
+        if source == destination {
+            return Ok(());
+        }
         fs::hard_link(source, destination)?;
         if let Err(error) = fs::remove_file(source) {
             let _ = fs::remove_file(destination);
@@ -50,12 +52,19 @@ impl SaveIo for FileSaveIo {
             Err(error) if error.kind() == io::ErrorKind::NotFound => path,
             Err(error) => return Err(error),
         };
-        let parent = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
-        let mut temporary = tempfile::Builder::new().prefix(".bibtui-").tempfile_in(parent)?;
+        let parent = path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or(Path::new("."));
+        let mut temporary = tempfile::Builder::new()
+            .prefix(".bibtui-")
+            .tempfile_in(parent)?;
         temporary.write_all(contents)?;
         temporary.flush()?;
         if let Ok(metadata) = fs::metadata(path) {
-            temporary.as_file().set_permissions(metadata.permissions())?;
+            temporary
+                .as_file()
+                .set_permissions(metadata.permissions())?;
         }
         temporary.as_file().sync_all()?;
         temporary.persist(path).map_err(|error| error.error)?;

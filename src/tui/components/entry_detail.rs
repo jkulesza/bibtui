@@ -59,9 +59,9 @@ impl EntryDetailState {
         let display_fields = build_display_items(entry, &field_groups);
         let mut state = ListState::default();
         // Start on the first selectable (non-header) item
-        let first = display_fields.iter().position(|i| {
-            matches!(i, DisplayItem::Field { .. } | DisplayItem::FileEntry { .. })
-        });
+        let first = display_fields
+            .iter()
+            .position(|i| matches!(i, DisplayItem::Field { .. } | DisplayItem::FileEntry { .. }));
         state.select(first);
         EntryDetailState {
             list_state: state,
@@ -92,7 +92,10 @@ impl EntryDetailState {
         // Skip header rows in the direction of movement; if the edge is reached,
         // scan the other direction so we always land on a selectable item.
         let is_selectable = |item: &DisplayItem| {
-            matches!(item, DisplayItem::Field { .. } | DisplayItem::FileEntry { .. })
+            matches!(
+                item,
+                DisplayItem::Field { .. } | DisplayItem::FileEntry { .. }
+            )
         };
         let direction = if delta >= 0 { 1i32 } else { -1i32 };
         loop {
@@ -123,18 +126,22 @@ impl EntryDetailState {
 
     /// Jump to the first selectable item.
     pub fn move_to_top(&mut self) {
-        if let Some(idx) = self.display_fields.iter().position(|i| {
-            matches!(i, DisplayItem::Field { .. } | DisplayItem::FileEntry { .. })
-        }) {
+        if let Some(idx) = self
+            .display_fields
+            .iter()
+            .position(|i| matches!(i, DisplayItem::Field { .. } | DisplayItem::FileEntry { .. }))
+        {
             self.select(idx);
         }
     }
 
     /// Jump to the last selectable item.
     pub fn move_to_bottom(&mut self) {
-        if let Some(idx) = self.display_fields.iter().rposition(|i| {
-            matches!(i, DisplayItem::Field { .. } | DisplayItem::FileEntry { .. })
-        }) {
+        if let Some(idx) = self
+            .display_fields
+            .iter()
+            .rposition(|i| matches!(i, DisplayItem::Field { .. } | DisplayItem::FileEntry { .. }))
+        {
             self.select(idx);
         }
     }
@@ -208,7 +215,11 @@ impl EntryDetailState {
             return;
         }
         let current = self.selected();
-        let target = self.match_indices.iter().copied().find(|&i| i > current)
+        let target = self
+            .match_indices
+            .iter()
+            .copied()
+            .find(|&i| i > current)
             .unwrap_or(self.match_indices[0]);
         self.select(target);
     }
@@ -219,7 +230,12 @@ impl EntryDetailState {
             return;
         }
         let current = self.selected();
-        let target = self.match_indices.iter().copied().rev().find(|&i| i < current)
+        let target = self
+            .match_indices
+            .iter()
+            .copied()
+            .rev()
+            .find(|&i| i < current)
             .unwrap_or(*self.match_indices.last().unwrap());
         self.select(target);
     }
@@ -230,7 +246,10 @@ impl EntryDetailState {
             return;
         }
         let q = self.search_query.to_lowercase();
-        self.match_indices = self.display_fields.iter().enumerate()
+        self.match_indices = self
+            .display_fields
+            .iter()
+            .enumerate()
             .filter_map(|(i, item)| match item {
                 DisplayItem::Field { name, value, .. } => {
                     if name.to_lowercase().contains(&q) || value.to_lowercase().contains(&q) {
@@ -240,7 +259,11 @@ impl EntryDetailState {
                     }
                 }
                 DisplayItem::FileEntry { label, .. } => {
-                    if label.to_lowercase().contains(&q) { Some(i) } else { None }
+                    if label.to_lowercase().contains(&q) {
+                        Some(i)
+                    } else {
+                        None
+                    }
                 }
                 DisplayItem::Header(_) => None,
             })
@@ -252,7 +275,11 @@ impl EntryDetailState {
             return;
         }
         let current = self.selected();
-        let target = self.match_indices.iter().copied().find(|&i| i >= current)
+        let target = self
+            .match_indices
+            .iter()
+            .copied()
+            .find(|&i| i >= current)
             .unwrap_or(self.match_indices[0]);
         self.select(target);
     }
@@ -366,7 +393,12 @@ fn build_display_items(entry: &Entry, field_groups: &[CustomFieldGroup]) -> Vec<
         if !fields.is_empty() {
             result.push(DisplayItem::Header(format!("{}:", group_name)));
             for (name, value) in fields {
-                push_field_or_files(&mut result, name, value, FieldCategory::Custom(group_name.clone()));
+                push_field_or_files(
+                    &mut result,
+                    name,
+                    value,
+                    FieldCategory::Custom(group_name.clone()),
+                );
             }
         }
     }
@@ -404,7 +436,11 @@ fn push_field_or_files(
             return;
         }
     }
-    result.push(DisplayItem::Field { name, value, category });
+    result.push(DisplayItem::Field {
+        name,
+        value,
+        category,
+    });
 }
 
 #[allow(clippy::too_many_arguments)] // display params; bundling into a struct is tracked in REVIEW_FINDINGS.md
@@ -477,7 +513,11 @@ pub fn render_entry_detail(
                     format!("  {}", label),
                     theme.required_label,
                 ))),
-                DisplayItem::Field { name, value, category } => {
+                DisplayItem::Field {
+                    name,
+                    value,
+                    category,
+                } => {
                     let padding = " ".repeat(max_name_len.saturating_sub(name.len()));
                     let name_style = if is_match {
                         theme.search_match
@@ -506,7 +546,11 @@ pub fn render_entry_detail(
                 }
                 DisplayItem::FileEntry { label, .. } => {
                     let padding = " ".repeat(max_name_len.saturating_sub(file_name_len));
-                    let label_style = if is_match { theme.search_match } else { theme.value };
+                    let label_style = if is_match {
+                        theme.search_match
+                    } else {
+                        theme.value
+                    };
                     ListItem::new(Line::from(vec![
                         Span::styled(format!("    file{} : ↳ ", padding), theme.label),
                         Span::styled(label.clone(), label_style),
@@ -548,7 +592,10 @@ pub fn render_entry_detail(
         let match_info = if state.match_indices.is_empty() {
             " (no matches)".to_string()
         } else {
-            let pos = state.match_indices.iter().position(|&i| i == state.selected())
+            let pos = state
+                .match_indices
+                .iter()
+                .position(|&i| i == state.selected())
                 .map(|p| format!(" ({}/{})", p + 1, state.match_indices.len()))
                 .unwrap_or_else(|| format!(" ({} matches)", state.match_indices.len()));
             pos
@@ -565,9 +612,7 @@ pub fn render_entry_detail(
     // Preview pane: show full value of selected field with wrapping.
     // For FileEntry rows, show the label of the specific file being highlighted.
     let (preview_label, preview_text) = match state.display_fields.get(state.selected()) {
-        Some(DisplayItem::FileEntry { label, .. }) => {
-            (" file ".to_string(), label.clone())
-        }
+        Some(DisplayItem::FileEntry { label, .. }) => (" file ".to_string(), label.clone()),
         Some(DisplayItem::Field { name, value, .. }) if !value.is_empty() => {
             let text = apply_display_pipeline(value, show_braces, render_latex_enabled);
             (format!(" {} ", name), text)
@@ -610,7 +655,9 @@ mod tests {
 
     fn make_entry(entry_type: EntryType, fields: &[(&str, &str)]) -> Entry {
         let mut f = IndexMap::new();
-        for (k, v) in fields { f.insert(k.to_string(), v.to_string()); }
+        for (k, v) in fields {
+            f.insert(k.to_string(), v.to_string());
+        }
         Entry {
             entry_type,
             citation_key: "Key2020".to_string(),
@@ -623,11 +670,17 @@ mod tests {
 
     #[test]
     fn test_new_selects_first_field() {
-        let e = make_entry(EntryType::Article, &[("author", "Smith"), ("title", "Paper")]);
+        let e = make_entry(
+            EntryType::Article,
+            &[("author", "Smith"), ("title", "Paper")],
+        );
         let state = EntryDetailState::new(&e, vec![]);
         // First item should be a Header, so selected should be on a Field
         let sel = state.selected();
-        assert!(matches!(state.display_fields[sel], DisplayItem::Field { .. }));
+        assert!(matches!(
+            state.display_fields[sel],
+            DisplayItem::Field { .. }
+        ));
     }
 
     #[test]
@@ -641,38 +694,62 @@ mod tests {
 
     #[test]
     fn test_move_selection_skips_headers() {
-        let e = make_entry(EntryType::Article, &[
-            ("author", "Smith"), ("title", "Paper"), ("year", "2020"), ("journal", "Nature"),
-        ]);
+        let e = make_entry(
+            EntryType::Article,
+            &[
+                ("author", "Smith"),
+                ("title", "Paper"),
+                ("year", "2020"),
+                ("journal", "Nature"),
+            ],
+        );
         let mut state = EntryDetailState::new(&e, vec![]);
         let start = state.selected();
         state.move_selection(1);
         let after = state.selected();
         // After moving down, we should still be on a Field (not a Header)
-        assert!(matches!(state.display_fields[after], DisplayItem::Field { .. }));
+        assert!(matches!(
+            state.display_fields[after],
+            DisplayItem::Field { .. }
+        ));
         // And we should have moved
         assert!(after >= start); // could stay if already at last field
     }
 
     #[test]
     fn test_move_selection_up() {
-        let e = make_entry(EntryType::Article, &[
-            ("author", "Smith"), ("title", "Paper"), ("year", "2020"), ("journal", "Nature"),
-        ]);
+        let e = make_entry(
+            EntryType::Article,
+            &[
+                ("author", "Smith"),
+                ("title", "Paper"),
+                ("year", "2020"),
+                ("journal", "Nature"),
+            ],
+        );
         let mut state = EntryDetailState::new(&e, vec![]);
         state.move_selection(10); // go to bottom
         let bottom = state.selected();
         state.move_selection(-1);
         let after = state.selected();
         assert!(after <= bottom);
-        assert!(matches!(state.display_fields[after], DisplayItem::Field { .. }));
+        assert!(matches!(
+            state.display_fields[after],
+            DisplayItem::Field { .. }
+        ));
     }
 
     #[test]
     fn test_refresh_preserves_selection() {
-        let e = make_entry(EntryType::Article, &[
-            ("author", "Smith"), ("title", "Paper"), ("year", "2020"), ("journal", "Nature"),
-        ]);
+        let e = make_entry(
+            EntryType::Article,
+            &[
+                ("author", "Smith"),
+                ("title", "Paper"),
+                ("year", "2020"),
+                ("journal", "Nature"),
+            ],
+        );
         let mut state = EntryDetailState::new(&e, vec![]);
         state.move_selection(1);
         let before = state.selected();
@@ -680,37 +757,54 @@ mod tests {
         e2.fields.insert("author".to_string(), "Jones".to_string());
         state.refresh(&e2);
         // Selection should be preserved or clamped
-        assert!(matches!(state.display_fields[state.selected()], DisplayItem::Field { .. }));
+        assert!(matches!(
+            state.display_fields[state.selected()],
+            DisplayItem::Field { .. }
+        ));
         let _ = before; // just ensure it compiled
     }
 
     #[test]
     fn test_required_fields_appear() {
-        let e = make_entry(EntryType::Article, &[
-            ("author", "Smith"), ("title", "Paper"), ("year", "2020"), ("journal", "Nature"),
-        ]);
+        let e = make_entry(
+            EntryType::Article,
+            &[
+                ("author", "Smith"),
+                ("title", "Paper"),
+                ("year", "2020"),
+                ("journal", "Nature"),
+            ],
+        );
         let state = EntryDetailState::new(&e, vec![]);
-        let has_required_header = state.display_fields.iter().any(|item| {
-            matches!(item, DisplayItem::Header(h) if h == "Required:")
-        });
+        let has_required_header = state
+            .display_fields
+            .iter()
+            .any(|item| matches!(item, DisplayItem::Header(h) if h == "Required:"));
         assert!(has_required_header);
     }
 
     #[test]
     fn test_custom_field_group() {
         use crate::config::schema::CustomFieldGroup;
-        let e = make_entry(EntryType::Article, &[
-            ("author", "Smith"), ("title", "P"), ("year", "2020"),
-            ("journal", "N"), ("isbn", "123"),
-        ]);
+        let e = make_entry(
+            EntryType::Article,
+            &[
+                ("author", "Smith"),
+                ("title", "P"),
+                ("year", "2020"),
+                ("journal", "N"),
+                ("isbn", "123"),
+            ],
+        );
         let groups = vec![CustomFieldGroup {
             name: "Identifiers".to_string(),
             fields: vec!["isbn".to_string()],
         }];
         let state = EntryDetailState::new(&e, groups);
-        let has_id_header = state.display_fields.iter().any(|item| {
-            matches!(item, DisplayItem::Header(h) if h.contains("Identifiers"))
-        });
+        let has_id_header = state
+            .display_fields
+            .iter()
+            .any(|item| matches!(item, DisplayItem::Header(h) if h.contains("Identifiers")));
         assert!(has_id_header);
     }
 
@@ -719,11 +813,17 @@ mod tests {
         // Fields configured in a custom group should always appear, even when
         // the entry does not have a value for them.
         use crate::config::schema::CustomFieldGroup;
-        let e = make_entry(EntryType::Article, &[
-            ("author", "Smith"), ("title", "P"), ("year", "2020"), ("journal", "N"),
-            // isbn present, issn absent
-            ("isbn", "123"),
-        ]);
+        let e = make_entry(
+            EntryType::Article,
+            &[
+                ("author", "Smith"),
+                ("title", "P"),
+                ("year", "2020"),
+                ("journal", "N"),
+                // isbn present, issn absent
+                ("isbn", "123"),
+            ],
+        );
         let groups = vec![CustomFieldGroup {
             name: "Identifiers".to_string(),
             fields: vec!["isbn".to_string(), "issn".to_string(), "eprint".to_string()],
@@ -731,9 +831,10 @@ mod tests {
         let state = EntryDetailState::new(&e, groups);
 
         // Header always shown
-        assert!(state.display_fields.iter().any(|i| {
-            matches!(i, DisplayItem::Header(h) if h.contains("Identifiers"))
-        }));
+        assert!(state
+            .display_fields
+            .iter()
+            .any(|i| { matches!(i, DisplayItem::Header(h) if h.contains("Identifiers")) }));
         // isbn present → non-empty value
         let isbn = state.display_fields.iter().find_map(|i| match i {
             DisplayItem::Field { name, value, .. } if name == "isbn" => Some(value.clone()),
@@ -745,13 +846,21 @@ mod tests {
             DisplayItem::Field { name, value, .. } if name == "issn" => Some(value.clone()),
             _ => None,
         });
-        assert_eq!(issn.as_deref(), Some(""), "issn should be shown with empty value");
+        assert_eq!(
+            issn.as_deref(),
+            Some(""),
+            "issn should be shown with empty value"
+        );
         // eprint absent → shown with empty value
         let eprint = state.display_fields.iter().find_map(|i| match i {
             DisplayItem::Field { name, value, .. } if name == "eprint" => Some(value.clone()),
             _ => None,
         });
-        assert_eq!(eprint.as_deref(), Some(""), "eprint should be shown with empty value");
+        assert_eq!(
+            eprint.as_deref(),
+            Some(""),
+            "eprint should be shown with empty value"
+        );
     }
 
     #[test]
@@ -759,10 +868,16 @@ mod tests {
         // isbn is in Book's standard optional list, but a custom group should
         // claim it so it appears under the group rather than under Optional.
         use crate::config::schema::CustomFieldGroup;
-        let e = make_entry(EntryType::Book, &[
-            ("author", "Smith"), ("title", "T"), ("year", "2020"),
-            ("publisher", "P"), ("isbn", "978-0-00-000000-0"),
-        ]);
+        let e = make_entry(
+            EntryType::Book,
+            &[
+                ("author", "Smith"),
+                ("title", "T"),
+                ("year", "2020"),
+                ("publisher", "P"),
+                ("isbn", "978-0-00-000000-0"),
+            ],
+        );
         let groups = vec![CustomFieldGroup {
             name: "Identifiers".to_string(),
             fields: vec!["isbn".to_string(), "issn".to_string()],
@@ -770,21 +885,31 @@ mod tests {
         let state = EntryDetailState::new(&e, groups);
 
         // isbn must appear under Identifiers
-        let has_identifiers_header = state.display_fields.iter().any(|item| {
-            matches!(item, DisplayItem::Header(h) if h.contains("Identifiers"))
-        });
-        assert!(has_identifiers_header, "Identifiers section should be present");
+        let has_identifiers_header = state
+            .display_fields
+            .iter()
+            .any(|item| matches!(item, DisplayItem::Header(h) if h.contains("Identifiers")));
+        assert!(
+            has_identifiers_header,
+            "Identifiers section should be present"
+        );
 
         let isbn_in_identifiers = state.display_fields.iter().any(|item| {
             matches!(item, DisplayItem::Field { name, category: FieldCategory::Custom(_), .. } if name == "isbn")
         });
-        assert!(isbn_in_identifiers, "isbn should be in the Identifiers group");
+        assert!(
+            isbn_in_identifiers,
+            "isbn should be in the Identifiers group"
+        );
 
         // isbn must NOT also appear in Optional
         let isbn_in_optional = state.display_fields.iter().any(|item| {
             matches!(item, DisplayItem::Field { name, category: FieldCategory::Optional, .. } if name == "isbn")
         });
-        assert!(!isbn_in_optional, "isbn should not appear in Optional when claimed by a custom group");
+        assert!(
+            !isbn_in_optional,
+            "isbn should not appear in Optional when claimed by a custom group"
+        );
     }
 
     #[test]
@@ -816,72 +941,121 @@ mod tests {
     fn test_groups_field_excluded_from_display_items() {
         // "groups" should never appear as a selectable Field row even when present
         // in entry.fields (it is shown in the header area instead).
-        let mut e = make_entry(EntryType::Article, &[
-            ("author", "Smith"), ("title", "P"), ("year", "2020"),
-            ("journal", "N"), ("groups", "Physics,Chemistry"),
-        ]);
+        let mut e = make_entry(
+            EntryType::Article,
+            &[
+                ("author", "Smith"),
+                ("title", "P"),
+                ("year", "2020"),
+                ("journal", "N"),
+                ("groups", "Physics,Chemistry"),
+            ],
+        );
         e.group_memberships = vec!["Physics".to_string(), "Chemistry".to_string()];
         let state = EntryDetailState::new(&e, vec![]);
-        let has_groups_field = state.display_fields.iter().any(|item| {
-            matches!(item, DisplayItem::Field { name, .. } if name == "groups")
-        });
-        assert!(!has_groups_field, "'groups' should not appear as a field row");
+        let has_groups_field = state
+            .display_fields
+            .iter()
+            .any(|item| matches!(item, DisplayItem::Field { name, .. } if name == "groups"));
+        assert!(
+            !has_groups_field,
+            "'groups' should not appear as a field row"
+        );
     }
 
     #[test]
     fn test_refresh_with_groups_rebuilds_items() {
         use crate::config::schema::CustomFieldGroup;
-        let e = make_entry(EntryType::Article, &[
-            ("author", "Smith"), ("title", "P"), ("year", "2020"),
-            ("journal", "N"), ("isbn", "123"),
-        ]);
+        let e = make_entry(
+            EntryType::Article,
+            &[
+                ("author", "Smith"),
+                ("title", "P"),
+                ("year", "2020"),
+                ("journal", "N"),
+                ("isbn", "123"),
+            ],
+        );
         let mut state = EntryDetailState::new(&e, vec![]);
         // Initially no Identifiers group
-        assert!(!state.display_fields.iter().any(|i| {
-            matches!(i, DisplayItem::Header(h) if h.contains("Identifiers"))
-        }));
+        assert!(!state
+            .display_fields
+            .iter()
+            .any(|i| { matches!(i, DisplayItem::Header(h) if h.contains("Identifiers")) }));
         // Now add a custom group
         let groups = vec![CustomFieldGroup {
             name: "Identifiers".to_string(),
             fields: vec!["isbn".to_string()],
         }];
         state.refresh_with_groups(&e, groups);
-        assert!(state.display_fields.iter().any(|i| {
-            matches!(i, DisplayItem::Header(h) if h.contains("Identifiers"))
-        }), "refresh_with_groups should rebuild items with new groups");
+        assert!(
+            state
+                .display_fields
+                .iter()
+                .any(|i| { matches!(i, DisplayItem::Header(h) if h.contains("Identifiers")) }),
+            "refresh_with_groups should rebuild items with new groups"
+        );
     }
 
     #[test]
     fn test_move_selection_zero_delta_stays_on_field() {
-        let e = make_entry(EntryType::Article, &[
-            ("author", "Smith"), ("title", "Paper"), ("year", "2020"), ("journal", "N"),
-        ]);
+        let e = make_entry(
+            EntryType::Article,
+            &[
+                ("author", "Smith"),
+                ("title", "Paper"),
+                ("year", "2020"),
+                ("journal", "N"),
+            ],
+        );
         let mut state = EntryDetailState::new(&e, vec![]);
         let start = state.selected();
         state.move_selection(0); // no-op / header-skip
-        assert!(matches!(state.display_fields[state.selected()], DisplayItem::Field { .. }));
+        assert!(matches!(
+            state.display_fields[state.selected()],
+            DisplayItem::Field { .. }
+        ));
         // Selection stays when delta=0 and already on a Field
         assert_eq!(state.selected(), start);
     }
 
     #[test]
     fn test_move_selection_clamps_at_bottom() {
-        let e = make_entry(EntryType::Article, &[
-            ("author", "Smith"), ("title", "Paper"), ("year", "2020"), ("journal", "N"),
-        ]);
+        let e = make_entry(
+            EntryType::Article,
+            &[
+                ("author", "Smith"),
+                ("title", "Paper"),
+                ("year", "2020"),
+                ("journal", "N"),
+            ],
+        );
         let mut state = EntryDetailState::new(&e, vec![]);
         state.move_selection(1000); // go far past the end
         let last = state.selected();
         state.move_selection(1); // try to go further
-        assert_eq!(state.selected(), last, "should clamp at last selectable field");
-        assert!(matches!(state.display_fields[state.selected()], DisplayItem::Field { .. }));
+        assert_eq!(
+            state.selected(),
+            last,
+            "should clamp at last selectable field"
+        );
+        assert!(matches!(
+            state.display_fields[state.selected()],
+            DisplayItem::Field { .. }
+        ));
     }
 
     #[test]
     fn test_selected_field_returns_correct_name_and_value() {
-        let e = make_entry(EntryType::Article, &[
-            ("author", "Smith, J"), ("title", "Great Paper"), ("year", "2020"), ("journal", "N"),
-        ]);
+        let e = make_entry(
+            EntryType::Article,
+            &[
+                ("author", "Smith, J"),
+                ("title", "Great Paper"),
+                ("year", "2020"),
+                ("journal", "N"),
+            ],
+        );
         let state = EntryDetailState::new(&e, vec![]);
         // Move to a Field that has a known name
         if let Some((name, _)) = state.selected_field() {
@@ -906,25 +1080,34 @@ mod tests {
     fn test_misc_has_no_required_header() {
         let e = make_entry(EntryType::Misc, &[]);
         let state = EntryDetailState::new(&e, vec![]);
-        let has_required = state.display_fields.iter().any(|item| {
-            matches!(item, DisplayItem::Header(h) if h == "Required:")
-        });
+        let has_required = state
+            .display_fields
+            .iter()
+            .any(|item| matches!(item, DisplayItem::Header(h) if h == "Required:"));
         assert!(!has_required, "Misc should not have a Required: header");
     }
 
     #[test]
     fn test_other_section_contains_unknown_fields() {
-        let e = make_entry(EntryType::Article, &[
-            ("author", "S"), ("title", "T"), ("year", "2020"), ("journal", "J"),
-            ("custom_xyz", "value"),
-        ]);
+        let e = make_entry(
+            EntryType::Article,
+            &[
+                ("author", "S"),
+                ("title", "T"),
+                ("year", "2020"),
+                ("journal", "J"),
+                ("custom_xyz", "value"),
+            ],
+        );
         let state = EntryDetailState::new(&e, vec![]);
-        let has_other = state.display_fields.iter().any(|item| {
-            matches!(item, DisplayItem::Header(h) if h == "Other:")
-        });
-        let has_field = state.display_fields.iter().any(|item| {
-            matches!(item, DisplayItem::Field { name, .. } if name == "custom_xyz")
-        });
+        let has_other = state
+            .display_fields
+            .iter()
+            .any(|item| matches!(item, DisplayItem::Header(h) if h == "Other:"));
+        let has_field = state
+            .display_fields
+            .iter()
+            .any(|item| matches!(item, DisplayItem::Field { name, .. } if name == "custom_xyz"));
         assert!(has_other, "should have Other: section");
         assert!(has_field, "custom_xyz should appear under Other");
     }
@@ -933,27 +1116,46 @@ mod tests {
     fn test_optional_header_always_shown_for_types_with_optional_fields() {
         // Article has optional fields defined; Optional: header should always appear
         // even when none of them are populated in the entry.
-        let e = make_entry(EntryType::Article, &[
-            ("author", "S"), ("title", "T"), ("year", "2020"), ("journal", "J"),
-        ]);
+        let e = make_entry(
+            EntryType::Article,
+            &[
+                ("author", "S"),
+                ("title", "T"),
+                ("year", "2020"),
+                ("journal", "J"),
+            ],
+        );
         let state = EntryDetailState::new(&e, vec![]);
-        let has_optional = state.display_fields.iter().any(|item| {
-            matches!(item, DisplayItem::Header(h) if h == "Optional:")
-        });
-        assert!(has_optional, "Optional: header should appear for Article even with no optional fields filled");
+        let has_optional = state
+            .display_fields
+            .iter()
+            .any(|item| matches!(item, DisplayItem::Header(h) if h == "Optional:"));
+        assert!(
+            has_optional,
+            "Optional: header should appear for Article even with no optional fields filled"
+        );
     }
 
     #[test]
     fn test_move_selection_clamps_at_top() {
-        let e = make_entry(EntryType::Article, &[
-            ("author", "Smith"), ("title", "Paper"), ("year", "2020"), ("journal", "N"),
-        ]);
+        let e = make_entry(
+            EntryType::Article,
+            &[
+                ("author", "Smith"),
+                ("title", "Paper"),
+                ("year", "2020"),
+                ("journal", "N"),
+            ],
+        );
         let mut state = EntryDetailState::new(&e, vec![]);
         // Select first field, then try to move up further.
         let first = state.selected();
         state.move_selection(-10);
         let after = state.selected();
-        assert!(matches!(state.display_fields[after], DisplayItem::Field { .. }));
+        assert!(matches!(
+            state.display_fields[after],
+            DisplayItem::Field { .. }
+        ));
         assert!(after <= first);
     }
 
@@ -967,41 +1169,76 @@ mod tests {
 
     #[test]
     fn test_move_to_top_lands_on_field() {
-        let e = make_entry(EntryType::Article, &[
-            ("author", "Smith"), ("title", "Paper"), ("year", "2020"), ("journal", "N"),
-        ]);
+        let e = make_entry(
+            EntryType::Article,
+            &[
+                ("author", "Smith"),
+                ("title", "Paper"),
+                ("year", "2020"),
+                ("journal", "N"),
+            ],
+        );
         let mut state = EntryDetailState::new(&e, vec![]);
         state.move_selection(100); // go to bottom first
         state.move_to_top();
-        assert!(matches!(state.display_fields[state.selected()], DisplayItem::Field { .. }));
+        assert!(matches!(
+            state.display_fields[state.selected()],
+            DisplayItem::Field { .. }
+        ));
         // Should be the first field (smallest index among Fields)
-        let first_field = state.display_fields.iter().position(|i| matches!(i, DisplayItem::Field { .. })).unwrap();
+        let first_field = state
+            .display_fields
+            .iter()
+            .position(|i| matches!(i, DisplayItem::Field { .. }))
+            .unwrap();
         assert_eq!(state.selected(), first_field);
     }
 
     #[test]
     fn test_move_to_bottom_lands_on_field() {
-        let e = make_entry(EntryType::Article, &[
-            ("author", "Smith"), ("title", "Paper"), ("year", "2020"), ("journal", "N"),
-        ]);
+        let e = make_entry(
+            EntryType::Article,
+            &[
+                ("author", "Smith"),
+                ("title", "Paper"),
+                ("year", "2020"),
+                ("journal", "N"),
+            ],
+        );
         let mut state = EntryDetailState::new(&e, vec![]);
         state.move_to_bottom();
-        assert!(matches!(state.display_fields[state.selected()], DisplayItem::Field { .. }));
+        assert!(matches!(
+            state.display_fields[state.selected()],
+            DisplayItem::Field { .. }
+        ));
         // Should be the last field (largest index among Fields)
-        let last_field = state.display_fields.iter().rposition(|i| matches!(i, DisplayItem::Field { .. })).unwrap();
+        let last_field = state
+            .display_fields
+            .iter()
+            .rposition(|i| matches!(i, DisplayItem::Field { .. }))
+            .unwrap();
         assert_eq!(state.selected(), last_field);
     }
 
     #[test]
     fn test_move_selection_large_negative_lands_on_field() {
         // Regression: i32::MIN/2 delta used to fail when display starts with a Header.
-        let e = make_entry(EntryType::Article, &[
-            ("author", "Smith"), ("title", "Paper"), ("year", "2020"), ("journal", "N"),
-        ]);
+        let e = make_entry(
+            EntryType::Article,
+            &[
+                ("author", "Smith"),
+                ("title", "Paper"),
+                ("year", "2020"),
+                ("journal", "N"),
+            ],
+        );
         let mut state = EntryDetailState::new(&e, vec![]);
         state.move_selection(100);
         state.move_selection(i32::MIN / 2);
-        assert!(matches!(state.display_fields[state.selected()], DisplayItem::Field { .. }));
+        assert!(matches!(
+            state.display_fields[state.selected()],
+            DisplayItem::Field { .. }
+        ));
     }
 
     #[test]
@@ -1019,58 +1256,96 @@ mod tests {
     fn test_file_field_produces_file_entries() {
         // A `file` field with a valid JabRef path should produce FileEntry rows,
         // not a plain Field row.
-        let e = make_entry(EntryType::Article, &[
-            ("author", "Smith"), ("title", "T"), ("year", "2020"), ("journal", "N"),
-            ("file", ":paper.pdf:PDF"),
-        ]);
+        let e = make_entry(
+            EntryType::Article,
+            &[
+                ("author", "Smith"),
+                ("title", "T"),
+                ("year", "2020"),
+                ("journal", "N"),
+                ("file", ":paper.pdf:PDF"),
+            ],
+        );
         let state = EntryDetailState::new(&e, vec![]);
-        let has_file_entry = state.display_fields.iter().any(|i| {
-            matches!(i, DisplayItem::FileEntry { .. })
-        });
-        assert!(has_file_entry, "file field with valid path should produce FileEntry rows");
+        let has_file_entry = state
+            .display_fields
+            .iter()
+            .any(|i| matches!(i, DisplayItem::FileEntry { .. }));
+        assert!(
+            has_file_entry,
+            "file field with valid path should produce FileEntry rows"
+        );
         // No plain Field named "file" should exist when FileEntry rows are emitted.
-        let has_plain_file_field = state.display_fields.iter().any(|i| {
-            matches!(i, DisplayItem::Field { name, .. } if name == "file")
-        });
-        assert!(!has_plain_file_field, "file field should not also appear as a plain Field");
+        let has_plain_file_field = state
+            .display_fields
+            .iter()
+            .any(|i| matches!(i, DisplayItem::Field { name, .. } if name == "file"));
+        assert!(
+            !has_plain_file_field,
+            "file field should not also appear as a plain Field"
+        );
     }
 
     #[test]
     fn test_selected_field_on_file_entry_returns_file_key() {
         // When the selected row is a FileEntry, selected_field() should return ("file", …).
-        let e = make_entry(EntryType::Article, &[
-            ("author", "Smith"), ("title", "T"), ("year", "2020"), ("journal", "N"),
-            ("file", ":paper.pdf:PDF"),
-        ]);
+        let e = make_entry(
+            EntryType::Article,
+            &[
+                ("author", "Smith"),
+                ("title", "T"),
+                ("year", "2020"),
+                ("journal", "N"),
+                ("file", ":paper.pdf:PDF"),
+            ],
+        );
         let mut state = EntryDetailState::new(&e, vec![]);
         // Navigate to the FileEntry row.
-        let file_idx = state.display_fields.iter().position(|i| {
-            matches!(i, DisplayItem::FileEntry { .. })
-        }).expect("should have a FileEntry");
+        let file_idx = state
+            .display_fields
+            .iter()
+            .position(|i| matches!(i, DisplayItem::FileEntry { .. }))
+            .expect("should have a FileEntry");
         state.select(file_idx);
-        let (key, _) = state.selected_field().expect("selected_field should be Some on FileEntry");
+        let (key, _) = state
+            .selected_field()
+            .expect("selected_field should be Some on FileEntry");
         assert_eq!(key, "file");
     }
 
     #[test]
     fn test_selected_file_index_on_file_entry() {
-        let e = make_entry(EntryType::Article, &[
-            ("author", "Smith"), ("title", "T"), ("year", "2020"), ("journal", "N"),
-            ("file", ":paper.pdf:PDF"),
-        ]);
+        let e = make_entry(
+            EntryType::Article,
+            &[
+                ("author", "Smith"),
+                ("title", "T"),
+                ("year", "2020"),
+                ("journal", "N"),
+                ("file", ":paper.pdf:PDF"),
+            ],
+        );
         let mut state = EntryDetailState::new(&e, vec![]);
-        let file_idx = state.display_fields.iter().position(|i| {
-            matches!(i, DisplayItem::FileEntry { .. })
-        }).expect("should have a FileEntry");
+        let file_idx = state
+            .display_fields
+            .iter()
+            .position(|i| matches!(i, DisplayItem::FileEntry { .. }))
+            .expect("should have a FileEntry");
         state.select(file_idx);
         assert_eq!(state.selected_file_index(), Some(0));
     }
 
     #[test]
     fn test_selected_file_index_none_on_regular_field() {
-        let e = make_entry(EntryType::Article, &[
-            ("author", "Smith"), ("title", "T"), ("year", "2020"), ("journal", "N"),
-        ]);
+        let e = make_entry(
+            EntryType::Article,
+            &[
+                ("author", "Smith"),
+                ("title", "T"),
+                ("year", "2020"),
+                ("journal", "N"),
+            ],
+        );
         let state = EntryDetailState::new(&e, vec![]);
         // First selectable is a Field row, so selected_file_index should be None.
         assert_eq!(state.selected_file_index(), None);
@@ -1081,19 +1356,36 @@ mod tests {
         // A field claimed by the first group must not appear in a second group
         // that also lists it (the `assigned.contains` dedup branch).
         use crate::config::schema::CustomFieldGroup;
-        let e = make_entry(EntryType::Article, &[
-            ("author", "S"), ("title", "T"), ("year", "2020"), ("journal", "N"),
-            ("isbn", "123"),
-        ]);
+        let e = make_entry(
+            EntryType::Article,
+            &[
+                ("author", "S"),
+                ("title", "T"),
+                ("year", "2020"),
+                ("journal", "N"),
+                ("isbn", "123"),
+            ],
+        );
         let groups = vec![
-            CustomFieldGroup { name: "G1".to_string(), fields: vec!["isbn".to_string()] },
-            CustomFieldGroup { name: "G2".to_string(), fields: vec!["isbn".to_string()] },
+            CustomFieldGroup {
+                name: "G1".to_string(),
+                fields: vec!["isbn".to_string()],
+            },
+            CustomFieldGroup {
+                name: "G2".to_string(),
+                fields: vec!["isbn".to_string()],
+            },
         ];
         let state = EntryDetailState::new(&e, groups);
-        let isbn_count = state.display_fields.iter().filter(|i| {
-            matches!(i, DisplayItem::Field { name, .. } if name == "isbn")
-        }).count();
-        assert_eq!(isbn_count, 1, "isbn should appear exactly once even when listed in two groups");
+        let isbn_count = state
+            .display_fields
+            .iter()
+            .filter(|i| matches!(i, DisplayItem::Field { name, .. } if name == "isbn"))
+            .count();
+        assert_eq!(
+            isbn_count, 1,
+            "isbn should appear exactly once even when listed in two groups"
+        );
     }
 
     // ── In-detail search (/, n, N) ────────────────────────────────────────────

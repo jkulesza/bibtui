@@ -16,7 +16,15 @@ pub fn fields_for_type(entry_type: &EntryType) -> (Vec<&'static str>, Vec<&'stat
         ),
         EntryType::Booklet => (
             vec!["title"],
-            vec!["address", "author", "doi", "howpublished", "month", "note", "year"],
+            vec![
+                "address",
+                "author",
+                "doi",
+                "howpublished",
+                "month",
+                "note",
+                "year",
+            ],
         ),
         EntryType::InBook => (
             vec!["author", "chapter", "pages", "publisher", "title", "year"],
@@ -34,8 +42,17 @@ pub fn fields_for_type(entry_type: &EntryType) -> (Vec<&'static str>, Vec<&'stat
         EntryType::InProceedings => (
             vec!["author", "booktitle", "title", "year"],
             vec![
-                "address", "doi", "editor", "month", "note", "number", "pages", "publisher",
-                "series", "url", "volume",
+                "address",
+                "doi",
+                "editor",
+                "month",
+                "note",
+                "number",
+                "pages",
+                "publisher",
+                "series",
+                "url",
+                "volume",
             ],
         ),
         EntryType::Manual => (
@@ -57,7 +74,15 @@ pub fn fields_for_type(entry_type: &EntryType) -> (Vec<&'static str>, Vec<&'stat
         ),
         EntryType::Misc => (
             vec![],
-            vec!["author", "doi", "howpublished", "month", "note", "title", "year"],
+            vec![
+                "author",
+                "doi",
+                "howpublished",
+                "month",
+                "note",
+                "title",
+                "year",
+            ],
         ),
         EntryType::PhdThesis => (
             vec!["author", "school", "title", "year"],
@@ -66,8 +91,16 @@ pub fn fields_for_type(entry_type: &EntryType) -> (Vec<&'static str>, Vec<&'stat
         EntryType::Proceedings => (
             vec!["title", "year"],
             vec![
-                "address", "doi", "editor", "month", "note", "number", "organization",
-                "publisher", "series", "volume",
+                "address",
+                "doi",
+                "editor",
+                "month",
+                "note",
+                "number",
+                "organization",
+                "publisher",
+                "series",
+                "volume",
             ],
         ),
         EntryType::TechReport => (
@@ -195,16 +228,29 @@ mod tests {
     fn test_all_types_return_disjoint_required_optional() {
         // Required and optional lists should never share a field name.
         let types = vec![
-            EntryType::Article, EntryType::Book, EntryType::Booklet,
-            EntryType::InBook, EntryType::InCollection, EntryType::InProceedings,
-            EntryType::Manual, EntryType::MastersThesis, EntryType::Misc,
-            EntryType::PhdThesis, EntryType::Proceedings, EntryType::TechReport,
+            EntryType::Article,
+            EntryType::Book,
+            EntryType::Booklet,
+            EntryType::InBook,
+            EntryType::InCollection,
+            EntryType::InProceedings,
+            EntryType::Manual,
+            EntryType::MastersThesis,
+            EntryType::Misc,
+            EntryType::PhdThesis,
+            EntryType::Proceedings,
+            EntryType::TechReport,
             EntryType::Unpublished,
         ];
         for et in types {
             let (req, opt) = fields_for_type(&et);
             for r in &req {
-                assert!(!opt.contains(r), "{:?}: '{}' in both required and optional", et, r);
+                assert!(
+                    !opt.contains(r),
+                    "{:?}: '{}' in both required and optional",
+                    et,
+                    r
+                );
             }
         }
     }
@@ -212,8 +258,12 @@ mod tests {
     #[test]
     fn test_optional_fields_nonempty_for_common_types() {
         for et in [
-            EntryType::Article, EntryType::Book, EntryType::InProceedings,
-            EntryType::TechReport, EntryType::PhdThesis, EntryType::MastersThesis,
+            EntryType::Article,
+            EntryType::Book,
+            EntryType::InProceedings,
+            EntryType::TechReport,
+            EntryType::PhdThesis,
+            EntryType::MastersThesis,
         ] {
             let (_, opt) = fields_for_type(&et);
             assert!(!opt.is_empty(), "{:?} should have optional fields", et);

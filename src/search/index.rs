@@ -27,7 +27,13 @@ impl SearchDocument {
             text.push_str(value);
             fields.insert(name.clone(), start..text.len());
         }
-        Self { key: entry.citation_key.clone(), text, fields, kind, key_range }
+        Self {
+            key: entry.citation_key.clone(),
+            text,
+            fields,
+            kind,
+            key_range,
+        }
     }
 
     pub fn get(&self, field: Option<&str>) -> &str {
@@ -35,7 +41,10 @@ impl SearchDocument {
             None => return &self.text,
             Some("entrytype" | "type") => &self.kind,
             Some("citation_key" | "key" | "citekey") => &self.key_range,
-            Some(name) => match self.fields.get(name) { Some(range) => range, None => return "" },
+            Some(name) => match self.fields.get(name) {
+                Some(range) => range,
+                None => return "",
+            },
         };
         &self.text[range.clone()]
     }
@@ -43,16 +52,23 @@ impl SearchDocument {
     /// Validate only when the document changes; query-only updates reuse the
     /// existing snapshot. Equality avoids cache correctness depending on hashes.
     pub fn matches(&self, entry: &Entry) -> bool {
-        self.key == entry.citation_key && self.get(Some("type")) == entry.entry_type.display_name()
+        self.key == entry.citation_key
+            && self.get(Some("type")) == entry.entry_type.display_name()
             && self.fields.len() == entry.fields.len()
-            && self.fields.iter().zip(&entry.fields).all(|((name, range), (other, value))| {
-                name == other && self.text[range.clone()] == *value
-            })
+            && self
+                .fields
+                .iter()
+                .zip(&entry.fields)
+                .all(|((name, range), (other, value))| {
+                    name == other && self.text[range.clone()] == *value
+                })
     }
 }
 
 /// Build a search index string for an entry (also used by the benchmark).
-pub fn build_search_index(entry: &Entry) -> String { SearchDocument::new(entry).text }
+pub fn build_search_index(entry: &Entry) -> String {
+    SearchDocument::new(entry).text
+}
 
 #[cfg(test)]
 mod tests {

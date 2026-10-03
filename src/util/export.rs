@@ -112,8 +112,14 @@ fn csl_type(entry_type: &EntryType) -> &'static str {
 fn entry_to_csl_json(entry: &Entry) -> serde_json::Value {
     let mut obj = serde_json::Map::new();
 
-    obj.insert("id".to_string(), serde_json::Value::String(entry.citation_key.clone()));
-    obj.insert("type".to_string(), serde_json::Value::String(csl_type(&entry.entry_type).to_string()));
+    obj.insert(
+        "id".to_string(),
+        serde_json::Value::String(entry.citation_key.clone()),
+    );
+    obj.insert(
+        "type".to_string(),
+        serde_json::Value::String(csl_type(&entry.entry_type).to_string()),
+    );
 
     // Authors
     if let Some(author_str) = entry.fields.get("author") {
@@ -149,14 +155,22 @@ fn entry_to_csl_json(entry: &Entry) -> serde_json::Value {
 
     // Title
     if let Some(title) = entry.fields.get("title") {
-        obj.insert("title".to_string(), serde_json::Value::String(strip_braces(title)));
+        obj.insert(
+            "title".to_string(),
+            serde_json::Value::String(strip_braces(title)),
+        );
     }
 
     // Container title (journal, booktitle)
-    let container = entry.fields.get("journal")
+    let container = entry
+        .fields
+        .get("journal")
         .or_else(|| entry.fields.get("booktitle"));
     if let Some(ct) = container {
-        obj.insert("container-title".to_string(), serde_json::Value::String(strip_braces(ct)));
+        obj.insert(
+            "container-title".to_string(),
+            serde_json::Value::String(strip_braces(ct)),
+        );
     }
 
     // Year → issued date-parts
@@ -190,7 +204,10 @@ fn entry_to_csl_json(entry: &Entry) -> serde_json::Value {
     ];
     for (bib_key, csl_key) in string_fields {
         if let Some(val) = entry.fields.get(*bib_key) {
-            obj.insert(csl_key.to_string(), serde_json::Value::String(strip_braces(val)));
+            obj.insert(
+                csl_key.to_string(),
+                serde_json::Value::String(strip_braces(val)),
+            );
         }
     }
 
@@ -207,11 +224,7 @@ fn entry_to_csl_json(entry: &Entry) -> serde_json::Value {
 
 /// Serialise all entries in `db` to a CSL-JSON string.
 pub fn export_csl_json(db: &Database) -> anyhow::Result<String> {
-    let items: Vec<serde_json::Value> = db
-        .entries
-        .values()
-        .map(entry_to_csl_json)
-        .collect();
+    let items: Vec<serde_json::Value> = db.entries.values().map(entry_to_csl_json).collect();
     let json = serde_json::to_string_pretty(&serde_json::Value::Array(items))?;
     Ok(json)
 }
@@ -265,23 +278,23 @@ fn entry_to_ris(entry: &Entry) -> String {
 
     // Simple field mappings: (bib_key, ris_tag)
     let mappings: &[(&str, &str)] = &[
-        ("title",      "TI"),
-        ("journal",    "JO"),
-        ("booktitle",  "T2"),
-        ("year",       "PY"),
-        ("volume",     "VL"),
-        ("number",     "IS"),
-        ("publisher",  "PB"),
-        ("address",    "CY"),
-        ("edition",    "ET"),
-        ("series",     "T3"),
-        ("doi",        "DO"),
-        ("url",        "UR"),
-        ("isbn",       "SN"),
-        ("issn",       "SN"),
-        ("note",       "N1"),
-        ("abstract",   "AB"),
-        ("keywords",   "KW"),
+        ("title", "TI"),
+        ("journal", "JO"),
+        ("booktitle", "T2"),
+        ("year", "PY"),
+        ("volume", "VL"),
+        ("number", "IS"),
+        ("publisher", "PB"),
+        ("address", "CY"),
+        ("edition", "ET"),
+        ("series", "T3"),
+        ("doi", "DO"),
+        ("url", "UR"),
+        ("isbn", "SN"),
+        ("issn", "SN"),
+        ("note", "N1"),
+        ("abstract", "AB"),
+        ("keywords", "KW"),
     ];
     for (bib_key, ris_tag) in mappings {
         if let Some(val) = entry.fields.get(*bib_key) {
@@ -320,9 +333,18 @@ mod tests {
 
     fn make_article() -> Entry {
         let mut fields = IndexMap::new();
-        fields.insert("author".to_string(), "Smith, Jane and Jones, Bob".to_string());
-        fields.insert("title".to_string(), "{An Introduction to Testing}".to_string());
-        fields.insert("journal".to_string(), "Nuclear Science and Engineering".to_string());
+        fields.insert(
+            "author".to_string(),
+            "Smith, Jane and Jones, Bob".to_string(),
+        );
+        fields.insert(
+            "title".to_string(),
+            "{An Introduction to Testing}".to_string(),
+        );
+        fields.insert(
+            "journal".to_string(),
+            "Nuclear Science and Engineering".to_string(),
+        );
         fields.insert("year".to_string(), "2020".to_string());
         fields.insert("volume".to_string(), "194".to_string());
         fields.insert("pages".to_string(), "1--20".to_string());
@@ -345,7 +367,10 @@ mod tests {
             entries,
             groups: crate::bib::model::GroupTree::default(),
             jabref_meta: crate::bib::model::JabRefMeta::default(),
-            raw_file: crate::bib::model::RawBibFile { items: vec![], ..Default::default() },
+            raw_file: crate::bib::model::RawBibFile {
+                items: vec![],
+                ..Default::default()
+            },
             duplicate_keys: Vec::new(),
         }
     }
@@ -368,12 +393,18 @@ mod tests {
 
     #[test]
     fn test_split_pages_double_hyphen() {
-        assert_eq!(split_pages("100--115"), ("100".to_string(), "115".to_string()));
+        assert_eq!(
+            split_pages("100--115"),
+            ("100".to_string(), "115".to_string())
+        );
     }
 
     #[test]
     fn test_split_pages_single_hyphen() {
-        assert_eq!(split_pages("100-115"), ("100".to_string(), "115".to_string()));
+        assert_eq!(
+            split_pages("100-115"),
+            ("100".to_string(), "115".to_string())
+        );
     }
 
     #[test]
@@ -438,8 +469,14 @@ mod tests {
         assert!(ris.contains("TY  - JOUR"), "missing TY tag");
         assert!(ris.contains("ID  - Smith2020"), "missing ID tag");
         assert!(ris.contains("AU  - Smith, Jane"), "missing AU tag");
-        assert!(ris.contains("TI  - An Introduction to Testing"), "missing TI tag");
-        assert!(ris.contains("JO  - Nuclear Science and Engineering"), "missing JO tag");
+        assert!(
+            ris.contains("TI  - An Introduction to Testing"),
+            "missing TI tag"
+        );
+        assert!(
+            ris.contains("JO  - Nuclear Science and Engineering"),
+            "missing JO tag"
+        );
         assert!(ris.contains("PY  - 2020"), "missing PY tag");
         assert!(ris.contains("SP  - 1"), "missing SP tag");
         assert!(ris.contains("EP  - 20"), "missing EP tag");
@@ -450,7 +487,10 @@ mod tests {
     fn test_ris_entry_type_book() {
         let mut fields = IndexMap::new();
         fields.insert("author".to_string(), "Knuth, Donald E.".to_string());
-        fields.insert("title".to_string(), "The Art of Computer Programming".to_string());
+        fields.insert(
+            "title".to_string(),
+            "The Art of Computer Programming".to_string(),
+        );
         fields.insert("year".to_string(), "1997".to_string());
         let entry = Entry {
             entry_type: EntryType::Book,
@@ -490,16 +530,16 @@ mod tests {
     #[test]
     fn test_csl_type_mappings() {
         let cases = [
-            (EntryType::Booklet,       "book"),
-            (EntryType::InBook,        "chapter"),
-            (EntryType::InCollection,  "chapter"),
+            (EntryType::Booklet, "book"),
+            (EntryType::InBook, "chapter"),
+            (EntryType::InCollection, "chapter"),
             (EntryType::InProceedings, "paper-conference"),
-            (EntryType::Proceedings,   "paper-conference"),
+            (EntryType::Proceedings, "paper-conference"),
             (EntryType::MastersThesis, "thesis"),
-            (EntryType::TechReport,    "report"),
-            (EntryType::Manual,        "document"),
-            (EntryType::Unpublished,   "manuscript"),
-            (EntryType::Misc,          "article"),
+            (EntryType::TechReport, "report"),
+            (EntryType::Manual, "document"),
+            (EntryType::Unpublished, "manuscript"),
+            (EntryType::Misc, "article"),
             (EntryType::Other("custom".to_string()), "article"),
         ];
         for (et, expected) in cases {
@@ -510,15 +550,15 @@ mod tests {
     #[test]
     fn test_ris_type_mappings() {
         let cases = [
-            (EntryType::Booklet,       "BOOK"),
-            (EntryType::InCollection,  "CHAP"),
+            (EntryType::Booklet, "BOOK"),
+            (EntryType::InCollection, "CHAP"),
             (EntryType::InProceedings, "CONF"),
-            (EntryType::Proceedings,   "CONF"),
+            (EntryType::Proceedings, "CONF"),
             (EntryType::MastersThesis, "THES"),
-            (EntryType::TechReport,    "RPRT"),
-            (EntryType::Manual,        "GEN"),
-            (EntryType::Unpublished,   "UNPB"),
-            (EntryType::Misc,          "GEN"),
+            (EntryType::TechReport, "RPRT"),
+            (EntryType::Manual, "GEN"),
+            (EntryType::Unpublished, "UNPB"),
+            (EntryType::Misc, "GEN"),
             (EntryType::Other("x".to_string()), "GEN"),
         ];
         for (et, expected) in cases {
@@ -589,7 +629,10 @@ mod tests {
         let db = make_db_with(entry);
         let ris = export_ris(&db);
         assert!(ris.contains("SP  - 42"), "missing SP tag");
-        assert!(!ris.contains("EP  - "), "should not have EP tag for single page");
+        assert!(
+            !ris.contains("EP  - "),
+            "should not have EP tag for single page"
+        );
     }
 
     #[test]
@@ -609,8 +652,14 @@ mod tests {
         };
         let db = make_db_with(entry);
         let ris = export_ris(&db);
-        assert!(ris.contains("AU  - Plato"), "missing AU tag for single-name author");
-        assert!(!ris.contains("AU  - Plato,"), "should not have trailing comma");
+        assert!(
+            ris.contains("AU  - Plato"),
+            "missing AU tag for single-name author"
+        );
+        assert!(
+            !ris.contains("AU  - Plato,"),
+            "should not have trailing comma"
+        );
     }
 
     // ── CSL-JSON edge cases ───────────────────────────────────────────────────
@@ -675,6 +724,9 @@ mod tests {
         let json_str = export_csl_json(&db).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
         // "forthcoming" cannot be parsed as i64, so "issued" must be absent.
-        assert!(parsed[0]["issued"].is_null(), "issued should be absent for non-numeric year");
+        assert!(
+            parsed[0]["issued"].is_null(),
+            "issued should be absent for non-numeric year"
+        );
     }
 }

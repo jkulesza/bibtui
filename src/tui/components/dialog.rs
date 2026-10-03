@@ -1,6 +1,8 @@
 use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Padding, Paragraph, Wrap};
+use ratatui::widgets::{
+    Block, Borders, Clear, List, ListItem, ListState, Padding, Paragraph, Wrap,
+};
 use ratatui::Frame;
 
 use crate::tui::theme::Theme;
@@ -109,7 +111,10 @@ impl DialogState {
             state.select(Some(0));
         }
         DialogState {
-            kind: DialogKind::FileDeleteSelect { title: title.to_string(), files },
+            kind: DialogKind::FileDeleteSelect {
+                title: title.to_string(),
+                files,
+            },
             list_state: state,
         }
     }
@@ -238,7 +243,11 @@ fn dialog_width(kind: &DialogKind, area_width: u16) -> u16 {
         DialogKind::GroupAssign { .. } => 50,
         DialogKind::FileDeleteSelect { title, files } => {
             // Rows render as "  [x] {filename}": 6 prefix + 2 borders + 2 spare.
-            let widest = files.iter().map(|(n, _)| n.chars().count()).max().unwrap_or(0);
+            let widest = files
+                .iter()
+                .map(|(n, _)| n.chars().count())
+                .max()
+                .unwrap_or(0);
             title_width(title).max(widest + 10)
         }
         DialogKind::Message { .. } => 70,
@@ -463,10 +472,7 @@ mod tests {
 
     #[test]
     fn test_group_assign_option_count() {
-        let groups = vec![
-            ("Physics".into(), false),
-            ("Chemistry".into(), true),
-        ];
+        let groups = vec![("Physics".into(), false), ("Chemistry".into(), true)];
         let d = DialogState::group_assign(groups);
         assert_eq!(d.option_count(), 2);
         assert_eq!(d.selected(), 0);
@@ -548,10 +554,7 @@ mod tests {
 
     #[test]
     fn test_file_delete_select_toggle_back() {
-        let mut d = DialogState::file_delete_select(
-            "Delete 'X'",
-            vec![("a.pdf".into(), false)],
-        );
+        let mut d = DialogState::file_delete_select("Delete 'X'", vec![("a.pdf".into(), false)]);
         d.toggle_selected();
         if let DialogKind::FileDeleteSelect { files, .. } = &d.kind {
             assert!(files[0].1, "should toggle from false to true");
@@ -589,9 +592,8 @@ mod tests {
 
     #[test]
     fn test_file_sync_preview_toggle_is_noop() {
-        let mut d = DialogState::file_sync_preview(vec![
-            ("a.pdf".to_string(), "b.pdf".to_string()),
-        ]);
+        let mut d =
+            DialogState::file_sync_preview(vec![("a.pdf".to_string(), "b.pdf".to_string())]);
         d.toggle_selected(); // should not panic
     }
 
@@ -681,10 +683,7 @@ mod tests {
 
     #[test]
     fn test_toggle_selected_second_item() {
-        let groups = vec![
-            ("Physics".into(), false),
-            ("Chemistry".into(), false),
-        ];
+        let groups = vec![("Physics".into(), false), ("Chemistry".into(), false)];
         let mut d = DialogState::group_assign(groups);
         d.select(1);
         d.toggle_selected();
@@ -869,7 +868,10 @@ mod tests {
     fn test_file_delete_select_width_fits_title() {
         let title = format!("Delete '{}'", "k".repeat(60));
         let d = DialogState::file_delete_select(&title, vec![("a.pdf".into(), true)]);
-        assert_eq!(dialog_width(&d.kind, 200) as usize, title.chars().count() + 4);
+        assert_eq!(
+            dialog_width(&d.kind, 200) as usize,
+            title.chars().count() + 4
+        );
     }
 
     #[test]

@@ -498,3 +498,6 @@ the default test suite makes no requests to public services.
 
 Field-qualified synchronous searches borrow the requested values directly, so
 large unrelated fields do not add copying overhead.
+
+Source formatting is standardized with `cargo fmt --all`; check it with
+`cargo fmt --all -- --check` before submitting changes.

@@ -34,7 +34,10 @@ fn test_multiple_authors() {
     let template = "Article_{year}_{journal_abbrev}_{authors}_{pages}";
     let mut fields = IndexMap::new();
     fields.insert("year".to_string(), "1967".to_string());
-    fields.insert("journal".to_string(), "Nuclear Science and Engineering".to_string());
+    fields.insert(
+        "journal".to_string(),
+        "Nuclear Science and Engineering".to_string(),
+    );
     fields.insert(
         "author".to_string(),
         "R. R. Coveyou and V. R. Cain and K. J. Yost".to_string(),
@@ -96,7 +99,10 @@ fn test_bracket_authn() {
     // [auth2] — first 2 characters of first author's last name (JabRef semantics)
     let template = "[auth2][year]";
     let mut fields = IndexMap::new();
-    fields.insert("author".to_string(), "Alice Adams and Bob Brown and Carol Clark".to_string());
+    fields.insert(
+        "author".to_string(),
+        "Alice Adams and Bob Brown and Carol Clark".to_string(),
+    );
     fields.insert("year".to_string(), "2023".to_string());
 
     assert_eq!(generate_citekey(template, &fields), "Ad2023");
@@ -107,7 +113,10 @@ fn test_bracket_authors_three_plus() {
     // [authors] keeps existing EtAl logic
     let template = "[authors][year]";
     let mut fields = IndexMap::new();
-    fields.insert("author".to_string(), "Alice Adams and Bob Brown and Carol Clark".to_string());
+    fields.insert(
+        "author".to_string(),
+        "Alice Adams and Bob Brown and Carol Clark".to_string(),
+    );
     fields.insert("year".to_string(), "2023".to_string());
 
     assert_eq!(generate_citekey(template, &fields), "AdamsBrownEtAl2023");
@@ -162,7 +171,10 @@ fn test_modifier_abbr() {
     let mut fields = IndexMap::new();
     fields.insert("author".to_string(), "Jane Smith".to_string());
     fields.insert("year".to_string(), "2010".to_string());
-    fields.insert("journal".to_string(), "Nuclear Science and Engineering".to_string());
+    fields.insert(
+        "journal".to_string(),
+        "Nuclear Science and Engineering".to_string(),
+    );
 
     assert_eq!(generate_citekey(template, &fields), "Smith2010_NSE");
 }
@@ -173,7 +185,10 @@ fn test_modifier_truncate() {
     let mut fields = IndexMap::new();
     fields.insert("author".to_string(), "Jane Smith".to_string());
     fields.insert("year".to_string(), "2020".to_string());
-    fields.insert("title".to_string(), "Toward Efficient Monte Carlo".to_string());
+    fields.insert(
+        "title".to_string(),
+        "Toward Efficient Monte Carlo".to_string(),
+    );
 
     // [title] = all significant words capitalized+joined; "toward" is a function word
     // → "EfficientMonteCarlo", truncated to 5 → "Effic"
@@ -187,7 +202,10 @@ fn test_modifier_chain() {
     let mut fields = IndexMap::new();
     fields.insert("author".to_string(), "Jane Smith".to_string());
     fields.insert("year".to_string(), "2010".to_string());
-    fields.insert("journal".to_string(), "Nuclear Science and Engineering".to_string());
+    fields.insert(
+        "journal".to_string(),
+        "Nuclear Science and Engineering".to_string(),
+    );
 
     assert_eq!(generate_citekey(template, &fields), "Smith2010_nse");
 }
@@ -201,11 +219,17 @@ fn test_modifier_regex_replace_spaces() {
     let mut fields = IndexMap::new();
     fields.insert("author".to_string(), "Jane Smith".to_string());
     fields.insert("year".to_string(), "2020".to_string());
-    fields.insert("title".to_string(), "Toward Efficient Monte Carlo".to_string());
+    fields.insert(
+        "title".to_string(),
+        "Toward Efficient Monte Carlo".to_string(),
+    );
 
     // "toward" is a function word, so shorttitle = first 3 significant words =
     // "EfficientMonteCarlo" (no spaces, joined) — regex is a no-op
-    assert_eq!(generate_citekey(template, &fields), "Smith2020_EfficientMonteCarlo");
+    assert_eq!(
+        generate_citekey(template, &fields),
+        "Smith2020_EfficientMonteCarlo"
+    );
 }
 
 #[test]
@@ -264,7 +288,10 @@ fn test_modifier_abbr_skip_words() {
     // Words on the skip list (of, the, and, …) should be omitted.
     let template = "[journal:abbr]";
     let mut fields = IndexMap::new();
-    fields.insert("journal".to_string(), "Journal of the American Chemical Society".to_string());
+    fields.insert(
+        "journal".to_string(),
+        "Journal of the American Chemical Society".to_string(),
+    );
     // Skips "of", "the" → J, A, C, S
     assert_eq!(generate_citekey(template, &fields), "JACS");
 }
@@ -318,7 +345,10 @@ fn test_modifier_upper_lower_on_abbr() {
     // Chain: abbr then upper → same as abbr (abbr already uppercases initials).
     // Chain: abbr then lower → lowercase abbreviation.
     let mut fields = IndexMap::new();
-    fields.insert("journal".to_string(), "Nuclear Science and Engineering".to_string());
+    fields.insert(
+        "journal".to_string(),
+        "Nuclear Science and Engineering".to_string(),
+    );
 
     let upper = generate_citekey("[journal:abbr:upper]", &fields);
     let lower = generate_citekey("[journal:abbr:lower]", &fields);
@@ -345,8 +375,14 @@ fn test_modifier_camel_case() {
     // → "SelfConsistentFieldTheory"
     let template = "[title:camel]";
     let mut fields = IndexMap::new();
-    fields.insert("title".to_string(), "self-consistent field theory".to_string());
-    assert_eq!(generate_citekey(template, &fields), "SelfConsistentFieldTheory");
+    fields.insert(
+        "title".to_string(),
+        "self-consistent field theory".to_string(),
+    );
+    assert_eq!(
+        generate_citekey(template, &fields),
+        "SelfConsistentFieldTheory"
+    );
 }
 
 #[test]
@@ -356,8 +392,14 @@ fn test_modifier_camel_case_multi_word_via_shorttitle() {
     // hyphen only, capitalising each part → "SelfConsistentfieldtheory".
     let template = "[shorttitle:camel]";
     let mut fields = IndexMap::new();
-    fields.insert("title".to_string(), "self-consistent field theory".to_string());
-    assert_eq!(generate_citekey(template, &fields), "SelfConsistentfieldtheory");
+    fields.insert(
+        "title".to_string(),
+        "self-consistent field theory".to_string(),
+    );
+    assert_eq!(
+        generate_citekey(template, &fields),
+        "SelfConsistentfieldtheory"
+    );
 }
 
 // ── Fallback template (unconfigured entry types) ──────────────────────────────
@@ -371,7 +413,10 @@ fn test_inbook_fallback_template() {
     let mut fields = IndexMap::new();
     // Author stored without outer braces (as the parser delivers it):
     // "Peir{\'{o}}, Joaquim and Sherwin, Spencer"
-    fields.insert("author".to_string(), "Peir{\\'{o}}, Joaquim and Sherwin, Spencer".to_string());
+    fields.insert(
+        "author".to_string(),
+        "Peir{\\'{o}}, Joaquim and Sherwin, Spencer".to_string(),
+    );
     fields.insert("year".to_string(), "2005".to_string());
 
     // parse_authors extracts last name "Peir{\'{o}}" from "Last, First" format;
@@ -384,16 +429,29 @@ fn test_unconfigured_type_fallback_format() {
     // Any entry type not in the config map falls back to "DisplayName_[auth][year]".
     // Test a few representative types to confirm the pattern holds.
     let cases: &[(&str, &str, &str)] = &[
-        ("InBook_[auth][year]",      "Smith, Jane",  "InBook_Smith2020"),
-        ("InCollection_[auth][year]","Jones, Bob",   "InCollection_Jones2021"),
-        ("Proceedings_[auth][year]", "Clark, Carol", "Proceedings_Clark2019"),
+        ("InBook_[auth][year]", "Smith, Jane", "InBook_Smith2020"),
+        (
+            "InCollection_[auth][year]",
+            "Jones, Bob",
+            "InCollection_Jones2021",
+        ),
+        (
+            "Proceedings_[auth][year]",
+            "Clark, Carol",
+            "Proceedings_Clark2019",
+        ),
     ];
     let years = ["2020", "2021", "2019"];
     for (i, (template, author, expected)) in cases.iter().enumerate() {
         let mut fields = IndexMap::new();
         fields.insert("author".to_string(), author.to_string());
         fields.insert("year".to_string(), years[i].to_string());
-        assert_eq!(generate_citekey(template, &fields), *expected, "template: {}", template);
+        assert_eq!(
+            generate_citekey(template, &fields),
+            *expected,
+            "template: {}",
+            template
+        );
     }
 }
 
@@ -411,7 +469,10 @@ fn test_auth_n_chars_of_first_author() {
 fn test_authors_n_with_etal() {
     // [authors2] = first 2 authors + EtAl when more exist
     let mut fields = IndexMap::new();
-    fields.insert("author".to_string(), "Adams, Alice and Brown, Bob and Clark, Carol".to_string());
+    fields.insert(
+        "author".to_string(),
+        "Adams, Alice and Brown, Bob and Clark, Carol".to_string(),
+    );
     assert_eq!(generate_citekey("[authors2]", &fields), "AdamsBrownEtAl");
 }
 
@@ -419,21 +480,30 @@ fn test_authors_n_with_etal() {
 fn test_authors_n_exact_count() {
     // [authors3] = all 3 authors, no EtAl
     let mut fields = IndexMap::new();
-    fields.insert("author".to_string(), "Adams, Alice and Brown, Bob and Clark, Carol".to_string());
+    fields.insert(
+        "author".to_string(),
+        "Adams, Alice and Brown, Bob and Clark, Carol".to_string(),
+    );
     assert_eq!(generate_citekey("[authors3]", &fields), "AdamsBrownClark");
 }
 
 #[test]
 fn test_auth_etal_token() {
     let mut fields = IndexMap::new();
-    fields.insert("author".to_string(), "Smith, Jane and Jones, Bob and Clark, Carol".to_string());
+    fields.insert(
+        "author".to_string(),
+        "Smith, Jane and Jones, Bob and Clark, Carol".to_string(),
+    );
     assert_eq!(generate_citekey("[auth.etal]", &fields), "Smith.etal");
 }
 
 #[test]
 fn test_auth_et_al_token() {
     let mut fields = IndexMap::new();
-    fields.insert("author".to_string(), "Smith, Jane and Jones, Bob and Clark, Carol".to_string());
+    fields.insert(
+        "author".to_string(),
+        "Smith, Jane and Jones, Bob and Clark, Carol".to_string(),
+    );
     assert_eq!(generate_citekey("[authEtAl]", &fields), "SmithEtAl");
 }
 
@@ -443,7 +513,10 @@ fn test_entrytype_token() {
     fields.insert("entrytype".to_string(), "Article".to_string());
     fields.insert("author".to_string(), "Smith, Jane".to_string());
     fields.insert("year".to_string(), "2020".to_string());
-    assert_eq!(generate_citekey("[entrytype]_[auth][year]", &fields), "Article_Smith2020");
+    assert_eq!(
+        generate_citekey("[entrytype]_[auth][year]", &fields),
+        "Article_Smith2020"
+    );
 }
 
 #[test]
@@ -468,9 +541,15 @@ fn test_pureauth_no_editor_fallback() {
 fn test_title_jabref_semantics() {
     // [title] = capitalize all significant words, skip function words, concatenate
     let mut fields = IndexMap::new();
-    fields.insert("title".to_string(), "the art of computer programming".to_string());
+    fields.insert(
+        "title".to_string(),
+        "the art of computer programming".to_string(),
+    );
     // "the" and "of" are function words → skipped
-    assert_eq!(generate_citekey("[title]", &fields), "ArtComputerProgramming");
+    assert_eq!(
+        generate_citekey("[title]", &fields),
+        "ArtComputerProgramming"
+    );
 }
 
 #[test]
@@ -490,7 +569,10 @@ fn test_pageprefix_token() {
 #[test]
 fn test_keyword_token() {
     let mut fields = IndexMap::new();
-    fields.insert("keywords".to_string(), "nuclear, monte carlo, radiation".to_string());
+    fields.insert(
+        "keywords".to_string(),
+        "nuclear, monte carlo, radiation".to_string(),
+    );
     // Space stripped by sanitizer
     assert_eq!(generate_citekey("[keyword2]", &fields), "montecarlo");
 }
@@ -498,15 +580,27 @@ fn test_keyword_token() {
 #[test]
 fn test_allcaps_raw_field() {
     let mut fields = IndexMap::new();
-    fields.insert("author".to_string(), "Smith, Jane and Jones, Bob".to_string());
+    fields.insert(
+        "author".to_string(),
+        "Smith, Jane and Jones, Bob".to_string(),
+    );
     // [AUTHOR] = raw author value, but sanitizer strips commas/spaces
-    assert_eq!(generate_citekey("[AUTHOR]", &fields), "SmithJaneandJonesBob");
+    assert_eq!(
+        generate_citekey("[AUTHOR]", &fields),
+        "SmithJaneandJonesBob"
+    );
 }
 
 #[test]
 fn test_fulltitle_token() {
     let mut fields = IndexMap::new();
-    fields.insert("title".to_string(), "{Monte Carlo} methods for transport".to_string());
+    fields.insert(
+        "title".to_string(),
+        "{Monte Carlo} methods for transport".to_string(),
+    );
     // [fulltitle] = raw title, brace-cleaned; sanitizer strips spaces
-    assert_eq!(generate_citekey("[fulltitle]", &fields), "MonteCarlomethodsfortransport");
+    assert_eq!(
+        generate_citekey("[fulltitle]", &fields),
+        "MonteCarlomethodsfortransport"
+    );
 }

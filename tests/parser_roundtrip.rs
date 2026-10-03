@@ -1,5 +1,5 @@
-use std::path::PathBuf;
 use bibtui::bib::model::RawItem;
+use std::path::PathBuf;
 
 #[test]
 fn test_roundtrip_jabref_bib() {
@@ -59,8 +59,13 @@ fn test_dirty_entry_roundtrip() {
     };
 
     // ── 2. Edit first entry ───────────────────────────────────────────────────
-    let smith_entry = db.entries.get_mut("Smith2020").expect("Smith2020 not found");
-    smith_entry.fields.insert("title".to_string(), "A Revised Introduction".to_string());
+    let smith_entry = db
+        .entries
+        .get_mut("Smith2020")
+        .expect("Smith2020 not found");
+    smith_entry
+        .fields
+        .insert("title".to_string(), "A Revised Introduction".to_string());
     smith_entry.dirty = true;
 
     // ── 3. Serialize dirty entry and patch RawBibFile ─────────────────────────
@@ -87,7 +92,10 @@ fn test_dirty_entry_roundtrip() {
     );
 
     // ── 6. Assert: other fields of Smith2020 are intact ──────────────────────
-    assert_eq!(smith2.fields.get("author").map(String::as_str), Some("Jane Smith"));
+    assert_eq!(
+        smith2.fields.get("author").map(String::as_str),
+        Some("Jane Smith")
+    );
     assert_eq!(smith2.fields.get("year").map(String::as_str), Some("2020"));
 
     // ── 7. Assert: Jones2019 raw text is byte-for-byte unchanged ─────────────
@@ -117,11 +125,7 @@ fn roundtrip_fixture(name: &str) {
     let raw = bibtui::bib::parser::parse_bib_file(&original)
         .unwrap_or_else(|e| panic!("failed to parse fixture {}: {}", name, e));
     let output = bibtui::bib::writer::write_bib_file(&raw);
-    assert_eq!(
-        original, output,
-        "round-trip mismatch for fixture {}",
-        name
-    );
+    assert_eq!(original, output, "round-trip mismatch for fixture {}", name);
 }
 
 #[test]
@@ -172,15 +176,34 @@ fn test_multi_file_overlapping_citekey() {
     let db_a = bibtui::bib::parser::build_database(raw_a);
     let db_b = bibtui::bib::parser::build_database(raw_b);
 
-    assert_eq!(db_a.entries.len(), 2, "multi_file_a.bib should have 2 entries");
-    assert_eq!(db_b.entries.len(), 2, "multi_file_b.bib should have 2 entries");
+    assert_eq!(
+        db_a.entries.len(),
+        2,
+        "multi_file_a.bib should have 2 entries"
+    );
+    assert_eq!(
+        db_b.entries.len(),
+        2,
+        "multi_file_b.bib should have 2 entries"
+    );
 
     // Both files have Smith2020 but with different authors
-    let author_a = db_a.entries["Smith2020"].fields.get("author").map(String::as_str).unwrap_or("");
-    let author_b = db_b.entries["Smith2020"].fields.get("author").map(String::as_str).unwrap_or("");
+    let author_a = db_a.entries["Smith2020"]
+        .fields
+        .get("author")
+        .map(String::as_str)
+        .unwrap_or("");
+    let author_b = db_b.entries["Smith2020"]
+        .fields
+        .get("author")
+        .map(String::as_str)
+        .unwrap_or("");
     assert_eq!(author_a, "Alice Smith");
     assert_eq!(author_b, "Bob Smith");
-    assert_ne!(author_a, author_b, "overlapping citekeys have different content");
+    assert_ne!(
+        author_a, author_b,
+        "overlapping citekeys have different content"
+    );
 }
 
 /// Entries with special characters parse without error and
@@ -192,12 +215,19 @@ fn test_special_chars_parse_and_roundtrip() {
     let raw = bibtui::bib::parser::parse_bib_file(&original).unwrap();
     let db = bibtui::bib::parser::build_database(raw);
 
-    assert_eq!(db.entries.len(), 5, "special_chars.bib should have 5 entries");
+    assert_eq!(
+        db.entries.len(),
+        5,
+        "special_chars.bib should have 5 entries"
+    );
 
     // Umlaut in Schrödinger's name is preserved inside braces
     let schr = &db.entries["Schrodinger1926"];
     let author = schr.fields.get("author").unwrap();
-    assert!(author.contains("Schr"), "author field should contain Schr...");
+    assert!(
+        author.contains("Schr"),
+        "author field should contain Schr..."
+    );
 }
 
 /// @String macro definitions are preserved byte-for-byte on roundtrip.
@@ -207,5 +237,8 @@ fn test_string_macros_roundtrip_exact() {
     let original = std::fs::read_to_string(&path).unwrap();
     let raw = bibtui::bib::parser::parse_bib_file(&original).unwrap();
     let output = bibtui::bib::writer::write_bib_file(&raw);
-    assert_eq!(original, output, "@String macro file must round-trip byte-perfectly");
+    assert_eq!(
+        original, output,
+        "@String macro file must round-trip byte-perfectly"
+    );
 }

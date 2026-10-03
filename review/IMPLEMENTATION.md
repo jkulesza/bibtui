@@ -6,7 +6,7 @@ Implementation of the October 1 review. Each item is committed separately after 
 
 - R03: restored entries rebind to the current raw document; key undo retains the current binding and marks it dirty. Automatic save-time renames are undo batches, preserving older field history.
 
-Remaining: R04–R14, P01–P03, Q01–Q02.
+Remaining: Q02 build/quality gates and final measurements.
 
 - R09 (part 1): owned atomic temporary files, permission/symlink preservation, injectable persistence, and in-memory rollback on failure.
 
@@ -47,3 +47,5 @@ Remaining: R04–R14, P01–P03, Q01–Q02.
 - Q01: event-driven workflow helpers and save/reload/failure sequences, generated semantic round-trip cases, tracked JabRef fixtures and isolated config roots; existing injected filesystem/HTTP/order/Unicode tests retained.
 
 - P01 follow-up: release benchmarks exposed excess copying in synchronous qualified search; borrow selected fields and share compiled-query scoring with the worker.
+
+- Q02 (formatting): apply rustfmt as a separate mechanical commit, with the full suite rerun before committing.

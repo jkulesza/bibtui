@@ -2,7 +2,7 @@ use indexmap::IndexMap;
 
 use super::fetcher::Fetcher;
 use super::http::HttpTransport;
-use super::{ImportedEntry, ImportError};
+use super::{ImportError, ImportedEntry};
 
 /// Fetches BibTeX metadata from the Crossref public API.
 ///
@@ -35,7 +35,11 @@ impl Fetcher for CrossrefFetcher {
         Self::extract_doi(doi_or_url).is_some()
     }
 
-    fn fetch_with(&self, doi_or_url: &str, http: &dyn HttpTransport) -> Result<ImportedEntry, ImportError> {
+    fn fetch_with(
+        &self,
+        doi_or_url: &str,
+        http: &dyn HttpTransport,
+    ) -> Result<ImportedEntry, ImportError> {
         let doi = Self::extract_doi(doi_or_url)
             .ok_or_else(|| ImportError::NoMatch(doi_or_url.to_string()))?;
 
@@ -63,7 +67,12 @@ pub fn search_by_metadata(
     search_by_metadata_with(title, author, year, &client)
 }
 
-pub fn search_by_metadata_with(title: &str, author: &str, year: &str, http: &dyn HttpTransport) -> Result<(String, String), String> {
+pub fn search_by_metadata_with(
+    title: &str,
+    author: &str,
+    year: &str,
+    http: &dyn HttpTransport,
+) -> Result<(String, String), String> {
     if title.trim().is_empty() && author.trim().is_empty() {
         return Err("Need at least a title or author to search".to_string());
     }
@@ -86,7 +95,9 @@ pub fn search_by_metadata_with(title: &str, author: &str, year: &str, http: &dyn
         url.push_str(&format!("&query.author={}", urlencoding_simple(author)));
     }
 
-    let json = http.get(&url, super::http::REQUEST_TIMEOUT).and_then(|response| response.json())
+    let json = http
+        .get(&url, super::http::REQUEST_TIMEOUT)
+        .and_then(|response| response.json())
         .map_err(|error| error.to_string())?;
 
     let items = json["message"]["items"]
@@ -112,10 +123,7 @@ pub fn search_by_metadata_with(title: &str, author: &str, year: &str, http: &dyn
         .ok_or_else(|| "Result has no DOI".to_string())?
         .to_string();
 
-    let url_field = best["URL"]
-        .as_str()
-        .unwrap_or("")
-        .to_string();
+    let url_field = best["URL"].as_str().unwrap_or("").to_string();
 
     Ok((doi, url_field))
 }
@@ -126,8 +134,9 @@ fn urlencoding_simple(s: &str) -> String {
     let mut out = String::with_capacity(s.len() * 2);
     for b in s.bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9'
-            | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
             b' ' => out.push('+'),
             _ => {
                 out.push('%');
@@ -138,17 +147,18 @@ fn urlencoding_simple(s: &str) -> String {
     out
 }
 
-fn parse_crossref_work(
-    work: &serde_json::Value,
-    doi: &str,
-) -> Result<ImportedEntry, ImportError> {
+fn parse_crossref_work(work: &serde_json::Value, doi: &str) -> Result<ImportedEntry, ImportError> {
     let mut fields: IndexMap<String, String> = IndexMap::new();
 
     // DOI
     fields.insert("doi".to_string(), doi.to_string());
 
     // Title
-    if let Some(title) = work["title"].as_array().and_then(|a| a.first()).and_then(|v| v.as_str()) {
+    if let Some(title) = work["title"]
+        .as_array()
+        .and_then(|a| a.first())
+        .and_then(|v| v.as_str())
+    {
         fields.insert("title".to_string(), title.to_string());
     }
 
@@ -237,7 +247,9 @@ fn parse_crossref_work(
 
 fn build_author_string(work: &serde_json::Value) -> String {
     let authors = work["author"].as_array();
-    let Some(authors) = authors else { return String::new() };
+    let Some(authors) = authors else {
+        return String::new();
+    };
 
     authors
         .iter()
@@ -372,7 +384,10 @@ mod tests {
     fn test_crossref_type_to_bibtex() {
         assert_eq!(crossref_type_to_bibtex("journal-article"), "article");
         assert_eq!(crossref_type_to_bibtex("book"), "book");
-        assert_eq!(crossref_type_to_bibtex("proceedings-article"), "inproceedings");
+        assert_eq!(
+            crossref_type_to_bibtex("proceedings-article"),
+            "inproceedings"
+        );
         assert_eq!(crossref_type_to_bibtex("unknown-type"), "misc");
         assert_eq!(crossref_type_to_bibtex(""), "misc");
     }
@@ -563,7 +578,11 @@ mod tests {
         let result = search_by_metadata("", "", "2020");
         assert!(result.is_err());
         let msg = result.unwrap_err();
-        assert!(msg.contains("title") || msg.contains("author"), "msg: {}", msg);
+        assert!(
+            msg.contains("title") || msg.contains("author"),
+            "msg: {}",
+            msg
+        );
     }
 
     #[test]

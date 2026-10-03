@@ -171,27 +171,32 @@ pub fn render_group_tree(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bib::model::{Group, GroupNode, GroupType, GroupTree};
+    use crate::bib::model::{Group, GroupNode, GroupTree, GroupType};
 
     fn make_tree_with_child() -> GroupTree {
         GroupTree {
             root: GroupNode {
-                group: Group { name: "All Entries".to_string(), group_type: GroupType::AllEntries },
-                children: vec![
-                    GroupNode {
-                        group: Group { name: "Physics".to_string(), group_type: GroupType::Static },
-                        children: vec![
-                            GroupNode {
-                                group: Group { name: "Nuclear".to_string(), group_type: GroupType::Static },
-                                children: vec![],
-                                expanded: true,
-                                original_fields: None,
-                            }
-                        ],
+                group: Group {
+                    name: "All Entries".to_string(),
+                    group_type: GroupType::AllEntries,
+                },
+                children: vec![GroupNode {
+                    group: Group {
+                        name: "Physics".to_string(),
+                        group_type: GroupType::Static,
+                    },
+                    children: vec![GroupNode {
+                        group: Group {
+                            name: "Nuclear".to_string(),
+                            group_type: GroupType::Static,
+                        },
+                        children: vec![],
                         expanded: true,
                         original_fields: None,
-                    }
-                ],
+                    }],
+                    expanded: true,
+                    original_fields: None,
+                }],
                 expanded: true,
                 original_fields: None,
             },
@@ -274,7 +279,11 @@ mod tests {
         let tree = make_tree_with_child();
         let mut state = GroupTreeState::new(&tree);
         state.set_entry_count("Physics", 42);
-        let item = state.flat_items.iter().find(|i| i.name == "Physics").unwrap();
+        let item = state
+            .flat_items
+            .iter()
+            .find(|i| i.name == "Physics")
+            .unwrap();
         assert_eq!(item.entry_count, Some(42));
     }
 
@@ -304,7 +313,7 @@ mod tests {
         let tree = make_tree_with_child(); // 3 items
         let mut state = GroupTreeState::new(&tree);
         state.select(2); // last item ("Nuclear")
-        // Refresh with a smaller tree (only 1 item)
+                         // Refresh with a smaller tree (only 1 item)
         let small_tree = GroupTree::default();
         state.refresh(&small_tree);
         assert_eq!(state.flat_items.len(), 1);
@@ -317,7 +326,7 @@ mod tests {
         let tree = make_tree_with_child(); // 3 items
         let mut state = GroupTreeState::new(&tree);
         state.select(1); // "Physics"
-        // Refresh with same tree
+                         // Refresh with same tree
         let tree2 = make_tree_with_child();
         state.refresh(&tree2);
         assert_eq!(state.flat_items.len(), 3);

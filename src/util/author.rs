@@ -235,8 +235,14 @@ mod tests {
 
     #[test]
     fn test_abbreviate_two() {
-        assert_eq!(abbreviate_authors("Smith, John and Jones, Alice"), "Smith and Jones");
-        assert_eq!(abbreviate_authors("John Smith and Alice Jones"), "Smith and Jones");
+        assert_eq!(
+            abbreviate_authors("Smith, John and Jones, Alice"),
+            "Smith and Jones"
+        );
+        assert_eq!(
+            abbreviate_authors("John Smith and Alice Jones"),
+            "Smith and Jones"
+        );
     }
 
     #[test]
@@ -276,13 +282,17 @@ mod tests {
     #[test]
     fn test_normalize_brace_protected_name() {
         // Names with brace-protected suffixes must not be split on spaces inside {}
-        assert_eq!(normalize_author_names("R. J. {McConn Jr.}"), "{McConn Jr.}, R. J.");
-        assert_eq!(normalize_author_names("R. G. {Williams III}"), "{Williams III}, R. G.");
+        assert_eq!(
+            normalize_author_names("R. J. {McConn Jr.}"),
+            "{McConn Jr.}, R. J."
+        );
+        assert_eq!(
+            normalize_author_names("R. G. {Williams III}"),
+            "{Williams III}, R. G."
+        );
         // Multiple authors, some with braces
         assert_eq!(
-            normalize_author_names(
-                "R. J. {McConn Jr.} and C. J. Gesh and R. G. {Williams III}"
-            ),
+            normalize_author_names("R. J. {McConn Jr.} and C. J. Gesh and R. G. {Williams III}"),
             "{McConn Jr.}, R. J. and Gesh, C. J. and {Williams III}, R. G."
         );
         // Already normalized with brace — leave unchanged
@@ -322,14 +332,23 @@ mod tests {
 
     #[test]
     fn test_normalize_von_particle() {
-        assert_eq!(normalize_author_names("Guido van Rossum"), "van Rossum, Guido");
+        assert_eq!(
+            normalize_author_names("Guido van Rossum"),
+            "van Rossum, Guido"
+        );
         assert_eq!(
             normalize_author_names("Ludwig van der Waals"),
             "van der Waals, Ludwig"
         );
-        assert_eq!(normalize_author_names("Jean de la Fontaine"), "de la Fontaine, Jean");
+        assert_eq!(
+            normalize_author_names("Jean de la Fontaine"),
+            "de la Fontaine, Jean"
+        );
         // Already normalized von form is left unchanged.
-        assert_eq!(normalize_author_names("van Rossum, Guido"), "van Rossum, Guido");
+        assert_eq!(
+            normalize_author_names("van Rossum, Guido"),
+            "van Rossum, Guido"
+        );
         // Name that starts with a lowercase particle has no first-name block.
         assert_eq!(normalize_author_names("van Beethoven"), "van Beethoven");
     }
@@ -338,10 +357,19 @@ mod tests {
     fn test_normalize_suffix_left_untouched() {
         assert_eq!(normalize_author_names("John Smith Jr."), "John Smith Jr.");
         assert_eq!(normalize_author_names("John Smith Jr"), "John Smith Jr");
-        assert_eq!(normalize_author_names("Robert Downey Sr."), "Robert Downey Sr.");
+        assert_eq!(
+            normalize_author_names("Robert Downey Sr."),
+            "Robert Downey Sr."
+        );
         assert_eq!(normalize_author_names("Henry Ford II"), "Henry Ford II");
-        assert_eq!(normalize_author_names("William Gates III"), "William Gates III");
-        assert_eq!(normalize_author_names("Thurston Howell IV"), "Thurston Howell IV");
+        assert_eq!(
+            normalize_author_names("William Gates III"),
+            "William Gates III"
+        );
+        assert_eq!(
+            normalize_author_names("Thurston Howell IV"),
+            "Thurston Howell IV"
+        );
     }
 
     #[test]

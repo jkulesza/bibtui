@@ -5,7 +5,7 @@ use super::http::{HttpClient, HttpTransport, OPTIONAL_TIMEOUT};
 use super::isbn::IsbnFetcher;
 use super::pdf::PdfFetcher;
 use super::tandfonline::TandFOnlineFetcher;
-use super::{ImportedEntry, ImportError};
+use super::{ImportError, ImportedEntry};
 
 /// The ordered list of fetchers tried in sequence.
 /// PdfFetcher first (local file paths), then ISBN (books via OpenLibrary),
@@ -36,7 +36,12 @@ pub fn run_with(doi_or_url: &str, http: &dyn HttpTransport) -> Result<ImportedEn
             // society publisher (e.g. T&F listed instead of ANS).
             apply_publisher_corrections(&mut entry);
             // Prepend Unpaywall OA PDF URL if available — free, legal, no auth required.
-            if let Some(doi) = entry.fields.get("doi").cloned().filter(|_| entry.pdf_path.is_none()) {
+            if let Some(doi) = entry
+                .fields
+                .get("doi")
+                .cloned()
+                .filter(|_| entry.pdf_path.is_none())
+            {
                 if let Some(oa_url) = unpaywall_pdf_url(&doi, http) {
                     entry.pdf_urls.insert(0, oa_url);
                 }
@@ -60,18 +65,28 @@ fn apply_publisher_corrections(entry: &mut ImportedEntry) {
     // ── American Nuclear Society ─────────────────────────────────────────────
     // ANS-owned DOI prefix
     if doi.starts_with("10.13182/") {
-        entry.fields.insert("publisher".to_string(), "American Nuclear Society".to_string());
+        entry.fields.insert(
+            "publisher".to_string(),
+            "American Nuclear Society".to_string(),
+        );
         return;
     }
     // ANS journals distributed by Taylor & Francis — identified by ISSN
     const ANS_ISSNS: &[&str] = &[
-        "0029-5639", "1943-748X",  // Nuclear Science and Engineering
-        "0029-5450", "1943-7471",  // Nuclear Technology
-        "1536-1055", "1943-7641",  // Fusion Science and Technology
-        "0003-018X", "1943-7714",  // Transactions of the American Nuclear Society
+        "0029-5639",
+        "1943-748X", // Nuclear Science and Engineering
+        "0029-5450",
+        "1943-7471", // Nuclear Technology
+        "1536-1055",
+        "1943-7641", // Fusion Science and Technology
+        "0003-018X",
+        "1943-7714", // Transactions of the American Nuclear Society
     ];
     if ANS_ISSNS.iter().any(|&i| issn.contains(i)) {
-        entry.fields.insert("publisher".to_string(), "American Nuclear Society".to_string());
+        entry.fields.insert(
+            "publisher".to_string(),
+            "American Nuclear Society".to_string(),
+        );
         return;
     }
     // ANS journals by name (fallback)
@@ -82,7 +97,10 @@ fn apply_publisher_corrections(entry: &mut ImportedEntry) {
         "transactions of the american nuclear society",
     ];
     if ANS_JOURNALS.iter().any(|&j| journal_lower.contains(j)) {
-        entry.fields.insert("publisher".to_string(), "American Nuclear Society".to_string());
+        entry.fields.insert(
+            "publisher".to_string(),
+            "American Nuclear Society".to_string(),
+        );
     }
 }
 
@@ -108,12 +126,25 @@ mod tests {
     use super::*;
     use indexmap::IndexMap;
 
-    fn make_entry(doi: Option<&str>, issn: Option<&str>, journal: Option<&str>, publisher: Option<&str>) -> ImportedEntry {
+    fn make_entry(
+        doi: Option<&str>,
+        issn: Option<&str>,
+        journal: Option<&str>,
+        publisher: Option<&str>,
+    ) -> ImportedEntry {
         let mut fields = IndexMap::new();
-        if let Some(d) = doi     { fields.insert("doi".to_string(),       d.to_string()); }
-        if let Some(i) = issn    { fields.insert("issn".to_string(),      i.to_string()); }
-        if let Some(j) = journal { fields.insert("journal".to_string(),   j.to_string()); }
-        if let Some(p) = publisher { fields.insert("publisher".to_string(), p.to_string()); }
+        if let Some(d) = doi {
+            fields.insert("doi".to_string(), d.to_string());
+        }
+        if let Some(i) = issn {
+            fields.insert("issn".to_string(), i.to_string());
+        }
+        if let Some(j) = journal {
+            fields.insert("journal".to_string(), j.to_string());
+        }
+        if let Some(p) = publisher {
+            fields.insert("publisher".to_string(), p.to_string());
+        }
         ImportedEntry::new("article", fields)
     }
 
@@ -125,7 +156,9 @@ mod tests {
 
     #[test]
     fn test_bare_doi_routes_to_crossref() {
-        let first = fetchers().into_iter().position(|fetcher| fetcher.can_handle("10.1016/j.anucene.2020.107650"));
+        let first = fetchers()
+            .into_iter()
+            .position(|fetcher| fetcher.can_handle("10.1016/j.anucene.2020.107650"));
         assert_eq!(first, Some(4));
     }
 
@@ -133,14 +166,24 @@ mod tests {
 
     #[test]
     fn test_correction_ans_doi_prefix() {
-        let mut e = make_entry(Some("10.13182/NSE20-1234"), None, None, Some("Taylor & Francis"));
+        let mut e = make_entry(
+            Some("10.13182/NSE20-1234"),
+            None,
+            None,
+            Some("Taylor & Francis"),
+        );
         apply_publisher_corrections(&mut e);
         assert_eq!(e.fields["publisher"], "American Nuclear Society");
     }
 
     #[test]
     fn test_correction_ans_issn_nse_print() {
-        let mut e = make_entry(Some("10.1080/00295639.2025.1"), Some("0029-5639"), None, Some("Informa UK Limited"));
+        let mut e = make_entry(
+            Some("10.1080/00295639.2025.1"),
+            Some("0029-5639"),
+            None,
+            Some("Informa UK Limited"),
+        );
         apply_publisher_corrections(&mut e);
         assert_eq!(e.fields["publisher"], "American Nuclear Society");
     }
@@ -168,7 +211,12 @@ mod tests {
 
     #[test]
     fn test_correction_ans_journal_name() {
-        let mut e = make_entry(None, None, Some("Nuclear Science and Engineering"), Some("T&F"));
+        let mut e = make_entry(
+            None,
+            None,
+            Some("Nuclear Science and Engineering"),
+            Some("T&F"),
+        );
         apply_publisher_corrections(&mut e);
         assert_eq!(e.fields["publisher"], "American Nuclear Society");
     }
@@ -182,7 +230,12 @@ mod tests {
 
     #[test]
     fn test_correction_non_ans_publisher_unchanged() {
-        let mut e = make_entry(Some("10.1016/j.foo.2020.1"), None, Some("Journal of Physics"), Some("Elsevier"));
+        let mut e = make_entry(
+            Some("10.1016/j.foo.2020.1"),
+            None,
+            Some("Journal of Physics"),
+            Some("Elsevier"),
+        );
         apply_publisher_corrections(&mut e);
         assert_eq!(e.fields["publisher"], "Elsevier");
     }
@@ -232,21 +285,34 @@ mod tests {
 
     #[test]
     fn test_correction_ans_journal_fst() {
-        let mut e = make_entry(None, None, Some("Fusion Science and Technology"), Some("T&F"));
+        let mut e = make_entry(
+            None,
+            None,
+            Some("Fusion Science and Technology"),
+            Some("T&F"),
+        );
         apply_publisher_corrections(&mut e);
         assert_eq!(e.fields["publisher"], "American Nuclear Society");
     }
 
     #[test]
     fn test_correction_ans_journal_transactions() {
-        let mut e = make_entry(None, None, Some("Transactions of the American Nuclear Society"), Some("T&F"));
+        let mut e = make_entry(
+            None,
+            None,
+            Some("Transactions of the American Nuclear Society"),
+            Some("T&F"),
+        );
         apply_publisher_corrections(&mut e);
         assert_eq!(e.fields["publisher"], "American Nuclear Society");
     }
     #[test]
     fn injected_metadata_and_optional_timeout_preserve_successful_import() {
         use super::super::http::tests::MockHttp;
-        let http = MockHttp::new(vec![Ok(r#"{"message":{"title":["Test"],"type":"journal-article"}}"#), Err("timeout")]);
+        let http = MockHttp::new(vec![
+            Ok(r#"{"message":{"title":["Test"],"type":"journal-article"}}"#),
+            Err("timeout"),
+        ]);
         let entry = run_with("10.1234/test", &http).unwrap();
         assert_eq!(entry.fields["title"], "Test");
         let requests = http.requests.lock().unwrap();
@@ -269,10 +335,18 @@ mod tests {
     #[test]
     fn metadata_transport_and_parse_failures_are_reported() {
         use super::super::http::tests::MockHttp;
-        assert!(matches!(run_with("10.1234/test", &MockHttp::new(vec![Err("timeout")])), Err(ImportError::Network(_))));
-        assert!(matches!(run_with("10.1234/test", &MockHttp::new(vec![Ok("not JSON")])), Err(ImportError::Parse(_))));
+        assert!(matches!(
+            run_with("10.1234/test", &MockHttp::new(vec![Err("timeout")])),
+            Err(ImportError::Network(_))
+        ));
+        assert!(matches!(
+            run_with("10.1234/test", &MockHttp::new(vec![Ok("not JSON")])),
+            Err(ImportError::Parse(_))
+        ));
         let http = MockHttp::new(vec![Ok(r#"{"ISBN:9780374528379":{"title":"A Book"}}"#)]);
-        assert_eq!(run_with("9780374528379", &http).unwrap().fields["title"], "A Book");
+        assert_eq!(
+            run_with("9780374528379", &http).unwrap().fields["title"],
+            "A Book"
+        );
     }
-
 }

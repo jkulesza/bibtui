@@ -70,7 +70,10 @@ fn empty_input_returns_empty() {
 #[test]
 fn user_override_takes_precedence_over_builtin_table() {
     let mut overrides = IndexMap::new();
-    overrides.insert("Nuclear Science and Engineering".to_string(), "NSE".to_string());
+    overrides.insert(
+        "Nuclear Science and Engineering".to_string(),
+        "NSE".to_string(),
+    );
     let result = abbreviate_journal("Nuclear Science and Engineering", &overrides);
     assert_eq!(result, "NSE");
 }
@@ -78,7 +81,10 @@ fn user_override_takes_precedence_over_builtin_table() {
 #[test]
 fn user_override_case_insensitive() {
     let mut overrides = IndexMap::new();
-    overrides.insert("nuclear science and engineering".to_string(), "NSE".to_string());
+    overrides.insert(
+        "nuclear science and engineering".to_string(),
+        "NSE".to_string(),
+    );
     let result = abbreviate_journal("Nuclear Science and Engineering", &overrides);
     assert_eq!(result, "NSE");
 }
@@ -99,7 +105,10 @@ fn bracket_token_journal_abbrev_from_journal_field() {
     let mut fields = IndexMap::new();
     fields.insert("author".to_string(), "Smith, Jane".to_string());
     fields.insert("year".to_string(), "2020".to_string());
-    fields.insert("journal".to_string(), "Nuclear Science and Engineering".to_string());
+    fields.insert(
+        "journal".to_string(),
+        "Nuclear Science and Engineering".to_string(),
+    );
 
     let key = generate_citekey("[auth][year]_[journal_abbrev]", &fields);
     assert_eq!(key, "Smith2020_NSE");
@@ -113,18 +122,27 @@ fn bracket_token_journal_abbrev_stable_when_journal_holds_abbreviated_form() {
     let mut fields_full = IndexMap::new();
     fields_full.insert("author".to_string(), "Smith, Jane".to_string());
     fields_full.insert("year".to_string(), "2020".to_string());
-    fields_full.insert("journal".to_string(), "Nuclear Science and Engineering".to_string());
+    fields_full.insert(
+        "journal".to_string(),
+        "Nuclear Science and Engineering".to_string(),
+    );
 
     let mut fields_abbrev = IndexMap::new();
     fields_abbrev.insert("author".to_string(), "Smith, Jane".to_string());
     fields_abbrev.insert("year".to_string(), "2020".to_string());
     // journal holds the ISO 4 form; journal_full records the original full name
     fields_abbrev.insert("journal".to_string(), "Nucl. Sci. Eng.".to_string());
-    fields_abbrev.insert("journal_full".to_string(), "Nuclear Science and Engineering".to_string());
+    fields_abbrev.insert(
+        "journal_full".to_string(),
+        "Nuclear Science and Engineering".to_string(),
+    );
 
-    let key_full   = generate_citekey("[auth][year]_[journal_abbrev]", &fields_full);
+    let key_full = generate_citekey("[auth][year]_[journal_abbrev]", &fields_full);
     let key_abbrev = generate_citekey("[auth][year]_[journal_abbrev]", &fields_abbrev);
-    assert_eq!(key_full, key_abbrev, "citekey must be stable regardless of journal_field_content");
+    assert_eq!(
+        key_full, key_abbrev,
+        "citekey must be stable regardless of journal_field_content"
+    );
     assert_eq!(key_full, "Smith2020_NSE");
 }
 
@@ -148,7 +166,10 @@ fn legacy_token_journal_abbrev_uses_journal_full_when_present() {
     let mut fields = IndexMap::new();
     fields.insert("year".to_string(), "1967".to_string());
     fields.insert("journal".to_string(), "Nucl. Sci. Eng.".to_string());
-    fields.insert("journal_full".to_string(), "Nuclear Science and Engineering".to_string());
+    fields.insert(
+        "journal_full".to_string(),
+        "Nuclear Science and Engineering".to_string(),
+    );
     fields.insert(
         "author".to_string(),
         "R. R. Coveyou and V. R. Cain and K. J. Yost".to_string(),
@@ -163,7 +184,10 @@ fn legacy_token_journal_abbrev_uses_journal_full_when_present() {
 fn legacy_token_journal_abbrev_produces_short_acronym() {
     // Verify the token produces the short first-letter acronym style
     let mut fields = IndexMap::new();
-    fields.insert("journal".to_string(), "Nuclear Science and Engineering".to_string());
+    fields.insert(
+        "journal".to_string(),
+        "Nuclear Science and Engineering".to_string(),
+    );
 
     let key = generate_citekey("{journal_abbrev}", &fields);
     assert_eq!(key, "NSE");

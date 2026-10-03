@@ -34,7 +34,9 @@ pub fn read_from_clipboard() -> anyhow::Result<String> {
             .output();
         let output = match result {
             Ok(o) => o,
-            Err(_) => Command::new("xsel").args(["--clipboard", "--output"]).output()?,
+            Err(_) => Command::new("xsel")
+                .args(["--clipboard", "--output"])
+                .output()?,
         };
         return Ok(String::from_utf8_lossy(&output.stdout).into_owned());
     }

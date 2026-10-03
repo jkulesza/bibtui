@@ -1,7 +1,7 @@
 use super::crossref::CrossrefFetcher;
 use super::fetcher::Fetcher;
 use super::http::HttpTransport;
-use super::{ImportedEntry, ImportError};
+use super::{ImportError, ImportedEntry};
 
 /// Fetches BibTeX metadata from Taylor & Francis Online (tandfonline.com) URLs.
 ///
@@ -16,7 +16,13 @@ impl TandFOnlineFetcher {
     /// Try to extract a DOI directly from a T&F URL path.
     fn doi_from_url(url: &str) -> Option<String> {
         // Patterns: /doi/abs/10.xxx, /doi/full/10.xxx, /doi/pdf/10.xxx, /doi/10.xxx
-        let segments = ["/doi/abs/", "/doi/full/", "/doi/pdf/", "/doi/epdf/", "/doi/"];
+        let segments = [
+            "/doi/abs/",
+            "/doi/full/",
+            "/doi/pdf/",
+            "/doi/epdf/",
+            "/doi/",
+        ];
         for seg in &segments {
             if let Some(pos) = url.find(seg) {
                 let after = &url[pos + seg.len()..];
@@ -40,7 +46,11 @@ impl Fetcher for TandFOnlineFetcher {
         doi_or_url.contains(Self::HOST)
     }
 
-    fn fetch_with(&self, doi_or_url: &str, http: &dyn HttpTransport) -> Result<ImportedEntry, ImportError> {
+    fn fetch_with(
+        &self,
+        doi_or_url: &str,
+        http: &dyn HttpTransport,
+    ) -> Result<ImportedEntry, ImportError> {
         // Try to extract the DOI directly from the URL path
         let doi = if let Some(d) = Self::doi_from_url(doi_or_url) {
             d
@@ -55,7 +65,9 @@ impl Fetcher for TandFOnlineFetcher {
         let mut entry = CrossrefFetcher.fetch_with(&doi, http)?;
 
         // Use the original publisher URL rather than the doi.org resolver
-        entry.fields.insert("url".to_string(), doi_or_url.to_string());
+        entry
+            .fields
+            .insert("url".to_string(), doi_or_url.to_string());
 
         Ok(entry)
     }
@@ -230,8 +242,10 @@ mod tests {
     fn unicode_before_metadata_preserves_original_byte_offsets() {
         for prefix in ["K".repeat(10), "İ".repeat(10), "😀éê".repeat(10)] {
             let html = format!("{prefix}<META name=\"citation_doi\" data-extra=\"{prefix}\" CONTENT=\"10.1234/test\">");
-            assert_eq!(extract_doi_from_html(&html).as_deref(), Some("10.1234/test"));
+            assert_eq!(
+                extract_doi_from_html(&html).as_deref(),
+                Some("10.1234/test")
+            );
         }
     }
-
 }

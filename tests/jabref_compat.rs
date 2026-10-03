@@ -4,8 +4,6 @@ use bibtui::bib::parser::{build_database, parse_bib_file};
 use bibtui::util::latex::render_latex;
 use bibtui::util::titlecase::strip_case_braces;
 
-
-
 #[test]
 fn test_jabref_groups_parsed() {
     let input = std::fs::read_to_string("tests/fixtures/jabref_groups.bib").unwrap();
@@ -34,10 +32,7 @@ fn test_jabref_group_memberships() {
     let db = build_database(raw);
 
     // The Article entry has groups = {Mine: Refereed Journal Article}
-    let article = db
-        .entries
-        .get("Article_2010_NT_Kulesza_228--237")
-        .unwrap();
+    let article = db.entries.get("Article_2010_NT_Kulesza_228--237").unwrap();
     assert!(article
         .group_memberships
         .contains(&"Mine: Refereed Journal Article".to_string()));
@@ -48,10 +43,7 @@ fn test_jabref_database_type() {
     let input = std::fs::read_to_string("tests/fixtures/jabref_groups.bib").unwrap();
     let raw = parse_bib_file(&input).unwrap();
     let db = build_database(raw);
-    assert_eq!(
-        db.jabref_meta.database_type.as_deref(),
-        Some("bibtex")
-    );
+    assert_eq!(db.jabref_meta.database_type.as_deref(), Some("bibtex"));
 }
 
 /// Brantley & Larsen 2000: title = {{The Simplified $P_3$ Approximation}}
@@ -60,8 +52,8 @@ fn test_jabref_database_type() {
 /// Uses the embedded fixture so this test does not depend on jabref.bib.
 #[test]
 fn test_brantley_p3_latex_display() {
-    let bib_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/complex_entries.bib");
+    let bib_path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/complex_entries.bib");
     let input = std::fs::read_to_string(&bib_path).unwrap();
     let raw = parse_bib_file(&input).unwrap();
     let db = build_database(raw);
@@ -119,7 +111,10 @@ fn test_jabref_keypattern_per_type_parsed() {
     let db = build_database(raw);
 
     assert_eq!(
-        db.jabref_meta.key_patterns.get("article").map(String::as_str),
+        db.jabref_meta
+            .key_patterns
+            .get("article")
+            .map(String::as_str),
         Some("[authors][year][shorttitle]")
     );
     assert_eq!(

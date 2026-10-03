@@ -8,8 +8,13 @@ impl App {
 
     /// Person-name fields that should be scanned for disambiguation.
     pub(super) const NAME_FIELDS: &'static [&'static str] = &[
-        "author", "editor", "editora", "editorb", "editorc",
-        "bookauthor", "translator",
+        "author",
+        "editor",
+        "editora",
+        "editorb",
+        "editorc",
+        "bookauthor",
+        "translator",
     ];
 
     /// Build clusters of similar author names across all entries.
@@ -44,16 +49,27 @@ impl App {
             } else {
                 let parts: Vec<&str> = name.split_whitespace().collect();
                 if parts.len() >= 2 {
-                    (parts[parts.len() - 1], &name[..name.len() - parts[parts.len() - 1].len()])
+                    (
+                        parts[parts.len() - 1],
+                        &name[..name.len() - parts[parts.len() - 1].len()],
+                    )
                 } else {
                     (name, "")
                 }
             };
             // Strip braces for comparison
             let last_clean: String = last.chars().filter(|c| *c != '{' && *c != '}').collect();
-            let first_clean: String = first.trim().chars().filter(|c| *c != '{' && *c != '}').collect();
+            let first_clean: String = first
+                .trim()
+                .chars()
+                .filter(|c| *c != '{' && *c != '}')
+                .collect();
             let first_initial = first_clean.chars().next().unwrap_or(' ');
-            format!("{}_{}", last_clean.to_lowercase(), first_initial.to_lowercase())
+            format!(
+                "{}_{}",
+                last_clean.to_lowercase(),
+                first_initial.to_lowercase()
+            )
         }
 
         // 3. Group names by normalized key.
@@ -71,10 +87,16 @@ impl App {
             let last = if let Some(comma) = name_trimmed.find(',') {
                 name_trimmed[..comma].trim()
             } else {
-                name_trimmed.split_whitespace().next_back().unwrap_or(name_trimmed)
+                name_trimmed
+                    .split_whitespace()
+                    .next_back()
+                    .unwrap_or(name_trimmed)
             };
             let last_clean: String = last.chars().filter(|c| *c != '{' && *c != '}').collect();
-            last_name_groups.entry(last_clean.to_lowercase()).or_default().push(name.clone());
+            last_name_groups
+                .entry(last_clean.to_lowercase())
+                .or_default()
+                .push(name.clone());
         }
 
         // Use nucleo fuzzy matching to find similar names within the same

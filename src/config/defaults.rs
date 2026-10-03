@@ -19,21 +19,19 @@ pub fn default_config() -> Config {
 }
 
 pub fn default_field_groups() -> Vec<CustomFieldGroup> {
-    vec![
-        CustomFieldGroup {
-            name: "Identifiers".to_string(),
-            fields: vec![
-                "isbn".to_string(),
-                "issn".to_string(),
-                "lccn".to_string(),
-                "eprint".to_string(),
-                "archiveprefix".to_string(),
-                "primaryclass".to_string(),
-                "pmid".to_string(),
-                "arxivid".to_string(),
-            ],
-        },
-    ]
+    vec![CustomFieldGroup {
+        name: "Identifiers".to_string(),
+        fields: vec![
+            "isbn".to_string(),
+            "issn".to_string(),
+            "lccn".to_string(),
+            "eprint".to_string(),
+            "archiveprefix".to_string(),
+            "primaryclass".to_string(),
+            "pmid".to_string(),
+            "arxivid".to_string(),
+        ],
+    }]
 }
 
 pub fn default_columns() -> Vec<ColumnConfig> {
@@ -91,19 +89,49 @@ pub fn default_columns() -> Vec<ColumnConfig> {
 
 pub fn default_citekey_templates() -> IndexMap<String, String> {
     let mut m = IndexMap::new();
-    m.insert("article".to_string(),       "Article_[year]_[journal_abbrev]_[authors2]_[pages]".to_string());
-    m.insert("book".to_string(),          "Book_[year]_[auth]_[shorttitle:camel]".to_string());
-    m.insert("booklet".to_string(),       "Booklet_[year]_[auth]".to_string());
-    m.insert("inbook".to_string(),        "InBook_[year]_[auth]".to_string());
-    m.insert("incollection".to_string(),  "InCollection_[year]_[auth]".to_string());
-    m.insert("inproceedings".to_string(), "Proceedings_[year]_[booktitle:abbr]_[authors2]_[pages]".to_string());
-    m.insert("manual".to_string(),        "Manual_[year]_[auth]".to_string());
-    m.insert("mastersthesis".to_string(), "MS-Thesis_[year]_[auth]".to_string());
-    m.insert("misc".to_string(),          "Misc_[year]_[howpublished:camel]_[authors2]_[title:camel]".to_string());
-    m.insert("phdthesis".to_string(),     "PhD-Thesis_[year]_[auth]".to_string());
-    m.insert("proceedings".to_string(),   "Proceedings_[year]_[booktitle:abbr]_[authors2]".to_string());
-    m.insert("techreport".to_string(),    "[type:(TechReport)]_[year]_[institution:abbr]_[number]_[authors2]".to_string());
-    m.insert("unpublished".to_string(),   "Unpublished_[year]_[auth]".to_string());
+    m.insert(
+        "article".to_string(),
+        "Article_[year]_[journal_abbrev]_[authors2]_[pages]".to_string(),
+    );
+    m.insert(
+        "book".to_string(),
+        "Book_[year]_[auth]_[shorttitle:camel]".to_string(),
+    );
+    m.insert("booklet".to_string(), "Booklet_[year]_[auth]".to_string());
+    m.insert("inbook".to_string(), "InBook_[year]_[auth]".to_string());
+    m.insert(
+        "incollection".to_string(),
+        "InCollection_[year]_[auth]".to_string(),
+    );
+    m.insert(
+        "inproceedings".to_string(),
+        "Proceedings_[year]_[booktitle:abbr]_[authors2]_[pages]".to_string(),
+    );
+    m.insert("manual".to_string(), "Manual_[year]_[auth]".to_string());
+    m.insert(
+        "mastersthesis".to_string(),
+        "MS-Thesis_[year]_[auth]".to_string(),
+    );
+    m.insert(
+        "misc".to_string(),
+        "Misc_[year]_[howpublished:camel]_[authors2]_[title:camel]".to_string(),
+    );
+    m.insert(
+        "phdthesis".to_string(),
+        "PhD-Thesis_[year]_[auth]".to_string(),
+    );
+    m.insert(
+        "proceedings".to_string(),
+        "Proceedings_[year]_[booktitle:abbr]_[authors2]".to_string(),
+    );
+    m.insert(
+        "techreport".to_string(),
+        "[type:(TechReport)]_[year]_[institution:abbr]_[number]_[authors2]".to_string(),
+    );
+    m.insert(
+        "unpublished".to_string(),
+        "Unpublished_[year]_[auth]".to_string(),
+    );
     m
 }
 
@@ -113,7 +141,9 @@ pub fn default_citekey_templates() -> IndexMap<String, String> {
 pub fn normalize_citekey_templates(config: &mut super::schema::Config) {
     let defaults = default_citekey_templates();
     for (type_name, default_template) in &defaults {
-        let value = config.citekey.templates
+        let value = config
+            .citekey
+            .templates
             .entry(type_name.clone())
             .or_insert_with(|| default_template.clone());
         if value.is_empty() {
@@ -144,7 +174,10 @@ mod tests {
         assert!(fields.contains(&"year"));
         assert!(fields.contains(&"entrytype"));
         assert!(fields.contains(&"citekey"));
-        assert!(!fields.contains(&"journal"), "journal column removed from default layout");
+        assert!(
+            !fields.contains(&"journal"),
+            "journal column removed from default layout"
+        );
     }
 
     #[test]

@@ -52,7 +52,6 @@ fn review_failed_wq_must_stay_open() {
     assert!(!app.should_quit, "save failure must not exit the app");
 }
 
-
 #[test]
 fn failed_save_and_quit_preview_can_retry() {
     let (mut app, dir) = review_app("@Misc{A, title={Original}}\n");
@@ -64,12 +63,16 @@ fn failed_save_and_quit_preview_can_retry() {
     app.handle_dialog_confirm();
     assert!(!app.should_quit);
     assert!(app.dirty);
-    assert!(std::fs::read_to_string(dir.path().join("library.bib")).unwrap().contains("Original"));
+    assert!(std::fs::read_to_string(dir.path().join("library.bib"))
+        .unwrap()
+        .contains("Original"));
     std::fs::remove_dir(blocker).unwrap();
     app.request_save(true);
     assert!(app.should_quit);
     assert!(!app.dirty);
-    assert!(std::fs::read_to_string(&app.bib_path).unwrap().contains("Unsaved"));
+    assert!(std::fs::read_to_string(&app.bib_path)
+        .unwrap()
+        .contains("Unsaved"));
 }
 
 #[test]
@@ -80,7 +83,11 @@ fn failed_write_and_quit_stays_open() {
     app.request_save(true);
     assert!(!app.should_quit);
     assert!(app.dirty);
-    assert!(app.status_message.as_deref().unwrap().contains("Save failed"));
+    assert!(app
+        .status_message
+        .as_deref()
+        .unwrap()
+        .contains("Save failed"));
 }
 #[test]
 fn review_edit_after_undo_saved_state_must_be_dirty() {
@@ -94,7 +101,6 @@ fn review_edit_after_undo_saved_state_must_be_dirty() {
         "equal undo depth does not imply equal document state"
     );
 }
-
 
 #[test]
 fn undo_branch_requires_quit_confirmation_and_new_save_point() {
@@ -125,13 +131,17 @@ fn undo_marker_survives_cap_and_batch_until_saved_state_evicted() {
     for i in 0..MAX_UNDO {
         review_edit(&mut app, "A", "title", &i.to_string());
     }
-    for _ in 0..MAX_UNDO { app.undo(); }
+    for _ in 0..MAX_UNDO {
+        app.undo();
+    }
     assert!(!app.dirty);
     assert_eq!(app.database.entries["A"].fields["title"], "Saved");
     for i in 0..=MAX_UNDO {
         review_edit(&mut app, "A", "title", &i.to_string());
     }
-    for _ in 0..MAX_UNDO { app.undo(); }
+    for _ in 0..MAX_UNDO {
+        app.undo();
+    }
     assert!(app.dirty);
     assert_eq!(app.save_generation, None);
 }
@@ -171,11 +181,12 @@ fn review_key_change_save_undo_save_must_restore_key() {
     );
 }
 
-
 #[test]
 fn deleted_entries_restore_after_sorted_save_and_remain_editable() {
     for order in ["none", "citation_key"] {
-        let (mut app, _dir) = review_app("@Misc{C, title={Gamma}}\n@Misc{A, title={Alpha}}\n@Misc{B, title={Beta}}\n");
+        let (mut app, _dir) = review_app(
+            "@Misc{C, title={Gamma}}\n@Misc{A, title={Alpha}}\n@Misc{B, title={Beta}}\n",
+        );
         app.config.save.entry_sort_order = order.into();
         app.delete_entry("A");
         app.delete_entry("C");
@@ -186,7 +197,10 @@ fn deleted_entries_restore_after_sorted_save_and_remain_editable() {
         assert!(app.save());
         let reloaded = App::new(app.bib_path.clone(), app.config.clone()).unwrap();
         assert_eq!(reloaded.database.entries.len(), 3);
-        assert_eq!(reloaded.database.entries["A"].fields["title"], "Restored Alpha");
+        assert_eq!(
+            reloaded.database.entries["A"].fields["title"],
+            "Restored Alpha"
+        );
         assert_eq!(reloaded.database.entries["B"].fields["title"], "Beta");
         assert_eq!(reloaded.database.entries["C"].fields["title"], "Gamma");
     }
@@ -196,7 +210,10 @@ fn deleted_entries_restore_after_sorted_save_and_remain_editable() {
 fn automatic_save_renames_unwind_before_older_field_undo() {
     let (mut app, _dir) = review_app("@Misc{A, title={Alpha}, year={2020}}\n");
     review_edit(&mut app, "A", "title", "Changed");
-    app.config.citekey.templates.insert("misc".into(), "New[year]".into());
+    app.config
+        .citekey
+        .templates
+        .insert("misc".into(), "New[year]".into());
     app.config.save.save_action_regenerate_citekeys = true;
     assert!(app.save());
     app.undo(); // automatic rename
@@ -249,9 +266,17 @@ fn saving_through_symlink_preserves_link_and_target_permissions() {
     app.bib_path = link.clone();
     review_edit(&mut app, "A", "title", "Changed");
     assert!(app.save());
-    assert!(std::fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
-    assert_eq!(std::fs::metadata(&original).unwrap().permissions().mode() & 0o777, 0o640);
-    assert!(std::fs::read_to_string(&original).unwrap().contains("Changed"));
+    assert!(std::fs::symlink_metadata(&link)
+        .unwrap()
+        .file_type()
+        .is_symlink());
+    assert_eq!(
+        std::fs::metadata(&original).unwrap().permissions().mode() & 0o777,
+        0o640
+    );
+    assert!(std::fs::read_to_string(&original)
+        .unwrap()
+        .contains("Changed"));
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 2);
 }
 #[test]
@@ -270,7 +295,6 @@ fn review_temp_path_must_not_clobber_existing_file() {
     );
 }
 
-
 #[test]
 fn external_changes_preserve_both_external_file_and_existing_backup() {
     for external in [Some("external update"), None] {
@@ -279,13 +303,23 @@ fn external_changes_preserve_both_external_file_and_existing_backup() {
         let backup = app.bib_path.with_extension("bib.bak");
         std::fs::write(&backup, "previous backup").unwrap();
         review_edit(&mut app, "A", "title", "Local edit");
-        if let Some(text) = external { std::fs::write(&app.bib_path, text).unwrap(); }
-        else { std::fs::remove_file(&app.bib_path).unwrap(); }
+        if let Some(text) = external {
+            std::fs::write(&app.bib_path, text).unwrap();
+        } else {
+            std::fs::remove_file(&app.bib_path).unwrap();
+        }
         assert!(!app.save());
         assert!(app.dirty);
-        assert!(app.status_message.as_deref().unwrap().contains("changed outside"));
+        assert!(app
+            .status_message
+            .as_deref()
+            .unwrap()
+            .contains("changed outside"));
         assert_eq!(std::fs::read_to_string(&backup).unwrap(), "previous backup");
-        assert_eq!(std::fs::read_to_string(&app.bib_path).ok().as_deref(), external);
+        assert_eq!(
+            std::fs::read_to_string(&app.bib_path).ok().as_deref(),
+            external
+        );
         assert_eq!(app.database.entries["A"].fields["title"], "Local edit");
     }
 }
@@ -297,7 +331,10 @@ fn new_library_does_not_overwrite_file_created_since_open() {
     let mut app = App::new(path.clone(), default_config()).unwrap();
     std::fs::write(&path, "created by another process").unwrap();
     assert!(!app.save());
-    assert_eq!(std::fs::read_to_string(&path).unwrap(), "created by another process");
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "created by another process"
+    );
 }
 
 #[test]
@@ -307,7 +344,10 @@ fn unchanged_external_rewrite_and_repeated_saves_are_allowed() {
     assert!(app.save());
     review_edit(&mut app, "A", "title", "Next");
     assert!(app.save());
-    assert_eq!(app.saved_contents, Some(std::fs::read(&app.bib_path).unwrap()));
+    assert_eq!(
+        app.saved_contents,
+        Some(std::fs::read(&app.bib_path).unwrap())
+    );
 }
 #[test]
 fn review_partial_attachment_failure_must_keep_paths_consistent() {
@@ -340,7 +380,6 @@ fn review_attachment_undo_must_not_overwrite_new_file() {
     );
 }
 
-
 #[test]
 fn failed_attachment_undo_keeps_current_path_and_unsaved_indicator() {
     let (mut app, dir) = review_app("@Misc{A, file={:old.pdf:PDF}}\n");
@@ -349,9 +388,16 @@ fn failed_attachment_undo_keeps_current_path_and_unsaved_indicator() {
     app.sync_entry_filename();
     std::fs::write(dir.path().join("old.pdf"), "unrelated").unwrap();
     app.undo();
-    assert_eq!(parse_file_field(&app.database.entries["A"].fields["file"])[0].path, "A.pdf");
+    assert_eq!(
+        parse_file_field(&app.database.entries["A"].fields["file"])[0].path,
+        "A.pdf"
+    );
     assert!(app.dirty);
-    assert!(app.status_message.as_deref().unwrap().contains("Undo errors"));
+    assert!(app
+        .status_message
+        .as_deref()
+        .unwrap()
+        .contains("Undo errors"));
 }
 
 #[test]
@@ -383,23 +429,30 @@ fn review_save_filename_must_match_final_citekey() {
     );
 }
 
-
 #[test]
 fn save_preview_uses_final_keys_without_mutating_live_state() {
     let (mut app, dir) = review_app("@Misc{A, year={2020}, file={:old.pdf:PDF}}\n");
     std::fs::write(dir.path().join("old.pdf"), "attachment").unwrap();
     app.config.save.sync_filenames = true;
     app.config.save.save_action_regenerate_citekeys = true;
-    app.config.citekey.templates.insert("misc".into(), "New[year]".into());
+    app.config
+        .citekey
+        .templates
+        .insert("misc".into(), "New[year]".into());
     app.request_save(false);
-    let DialogKind::FileSyncPreview { renames } = &app.dialog_state.as_ref().unwrap().kind else { panic!("expected preview") };
+    let DialogKind::FileSyncPreview { renames } = &app.dialog_state.as_ref().unwrap().kind else {
+        panic!("expected preview")
+    };
     assert!(renames[0].1.ends_with("New2020.pdf"));
     assert!(app.database.entries.contains_key("A"));
     assert!(dir.path().join("old.pdf").exists());
     app.handle_dialog_confirm();
     assert!(dir.path().join("New2020.pdf").exists());
     assert!(app.database.entries.contains_key("New2020"));
-    assert_eq!(app.saved_contents, Some(std::fs::read(&app.bib_path).unwrap()));
+    assert_eq!(
+        app.saved_contents,
+        Some(std::fs::read(&app.bib_path).unwrap())
+    );
 }
 
 #[test]
@@ -432,18 +485,35 @@ fn backup_failure_precedes_attachment_moves() {
 
 #[test]
 fn shared_attachments_and_changed_previews_are_rejected_before_moves() {
-    let (mut app, dir) = review_app("@Misc{A, file={:old.pdf:PDF}}\n@Misc{B, file={:old.pdf:PDF}}\n");
+    let (mut app, dir) =
+        review_app("@Misc{A, file={:old.pdf:PDF}}\n@Misc{B, file={:old.pdf:PDF}}\n");
     std::fs::write(dir.path().join("old.pdf"), "attachment").unwrap();
     app.config.save.sync_filenames = true;
     assert!(!app.save());
-    assert!(app.status_message.as_deref().unwrap().contains("shared attachment"));
-    app.database.entries.get_mut("B").unwrap().fields.shift_remove("file");
+    assert!(app
+        .status_message
+        .as_deref()
+        .unwrap()
+        .contains("shared attachment"));
+    app.database
+        .entries
+        .get_mut("B")
+        .unwrap()
+        .fields
+        .shift_remove("file");
     app.request_save(false);
     review_edit(&mut app, "A", "title", "Arrived during preview");
     app.handle_dialog_confirm();
-    assert!(app.status_message.as_deref().unwrap().contains("during the preview"));
+    assert!(app
+        .status_message
+        .as_deref()
+        .unwrap()
+        .contains("during the preview"));
     assert!(dir.path().join("old.pdf").exists());
-    assert_eq!(app.database.entries["A"].fields["title"], "Arrived during preview");
+    assert_eq!(
+        app.database.entries["A"].fields["title"],
+        "Arrived during preview"
+    );
 }
 
 #[test]
@@ -460,15 +530,31 @@ fn failed_save_reports_unreversed_attachment_and_keeps_recoverable_path() {
     app.config.save.sync_filenames = true;
     app.save_io = Box::new(RecoveryFailure);
     assert!(!app.save());
-    assert!(app.status_message.as_deref().unwrap().contains("recovery failed"));
-    assert_eq!(parse_file_field(&app.database.entries["A"].fields["file"])[0].path, "A.pdf");
-    assert_eq!(std::fs::read_to_string(dir.path().join("old.pdf")).unwrap(), "unrelated");
-    assert_eq!(std::fs::read_to_string(dir.path().join("A.pdf")).unwrap(), "attachment");
+    assert!(app
+        .status_message
+        .as_deref()
+        .unwrap()
+        .contains("recovery failed"));
+    assert_eq!(
+        parse_file_field(&app.database.entries["A"].fields["file"])[0].path,
+        "A.pdf"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("old.pdf")).unwrap(),
+        "unrelated"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("A.pdf")).unwrap(),
+        "attachment"
+    );
     assert!(app.dirty);
     app.save_io = Box::new(crate::util::persistence::FileSaveIo);
     assert!(app.save());
     let loaded = App::new(app.bib_path.clone(), app.config.clone()).unwrap();
-    assert_eq!(loaded.database.entries["A"].fields["file"], app.database.entries["A"].fields["file"]);
+    assert_eq!(
+        loaded.database.entries["A"].fields["file"],
+        app.database.entries["A"].fields["file"]
+    );
 }
 
 #[test]
@@ -490,9 +576,16 @@ fn canceled_save_preview_leaves_files_and_history_untouched() {
 fn key_changes_preserve_original_field_expression_variants_across_saves() {
     for mode in ["manual", "automatic", "duplicate"] {
         let entry = "@Misc{A, journal=j, title={Hello} # {World}, note=\"quoted\", year={2020}}\n";
-        let input = format!("@String{{j = {{Journal}}}}\n{}{}", entry, if mode == "duplicate" { entry } else { "" });
+        let input = format!(
+            "@String{{j = {{Journal}}}}\n{}{}",
+            entry,
+            if mode == "duplicate" { entry } else { "" }
+        );
         let (mut app, _dir) = review_app(&input);
-        app.config.citekey.templates.insert("misc".into(), "New[year]".into());
+        app.config
+            .citekey
+            .templates
+            .insert("misc".into(), "New[year]".into());
         if mode == "manual" {
             app.detail_entry_key = Some("A".into());
             app.regen_citekey();
@@ -517,12 +610,18 @@ fn key_changes_preserve_original_field_expression_variants_across_saves() {
 #[test]
 fn single_key_change_updates_exact_crossrefs_and_undoes_as_one_step() {
     let (mut app, _dir) = review_app("@Misc{Parent, year={2020}}\n@Article{Child, crossref={Parent}, note={Parent}}\n@Misc{Other, crossref={ParentSuffix}}\n");
-    app.config.citekey.templates.insert("misc".into(), "New[year]".into());
+    app.config
+        .citekey
+        .templates
+        .insert("misc".into(), "New[year]".into());
     app.detail_entry_key = Some("Parent".into());
     app.regen_citekey();
     assert_eq!(app.database.entries["Child"].fields["crossref"], "New2020");
     assert_eq!(app.database.entries["Child"].fields["note"], "Parent");
-    assert_eq!(app.database.entries["Other"].fields["crossref"], "ParentSuffix");
+    assert_eq!(
+        app.database.entries["Other"].fields["crossref"],
+        "ParentSuffix"
+    );
     assert_eq!(app.undo_stack.len(), 1);
     assert!(app.save());
     app.undo();
@@ -530,21 +629,37 @@ fn single_key_change_updates_exact_crossrefs_and_undoes_as_one_step() {
     assert_eq!(app.database.entries["Child"].fields["crossref"], "Parent");
     assert!(app.save());
     let reload = App::new(app.bib_path.clone(), app.config.clone()).unwrap();
-    assert_eq!(reload.database.entries["Child"].fields["crossref"], "Parent");
+    assert_eq!(
+        reload.database.entries["Child"].fields["crossref"],
+        "Parent"
+    );
 }
 
 #[test]
 fn bulk_crossrefs_use_simultaneous_mapping_with_collisions() {
     let (mut app, _dir) = review_app("@Misc{B, title={C}}\n@Misc{A, title={B}}\n@Misc{D, title={C}}\n@Misc{Stable, title={Stable}}\n@Misc{Child, title={Child}, crossref={A}}\n@Misc{Second, title={Second}, crossref={B}}\n@Misc{Third, title={Third}, crossref={D}}\n@Misc{Fourth, title={Fourth}, crossref={Stable}}\n");
-    app.config.citekey.templates.insert("misc".into(), "[title]".into());
+    app.config
+        .citekey
+        .templates
+        .insert("misc".into(), "[title]".into());
     assert_eq!(app.regen_all_citekeys_impl(true), 3);
-    for (key, target) in [("Child", "B"), ("Second", "C"), ("Third", "C_2"), ("Fourth", "Stable")] {
+    for (key, target) in [
+        ("Child", "B"),
+        ("Second", "C"),
+        ("Third", "C_2"),
+        ("Fourth", "Stable"),
+    ] {
         assert_eq!(app.database.entries[key].fields["crossref"], target);
         assert!(app.database.entries.contains_key(target));
     }
     assert!(app.save());
     app.undo();
-    for (key, target) in [("Child", "A"), ("Second", "B"), ("Third", "D"), ("Fourth", "Stable")] {
+    for (key, target) in [
+        ("Child", "A"),
+        ("Second", "B"),
+        ("Third", "D"),
+        ("Fourth", "Stable"),
+    ] {
         assert_eq!(app.database.entries[key].fields["crossref"], target);
         assert!(app.database.entries.contains_key(target));
     }
@@ -563,20 +678,43 @@ fn save_preserves_blank_lines_inside_every_opaque_item() {
 
 #[test]
 fn sort_order_is_transitive_and_antisymmetric_for_mixed_values() {
-    let values = ["", " ", "2", "10", "1a", "-5", "+5", "05", "18446744073709551616", "é", "ê", "100--120", "-12--1"];
+    let values = [
+        "",
+        " ",
+        "2",
+        "10",
+        "1a",
+        "-5",
+        "+5",
+        "05",
+        "18446744073709551616",
+        "é",
+        "ê",
+        "100--120",
+        "-12--1",
+    ];
     for field in ["title", "citation_key", "year", "volume", "number", "pages"] {
         for a in values {
             for b in values {
-                assert_eq!(compare_sort_values(field, a, b), compare_sort_values(field, b, a).reverse());
+                assert_eq!(
+                    compare_sort_values(field, a, b),
+                    compare_sort_values(field, b, a).reverse()
+                );
                 for c in values {
-                    if compare_sort_values(field, a, b).is_le() && compare_sort_values(field, b, c).is_le() {
-                        assert!(compare_sort_values(field, a, c).is_le(), "{field}: {a}, {b}, {c}");
+                    if compare_sort_values(field, a, b).is_le()
+                        && compare_sort_values(field, b, c).is_le()
+                    {
+                        assert!(
+                            compare_sort_values(field, a, c).is_le(),
+                            "{field}: {a}, {b}, {c}"
+                        );
                     }
                 }
             }
         }
     }
-    let (mut app, _dir) = review_app("@Misc{A,title={2}}\n@Misc{B,title={10}}\n@Misc{C,title={1a}}\n");
+    let (mut app, _dir) =
+        review_app("@Misc{A,title={2}}\n@Misc{B,title={10}}\n@Misc{C,title={1a}}\n");
     app.config.display.default_sort.field = "title".into();
     app.config.display.default_sort.ascending = true;
     let mut ascending = sort_entries(&app.database.entries, &app.config);
@@ -620,14 +758,18 @@ fn key_releases_do_not_dispatch_or_advance_command_history() {
         app.handle_event(Event::Key(press));
         let selection = app.entry_list_state.selected();
         let history = (app.second_last_key, app.last_key);
-        app.handle_event(Event::Key(KeyEvent { kind: KeyEventKind::Release, ..press }));
+        app.handle_event(Event::Key(KeyEvent {
+            kind: KeyEventKind::Release,
+            ..press
+        }));
         assert_eq!(app.entry_list_state.selected(), selection);
         assert_eq!((app.second_last_key, app.last_key), history);
         assert!(app.dialog_state.is_none());
     }
     let (mut app, _dir) = review_app("@Misc{A}\n@Misc{B}\n");
     let press = KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE);
-    app.user_bindings.push((InputMode::Normal, press, Action::DeleteEntry));
+    app.user_bindings
+        .push((InputMode::Normal, press, Action::DeleteEntry));
     for kind in [KeyEventKind::Release, KeyEventKind::Repeat] {
         app.handle_event(Event::Key(KeyEvent { kind, ..press }));
         assert!(app.dialog_state.is_none());
@@ -640,7 +782,13 @@ fn key_releases_do_not_dispatch_or_advance_command_history() {
 fn repeat_events_allow_navigation_and_text_without_command_chains() {
     use crossterm::event::KeyModifiers;
     let (mut app, _dir) = review_app("@Misc{A}\n@Misc{B}\n");
-    let event = |c, kind| Event::Key(KeyEvent::new_with_kind(KeyCode::Char(c), KeyModifiers::NONE, kind));
+    let event = |c, kind| {
+        Event::Key(KeyEvent::new_with_kind(
+            KeyCode::Char(c),
+            KeyModifiers::NONE,
+            kind,
+        ))
+    };
     app.handle_event(event('j', KeyEventKind::Repeat));
     assert_eq!(app.entry_list_state.selected(), 1);
     app.handle_event(event('d', KeyEventKind::Press));
@@ -656,7 +804,8 @@ fn repeat_events_allow_navigation_and_text_without_command_chains() {
 
 #[test]
 fn mutations_rebuild_search_results_and_preserve_selection_identity() {
-    let (mut app, _dir) = review_app("@Misc{A, title={Alpha}}\n@Misc{B, title={Beta}}\n@Misc{C, title={Gamma}}\n");
+    let (mut app, _dir) =
+        review_app("@Misc{A, title={Alpha}}\n@Misc{B, title={Beta}}\n@Misc{C, title={Gamma}}\n");
     app.search_bar_state.query = "key:B".into();
     app.update_search();
     app.delete_entry("B");
@@ -685,9 +834,18 @@ fn mutations_rebuild_search_results_and_preserve_selection_identity() {
 fn group_and_search_filters_compose_and_keep_duplicate_name_identity() {
     let (mut app, _dir) = review_app("@Misc{A, title={Alpha}, year={2020}}\n@Misc{B, title={Beta}, year={2021}}\n@Misc{C, title={Beta}, year={2020}}\n");
     let group = |year: &str| GroupNode {
-        group: Group { name: "Same".into(), group_type: GroupType::Keyword {
-            field: "year".into(), search_term: year.into(), case_sensitive: false, regex: false,
-        } }, children: vec![], expanded: true, original_fields: None,
+        group: Group {
+            name: "Same".into(),
+            group_type: GroupType::Keyword {
+                field: "year".into(),
+                search_term: year.into(),
+                case_sensitive: false,
+                regex: false,
+            },
+        },
+        children: vec![],
+        expanded: true,
+        original_fields: None,
     };
     app.database.groups.root.children = vec![group("2020"), group("2021")];
     app.group_tree_state.refresh(&app.database.groups);
@@ -715,7 +873,10 @@ fn group_and_search_filters_compose_and_keep_duplicate_name_identity() {
     assert_eq!(app.selected_entry_key().as_deref(), Some("B"));
     app.detail_entry_key = Some("B".into());
     app.field_editor_state = Some(FieldEditorState::new("year", "2020"));
-    app.config.citekey.templates.insert("misc".into(), "[title]".into());
+    app.config
+        .citekey
+        .templates
+        .insert("misc".into(), "[title]".into());
     app.confirm_edit();
     assert_eq!(app.visible_entry_count(), 0);
     app.undo(); // rename
@@ -728,7 +889,10 @@ fn group_and_search_filters_compose_and_keep_duplicate_name_identity() {
 fn importing_and_rekeying_reapply_active_search() {
     use crate::util::import::ImportedEntry;
     let (mut app, _dir) = review_app("@Misc{A, title={Original}}\n");
-    app.config.citekey.templates.insert("misc".into(), "[title]".into());
+    app.config
+        .citekey
+        .templates
+        .insert("misc".into(), "[title]".into());
     app.search_bar_state.query = "title:Imported".into();
     app.update_search();
     let fields = IndexMap::from([("title".into(), "Imported".into())]);
@@ -738,44 +902,86 @@ fn importing_and_rekeying_reapply_active_search() {
     app.search_bar_state.query = "key:A".into();
     app.update_search();
     app.regen_all_citekeys();
-    assert!(app.visible_entries().iter().all(|e| e.citation_key != "Imported"));
-    assert_eq!(app.search_bar_state.result_count, app.visible_entries().len());
+    assert!(app
+        .visible_entries()
+        .iter()
+        .all(|e| e.citation_key != "Imported"));
+    assert_eq!(
+        app.search_bar_state.result_count,
+        app.visible_entries().len()
+    );
 }
 
 #[test]
 fn bulk_rekey_preserves_file_order_and_first_available_suffix() {
     let (mut app, _dir) = review_app("@Misc{Target, title={Target}}\n@Misc{Old, title={Target}}\n@Misc{Target_2, title={Target}}\n@Misc{Other, title={Target}}\n");
-    app.config.citekey.templates.insert("misc".into(), "[title]".into());
+    app.config
+        .citekey
+        .templates
+        .insert("misc".into(), "[title]".into());
     app.config.display.default_sort.field = "none".into();
     app.refresh_view();
     app.entry_list_state.select(1);
     app.regen_all_citekeys();
-    assert_eq!(app.database.entries.keys().map(String::as_str).collect::<Vec<_>>(), ["Target", "Target_3", "Target_2", "Target_4"]);
+    assert_eq!(
+        app.database
+            .entries
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        ["Target", "Target_3", "Target_2", "Target_4"]
+    );
     assert_eq!(app.selected_entry_key().as_deref(), Some("Target_3"));
     assert_eq!(app.regen_all_citekeys_impl(true), 0);
     assert!(app.save());
     let reload = App::new(app.bib_path.clone(), app.config.clone()).unwrap();
-    assert_eq!(reload.database.entries.keys().collect::<Vec<_>>(), app.database.entries.keys().collect::<Vec<_>>());
+    assert_eq!(
+        reload.database.entries.keys().collect::<Vec<_>>(),
+        app.database.entries.keys().collect::<Vec<_>>()
+    );
     app.undo();
-    assert_eq!(app.database.entries.keys().map(String::as_str).collect::<Vec<_>>(), ["Target", "Old", "Target_2", "Other"]);
+    assert_eq!(
+        app.database
+            .entries
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        ["Target", "Old", "Target_2", "Other"]
+    );
 }
 
 #[test]
 fn rendering_builds_only_viewport_rows_and_tracks_global_navigation() {
     use ratatui::{backend::TestBackend, Terminal};
     for count in [100, 10_000] {
-        let input: String = (0..count).map(|i| format!("@Misc{{Key{i:05}, title={{Row {i:05}}}}}\n")).collect();
+        let input: String = (0..count)
+            .map(|i| format!("@Misc{{Key{i:05}, title={{Row {i:05}}}}}\n"))
+            .collect();
         let (mut app, _dir) = review_app(&input);
         app.show_groups = false;
         app.focus = Focus::List;
         let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
-        for action in [Action::MoveToBottom, Action::MoveToTop, Action::PageDown, Action::PageUp] {
+        for action in [
+            Action::MoveToBottom,
+            Action::MoveToTop,
+            Action::PageDown,
+            Action::PageUp,
+        ] {
             app.handle_action(action);
             terminal.draw(|frame| app.render(frame)).unwrap();
             assert_eq!(app.entry_list_state.rendered_rows, 15);
             let selected = app.selected_entry_key().unwrap();
-            let screen: String = terminal.backend().buffer().content.iter().map(|cell| cell.symbol()).collect();
-            assert!(screen.contains(&selected), "selected row {selected} must be rendered");
+            let screen: String = terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect();
+            assert!(
+                screen.contains(&selected),
+                "selected row {selected} must be rendered"
+            );
         }
         app.handle_action(Action::MoveToBottom);
         terminal.draw(|frame| app.render(frame)).unwrap();
@@ -796,14 +1002,24 @@ fn finish_review_search(app: &mut App) {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     while app.search_bar_state.searching {
         app.poll_search();
-        assert!(std::time::Instant::now() < deadline, "background search timed out");
+        assert!(
+            std::time::Instant::now() < deadline,
+            "background search timed out"
+        );
         std::thread::sleep(std::time::Duration::from_millis(1));
     }
 }
 
 #[test]
 fn background_search_discards_old_queries_and_edits_and_batches_paste() {
-    let input: String = (0..600).map(|i| format!("@Misc{{Key{i:05}, title={{Common}}, abstract={{{} tailneedle}}}}\n", "padding ".repeat(300))).collect();
+    let input: String = (0..600)
+        .map(|i| {
+            format!(
+                "@Misc{{Key{i:05}, title={{Common}}, abstract={{{} tailneedle}}}}\n",
+                "padding ".repeat(300)
+            )
+        })
+        .collect();
     let (mut app, _dir) = review_app(&input);
     app.handle_action(Action::EnterSearch);
     let before = app.search_worker.submission_count();
@@ -841,10 +1057,15 @@ fn background_search_discards_old_queries_and_edits_and_batches_paste() {
 }
 
 fn workflow_key(app: &mut App, code: KeyCode) {
-    app.handle_event(Event::Key(KeyEvent::new(code, crossterm::event::KeyModifiers::NONE)));
+    app.handle_event(Event::Key(KeyEvent::new(
+        code,
+        crossterm::event::KeyModifiers::NONE,
+    )));
 }
 fn workflow_chars(app: &mut App, text: &str) {
-    for c in text.chars() { workflow_key(app, KeyCode::Char(c)); }
+    for c in text.chars() {
+        workflow_key(app, KeyCode::Char(c));
+    }
 }
 fn workflow_command(app: &mut App, command: &str) {
     workflow_key(app, KeyCode::Char(':'));
@@ -855,7 +1076,10 @@ fn workflow_command(app: &mut App, command: &str) {
 #[test]
 fn event_workflow_edit_save_undo_save_and_reload() {
     let (mut app, _dir) = review_app("@Misc{A, title={Original}, year={2020}}\n");
-    app.config.citekey.templates.insert("misc".into(), "A".into());
+    app.config
+        .citekey
+        .templates
+        .insert("misc".into(), "A".into());
     app.focus = Focus::List;
     workflow_key(&mut app, KeyCode::Enter);
     workflow_chars(&mut app, "/title");
@@ -863,7 +1087,10 @@ fn event_workflow_edit_save_undo_save_and_reload() {
     workflow_chars(&mut app, "eS");
     app.handle_event(Event::Paste("Updated\nUnicode é".into()));
     workflow_key(&mut app, KeyCode::Enter);
-    assert_eq!(app.database.entries["A"].fields["title"], "Updated Unicode é");
+    assert_eq!(
+        app.database.entries["A"].fields["title"],
+        "Updated Unicode é"
+    );
     assert!(app.dirty);
     // One Escape clears detail search; the next returns to the entry list.
     workflow_key(&mut app, KeyCode::Esc);
@@ -902,7 +1129,10 @@ fn event_workflow_creates_library_and_roundtrips_settings() {
     assert_eq!(reload.database.entries.len(), 1);
     workflow_chars(&mut app, "SE");
     // Path editors begin in Insert mode. Clear their default at the cursor.
-    app.handle_event(Event::Key(KeyEvent::new(KeyCode::Char('u'), crossterm::event::KeyModifiers::CONTROL)));
+    app.handle_event(Event::Key(KeyEvent::new(
+        KeyCode::Char('u'),
+        crossterm::event::KeyModifiers::CONTROL,
+    )));
     let settings_path = dir.path().join("settings.yaml");
     app.handle_event(Event::Paste(settings_path.display().to_string()));
     workflow_key(&mut app, KeyCode::Enter);
@@ -937,15 +1167,30 @@ fn event_workflow_attachment_confirmation_failure_retry_and_undo() {
     workflow_chars(&mut app, "u");
     assert!(app.dirty);
     assert!(dir.path().join("old.pdf").exists());
-    assert_eq!(parse_file_field(&app.database.entries["A"].fields["file"])[0].path, "old.pdf");
+    assert_eq!(
+        parse_file_field(&app.database.entries["A"].fields["file"])[0].path,
+        "old.pdf"
+    );
 }
 
 #[test]
 fn generated_valid_values_preserve_parsing_and_save_reload_semantics() {
-    let values = ["ASCII", "Café", "漢字", "{Protected}", "line\n\nnext", r"\LaTeX{}", "😀", "e\u{301}"];
+    let values = [
+        "ASCII",
+        "Café",
+        "漢字",
+        "{Protected}",
+        "line\n\nnext",
+        r"\LaTeX{}",
+        "😀",
+        "e\u{301}",
+    ];
     for newline in ["\n", "\r\n"] {
         for value in values {
-            let input = format!("@Misc{{A, title={{{value}}}, year={{2020}}}}\n@Misc{{B, note={{Unchanged}}}}\n").replace('\n', newline);
+            let input = format!(
+                "@Misc{{A, title={{{value}}}, year={{2020}}}}\n@Misc{{B, note={{Unchanged}}}}\n"
+            )
+            .replace('\n', newline);
             let raw = parse_bib_file(&input).unwrap();
             assert!(raw.warnings.is_empty());
             assert_eq!(write_bib_file(&raw), input);
@@ -978,15 +1223,24 @@ fn event_workflow_type_and_group_changes_save_and_undo() {
     workflow_key(&mut app, KeyCode::Tab);
     workflow_key(&mut app, KeyCode::Char(' '));
     workflow_key(&mut app, KeyCode::Enter);
-    assert_ne!(app.database.entries[&key].group_memberships, original_groups);
+    assert_ne!(
+        app.database.entries[&key].group_memberships,
+        original_groups
+    );
     workflow_key(&mut app, KeyCode::Esc);
     workflow_command(&mut app, "w");
     assert!(!app.dirty);
     workflow_chars(&mut app, "uu");
     assert_eq!(app.database.entries[&key].entry_type, original_type);
-    assert_eq!(app.database.entries[&key].group_memberships, original_groups);
+    assert_eq!(
+        app.database.entries[&key].group_memberships,
+        original_groups
+    );
     workflow_command(&mut app, "w");
     let reload = App::new(app.bib_path.clone(), app.config.clone()).unwrap();
     assert_eq!(reload.database.entries[&key].entry_type, original_type);
-    assert_eq!(reload.database.entries[&key].group_memberships, original_groups);
+    assert_eq!(
+        reload.database.entries[&key].group_memberships,
+        original_groups
+    );
 }

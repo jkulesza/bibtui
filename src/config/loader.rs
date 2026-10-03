@@ -10,7 +10,11 @@ pub fn load_config(cli_config: Option<&str>) -> Result<Config> {
     load_config_from(cli_config, Path::new("."), dirs::config_dir().as_deref())
 }
 
-fn load_config_from(cli_config: Option<&str>, current_dir: &Path, config_dir: Option<&Path>) -> Result<Config> {
+fn load_config_from(
+    cli_config: Option<&str>,
+    current_dir: &Path,
+    config_dir: Option<&Path>,
+) -> Result<Config> {
     // An explicitly requested config file must exist — silently falling back
     // to the implicit search paths would hide typos in `--config`.
     if let Some(p) = cli_config {
@@ -94,7 +98,10 @@ mod tests {
     fn test_load_config_none_cli_falls_back_to_defaults() {
         let directory = tempfile::tempdir().unwrap();
         let cfg = load_config_from(None, directory.path(), None).unwrap();
-        assert_eq!(serde_yaml::to_string(&cfg).unwrap(), serde_yaml::to_string(&Config::default()).unwrap());
+        assert_eq!(
+            serde_yaml::to_string(&cfg).unwrap(),
+            serde_yaml::to_string(&Config::default()).unwrap()
+        );
     }
 
     #[test]
@@ -129,10 +136,23 @@ mod tests {
         writeln!(tmp, "citekey:\n  templates:\n    inbook: ''").unwrap();
         tmp.flush().unwrap();
         let cfg = load_config(Some(tmp.path().to_str().unwrap())).unwrap();
-        let template = cfg.citekey.templates.get("inbook").expect("inbook must exist");
-        assert!(!template.is_empty(), "empty inbook template should be replaced with default");
-        assert!(template.contains("[year]"), "default template should contain [year]");
-        assert!(template.contains("[auth]"), "default template should contain [auth]");
+        let template = cfg
+            .citekey
+            .templates
+            .get("inbook")
+            .expect("inbook must exist");
+        assert!(
+            !template.is_empty(),
+            "empty inbook template should be replaced with default"
+        );
+        assert!(
+            template.contains("[year]"),
+            "default template should contain [year]"
+        );
+        assert!(
+            template.contains("[auth]"),
+            "default template should contain [auth]"
+        );
     }
 
     #[test]
@@ -143,12 +163,31 @@ mod tests {
         writeln!(tmp).unwrap();
         tmp.flush().unwrap();
         let cfg = load_config(Some(tmp.path().to_str().unwrap())).unwrap();
-        for type_name in &["article", "book", "inbook", "inproceedings", "techreport",
-                           "phdthesis", "mastersthesis", "misc", "booklet", "incollection",
-                           "manual", "proceedings", "unpublished"] {
-            let t = cfg.citekey.templates.get(*type_name)
+        for type_name in &[
+            "article",
+            "book",
+            "inbook",
+            "inproceedings",
+            "techreport",
+            "phdthesis",
+            "mastersthesis",
+            "misc",
+            "booklet",
+            "incollection",
+            "manual",
+            "proceedings",
+            "unpublished",
+        ] {
+            let t = cfg
+                .citekey
+                .templates
+                .get(*type_name)
                 .unwrap_or_else(|| panic!("type '{}' missing from templates", type_name));
-            assert!(!t.is_empty(), "template for '{}' must not be empty", type_name);
+            assert!(
+                !t.is_empty(),
+                "template for '{}' must not be empty",
+                type_name
+            );
         }
     }
 
@@ -162,12 +201,37 @@ mod tests {
         let local = tempfile::tempdir().unwrap();
         let user = tempfile::tempdir().unwrap();
         std::fs::create_dir(user.path().join("bibtui")).unwrap();
-        std::fs::write(user.path().join("bibtui/config.yml"), "general:\n  editor: user").unwrap();
-        assert_eq!(load_config_from(None, local.path(), Some(user.path())).unwrap().general.editor, "user");
+        std::fs::write(
+            user.path().join("bibtui/config.yml"),
+            "general:\n  editor: user",
+        )
+        .unwrap();
+        assert_eq!(
+            load_config_from(None, local.path(), Some(user.path()))
+                .unwrap()
+                .general
+                .editor,
+            "user"
+        );
         std::fs::write(local.path().join("bibtui.yml"), "general:\n  editor: local").unwrap();
-        assert_eq!(load_config_from(None, local.path(), Some(user.path())).unwrap().general.editor, "local");
-        std::fs::write(local.path().join("explicit.yaml"), "general:\n  editor: explicit").unwrap();
-        assert_eq!(load_config_from(Some("explicit.yaml"), local.path(), Some(user.path())).unwrap().general.editor, "explicit");
+        assert_eq!(
+            load_config_from(None, local.path(), Some(user.path()))
+                .unwrap()
+                .general
+                .editor,
+            "local"
+        );
+        std::fs::write(
+            local.path().join("explicit.yaml"),
+            "general:\n  editor: explicit",
+        )
+        .unwrap();
+        assert_eq!(
+            load_config_from(Some("explicit.yaml"), local.path(), Some(user.path()))
+                .unwrap()
+                .general
+                .editor,
+            "explicit"
+        );
     }
-
 }

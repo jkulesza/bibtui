@@ -1,13 +1,13 @@
 pub mod citation_preview;
-pub mod help;
 pub mod command_palette;
 pub mod dialog;
 pub mod entry_detail;
 pub mod entry_list;
 pub mod field_editor;
 pub mod group_tree;
+pub mod help;
+pub mod name_disambig;
 pub mod search_bar;
 pub mod settings;
 pub mod status_bar;
-pub mod name_disambig;
 pub mod validate_results;

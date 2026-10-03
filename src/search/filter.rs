@@ -5,14 +5,12 @@ use regex::Regex;
 pub fn filter_by_group(entries: &[&Entry], group: &GroupNode) -> Vec<usize> {
     match &group.group.group_type {
         GroupType::AllEntries => (0..entries.len()).collect(),
-        GroupType::Static => {
-            entries
-                .iter()
-                .enumerate()
-                .filter(|(_, e)| e.group_memberships.contains(&group.group.name))
-                .map(|(i, _)| i)
-                .collect()
-        }
+        GroupType::Static => entries
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| e.group_memberships.contains(&group.group.name))
+            .map(|(i, _)| i)
+            .collect(),
         GroupType::Keyword {
             field,
             search_term,
@@ -76,7 +74,10 @@ mod tests {
 
     fn make_node(name: &str, group_type: GroupType) -> GroupNode {
         GroupNode {
-            group: Group { name: name.to_string(), group_type },
+            group: Group {
+                name: name.to_string(),
+                group_type,
+            },
             children: vec![],
             expanded: true,
             original_fields: None,
@@ -114,12 +115,15 @@ mod tests {
         let e1 = make_entry("A", &[], &[("keywords", "Reactor Physics")]);
         let e2 = make_entry("B", &[], &[("keywords", "chemistry")]);
         let entries = vec![&e1, &e2];
-        let node = make_node("reactor", GroupType::Keyword {
-            field: "keywords".to_string(),
-            search_term: "reactor".to_string(),
-            case_sensitive: false,
-            regex: false,
-        });
+        let node = make_node(
+            "reactor",
+            GroupType::Keyword {
+                field: "keywords".to_string(),
+                search_term: "reactor".to_string(),
+                case_sensitive: false,
+                regex: false,
+            },
+        );
         assert_eq!(filter_by_group(&entries, &node), vec![0]);
     }
 
@@ -127,12 +131,15 @@ mod tests {
     fn test_keyword_group_case_sensitive_no_match() {
         let e1 = make_entry("A", &[], &[("keywords", "Reactor Physics")]);
         let entries = vec![&e1];
-        let node = make_node("reactor", GroupType::Keyword {
-            field: "keywords".to_string(),
-            search_term: "reactor".to_string(),
-            case_sensitive: true,
-            regex: false,
-        });
+        let node = make_node(
+            "reactor",
+            GroupType::Keyword {
+                field: "keywords".to_string(),
+                search_term: "reactor".to_string(),
+                case_sensitive: true,
+                regex: false,
+            },
+        );
         assert_eq!(filter_by_group(&entries, &node), Vec::<usize>::new());
     }
 
@@ -140,12 +147,15 @@ mod tests {
     fn test_keyword_group_missing_field() {
         let e1 = make_entry("A", &[], &[]);
         let entries = vec![&e1];
-        let node = make_node("physics", GroupType::Keyword {
-            field: "keywords".to_string(),
-            search_term: "physics".to_string(),
-            case_sensitive: false,
-            regex: false,
-        });
+        let node = make_node(
+            "physics",
+            GroupType::Keyword {
+                field: "keywords".to_string(),
+                search_term: "physics".to_string(),
+                case_sensitive: false,
+                regex: false,
+            },
+        );
         assert_eq!(filter_by_group(&entries, &node), Vec::<usize>::new());
     }
 
@@ -153,12 +163,15 @@ mod tests {
     fn test_keyword_group_case_sensitive_match() {
         let e1 = make_entry("A", &[], &[("keywords", "Reactor Physics")]);
         let entries = vec![&e1];
-        let node = make_node("Reactor", GroupType::Keyword {
-            field: "keywords".to_string(),
-            search_term: "Reactor".to_string(),
-            case_sensitive: true,
-            regex: false,
-        });
+        let node = make_node(
+            "Reactor",
+            GroupType::Keyword {
+                field: "keywords".to_string(),
+                search_term: "Reactor".to_string(),
+                case_sensitive: true,
+                regex: false,
+            },
+        );
         assert_eq!(filter_by_group(&entries, &node), vec![0]);
     }
 
@@ -170,12 +183,15 @@ mod tests {
         let e1 = make_entry("A", &[], &[("author", "Smith, John and Doe, Jane")]);
         let e2 = make_entry("B", &[], &[("author", "Brown, Robert")]);
         let entries = vec![&e1, &e2];
-        let node = make_node("smith", GroupType::Keyword {
-            field: "author".to_string(),
-            search_term: "smith".to_string(),
-            case_sensitive: false,
-            regex: false,
-        });
+        let node = make_node(
+            "smith",
+            GroupType::Keyword {
+                field: "author".to_string(),
+                search_term: "smith".to_string(),
+                case_sensitive: false,
+                regex: false,
+            },
+        );
         assert_eq!(filter_by_group(&entries, &node), vec![0]);
     }
 
@@ -184,12 +200,15 @@ mod tests {
         // Entry has no author field; group field is "author" → no match.
         let e1 = make_entry("A", &[], &[("title", "Some Paper")]);
         let entries = vec![&e1];
-        let node = make_node("smith", GroupType::Keyword {
-            field: "author".to_string(),
-            search_term: "smith".to_string(),
-            case_sensitive: false,
-            regex: false,
-        });
+        let node = make_node(
+            "smith",
+            GroupType::Keyword {
+                field: "author".to_string(),
+                search_term: "smith".to_string(),
+                case_sensitive: false,
+                regex: false,
+            },
+        );
         assert_eq!(filter_by_group(&entries, &node), Vec::<usize>::new());
     }
 
@@ -214,12 +233,15 @@ mod tests {
         let e1 = make_entry("A", &[], &[("keywords", "Reactor Physics")]);
         let e2 = make_entry("B", &[], &[("keywords", "fusion energy")]);
         let entries = vec![&e1, &e2];
-        let node = make_node("reactor", GroupType::Keyword {
-            field: "keywords".to_string(),
-            search_term: "(?i)react".to_string(),
-            case_sensitive: true, // case_sensitive is overridden by (?i) in pattern
-            regex: true,
-        });
+        let node = make_node(
+            "reactor",
+            GroupType::Keyword {
+                field: "keywords".to_string(),
+                search_term: "(?i)react".to_string(),
+                case_sensitive: true, // case_sensitive is overridden by (?i) in pattern
+                regex: true,
+            },
+        );
         assert_eq!(filter_by_group(&entries, &node), vec![0]);
     }
 
@@ -229,12 +251,15 @@ mod tests {
         let e1 = make_entry("A", &[], &[("keywords", "FISSION")]);
         let e2 = make_entry("B", &[], &[("keywords", "fusion")]);
         let entries = vec![&e1, &e2];
-        let node = make_node("fission", GroupType::Keyword {
-            field: "keywords".to_string(),
-            search_term: "fission".to_string(),
-            case_sensitive: false,
-            regex: true,
-        });
+        let node = make_node(
+            "fission",
+            GroupType::Keyword {
+                field: "keywords".to_string(),
+                search_term: "fission".to_string(),
+                case_sensitive: false,
+                regex: true,
+            },
+        );
         assert_eq!(filter_by_group(&entries, &node), vec![0]);
     }
 
@@ -243,12 +268,15 @@ mod tests {
         // An invalid regex should not panic — the group simply matches nothing.
         let e1 = make_entry("A", &[], &[("keywords", "Nuclear")]);
         let entries = vec![&e1];
-        let node = make_node("bad", GroupType::Keyword {
-            field: "keywords".to_string(),
-            search_term: "[invalid(regex".to_string(),
-            case_sensitive: false,
-            regex: true,
-        });
+        let node = make_node(
+            "bad",
+            GroupType::Keyword {
+                field: "keywords".to_string(),
+                search_term: "[invalid(regex".to_string(),
+                case_sensitive: false,
+                regex: true,
+            },
+        );
         // Must not panic; result is empty because the regex failed to compile.
         let result = filter_by_group(&entries, &node);
         assert!(result.is_empty());
@@ -258,12 +286,15 @@ mod tests {
     fn test_keyword_group_regex_author_field() {
         let e1 = make_entry("A", &[], &[("author", "Smith, John and Doe, Jane")]);
         let entries = vec![&e1];
-        let node = make_node("smith", GroupType::Keyword {
-            field: "author".to_string(),
-            search_term: "Smith".to_string(),
-            case_sensitive: true,
-            regex: true,
-        });
+        let node = make_node(
+            "smith",
+            GroupType::Keyword {
+                field: "author".to_string(),
+                search_term: "Smith".to_string(),
+                case_sensitive: true,
+                regex: true,
+            },
+        );
         assert_eq!(filter_by_group(&entries, &node), vec![0]);
     }
 }

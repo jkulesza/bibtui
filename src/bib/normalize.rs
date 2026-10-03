@@ -57,7 +57,11 @@ pub fn normalize_page_numbers(value: &str) -> String {
         .collect();
     if seps.len() == 1 {
         let sep = seps[0];
-        let sep_len = trimmed[sep..].chars().next().map(char::len_utf8).unwrap_or(1);
+        let sep_len = trimmed[sep..]
+            .chars()
+            .next()
+            .map(char::len_utf8)
+            .unwrap_or(1);
         let left = &trimmed[..sep];
         let right = &trimmed[sep + sep_len..];
         if is_page_side(left) && is_page_side(right) {
@@ -286,9 +290,7 @@ pub fn trim_url_trailing_slash(url: &str) -> String {
     // If the only slash after "://" is the trailing one, we are at the root
     // and should leave it alone.
     let after_scheme = url.find("://").map(|p| p + 3).unwrap_or(0);
-    let path_start = url[after_scheme..]
-        .find('/')
-        .map(|p| after_scheme + p);
+    let path_start = url[after_scheme..].find('/').map(|p| after_scheme + p);
     match path_start {
         // URL has no path at all — nothing to trim.
         None => url.to_string(),
@@ -419,7 +421,10 @@ pub fn unicode_to_latex(s: &str) -> String {
 
 fn char_to_latex(c: char) -> Option<&'static str> {
     // Binary search would be faster but the table is small enough for linear scan.
-    UNICODE_TO_LATEX.iter().find(|(uc, _)| *uc == c).map(|(_, latex)| *latex)
+    UNICODE_TO_LATEX
+        .iter()
+        .find(|(uc, _)| *uc == c)
+        .map(|(_, latex)| *latex)
 }
 
 /// Unicode character → canonical BibTeX/LaTeX representation.
@@ -429,92 +434,147 @@ fn char_to_latex(c: char) -> Option<&'static str> {
 /// kept for consistency with the render_latex convention of longer-first).
 static UNICODE_TO_LATEX: &[(char, &str)] = &[
     // ── Dashes & non-breaking space ───────────────────────────────────────────
-    ('\u{2014}', "---"),   // em-dash  —
-    ('\u{2013}', "--"),    // en-dash  –
-    ('\u{00A0}', "~"),     // non-breaking space
+    ('\u{2014}', "---"), // em-dash  —
+    ('\u{2013}', "--"),  // en-dash  –
+    ('\u{00A0}', "~"),   // non-breaking space
     // ── Curly quotes ──────────────────────────────────────────────────────────
-    ('\u{201C}', "``"),    // left  double "
-    ('\u{201D}', "''"),    // right double "
-    ('\u{2018}', "`"),     // left  single '
-    ('\u{2019}', "'"),     // right single '
+    ('\u{201C}', "``"), // left  double "
+    ('\u{201D}', "''"), // right double "
+    ('\u{2018}', "`"),  // left  single '
+    ('\u{2019}', "'"),  // right single '
     // ── Ellipsis ──────────────────────────────────────────────────────────────
     ('\u{2026}', "\\ldots{}"), // …
     // ── Common symbols ────────────────────────────────────────────────────────
-    ('\u{00A9}', "\\textcopyright{}"),   // ©
-    ('\u{00AE}', "\\textregistered{}"),  // ®
-    ('\u{2122}', "\\texttrademark{}"),   // ™
-    ('\u{00B0}', "\\textdegree{}"),      // °
-    ('\u{00D7}', "\\times{}"),           // ×  (multiplication sign)
-    ('\u{00B1}', "\\pm{}"),              // ±
+    ('\u{00A9}', "\\textcopyright{}"),  // ©
+    ('\u{00AE}', "\\textregistered{}"), // ®
+    ('\u{2122}', "\\texttrademark{}"),  // ™
+    ('\u{00B0}', "\\textdegree{}"),     // °
+    ('\u{00D7}', "\\times{}"),          // ×  (multiplication sign)
+    ('\u{00B1}', "\\pm{}"),             // ±
     // ── Special letters ───────────────────────────────────────────────────────
     ('ß', "{\\ss}"),
-    ('æ', "{\\ae}"), ('Æ', "{\\AE}"),
-    ('œ', "{\\oe}"), ('Œ', "{\\OE}"),
-    ('å', "{\\aa}"), ('Å', "{\\AA}"),
-    ('ø', "{\\o}"),  ('Ø', "{\\O}"),
-    ('ł', "{\\l}"),  ('Ł', "{\\L}"),
+    ('æ', "{\\ae}"),
+    ('Æ', "{\\AE}"),
+    ('œ', "{\\oe}"),
+    ('Œ', "{\\OE}"),
+    ('å', "{\\aa}"),
+    ('Å', "{\\AA}"),
+    ('ø', "{\\o}"),
+    ('Ø', "{\\O}"),
+    ('ł', "{\\l}"),
+    ('Ł', "{\\L}"),
     // ── Acute accent ──────────────────────────────────────────────────────────
-    ('á', "{\\'a}"), ('Á', "{\\'A}"),
-    ('é', "{\\'e}"), ('É', "{\\'E}"),
-    ('í', "{\\'i}"), ('Í', "{\\'I}"),
-    ('ó', "{\\'o}"), ('Ó', "{\\'O}"),
-    ('ú', "{\\'u}"), ('Ú', "{\\'U}"),
-    ('ý', "{\\'y}"), ('Ý', "{\\'Y}"),
-    ('ć', "{\\'c}"), ('Ć', "{\\'C}"),
-    ('ń', "{\\'n}"), ('Ń', "{\\'N}"),
-    ('ś', "{\\'s}"), ('Ś', "{\\'S}"),
-    ('ź', "{\\'z}"), ('Ź', "{\\'Z}"),
+    ('á', "{\\'a}"),
+    ('Á', "{\\'A}"),
+    ('é', "{\\'e}"),
+    ('É', "{\\'E}"),
+    ('í', "{\\'i}"),
+    ('Í', "{\\'I}"),
+    ('ó', "{\\'o}"),
+    ('Ó', "{\\'O}"),
+    ('ú', "{\\'u}"),
+    ('Ú', "{\\'U}"),
+    ('ý', "{\\'y}"),
+    ('Ý', "{\\'Y}"),
+    ('ć', "{\\'c}"),
+    ('Ć', "{\\'C}"),
+    ('ń', "{\\'n}"),
+    ('Ń', "{\\'N}"),
+    ('ś', "{\\'s}"),
+    ('Ś', "{\\'S}"),
+    ('ź', "{\\'z}"),
+    ('Ź', "{\\'Z}"),
     // ── Grave accent ──────────────────────────────────────────────────────────
-    ('à', "{\\`a}"), ('À', "{\\`A}"),
-    ('è', "{\\`e}"), ('È', "{\\`E}"),
-    ('ì', "{\\`i}"), ('Ì', "{\\`I}"),
-    ('ò', "{\\`o}"), ('Ò', "{\\`O}"),
-    ('ù', "{\\`u}"), ('Ù', "{\\`U}"),
+    ('à', "{\\`a}"),
+    ('À', "{\\`A}"),
+    ('è', "{\\`e}"),
+    ('È', "{\\`E}"),
+    ('ì', "{\\`i}"),
+    ('Ì', "{\\`I}"),
+    ('ò', "{\\`o}"),
+    ('Ò', "{\\`O}"),
+    ('ù', "{\\`u}"),
+    ('Ù', "{\\`U}"),
     // ── Circumflex ────────────────────────────────────────────────────────────
-    ('â', "{\\^a}"), ('Â', "{\\^A}"),
-    ('ê', "{\\^e}"), ('Ê', "{\\^E}"),
-    ('î', "{\\^i}"), ('Î', "{\\^I}"),
-    ('ô', "{\\^o}"), ('Ô', "{\\^O}"),
-    ('û', "{\\^u}"), ('Û', "{\\^U}"),
+    ('â', "{\\^a}"),
+    ('Â', "{\\^A}"),
+    ('ê', "{\\^e}"),
+    ('Ê', "{\\^E}"),
+    ('î', "{\\^i}"),
+    ('Î', "{\\^I}"),
+    ('ô', "{\\^o}"),
+    ('Ô', "{\\^O}"),
+    ('û', "{\\^u}"),
+    ('Û', "{\\^U}"),
     // ── Diaeresis / Umlaut ────────────────────────────────────────────────────
-    ('ä', "{\\\"a}"), ('Ä', "{\\\"A}"),
-    ('ë', "{\\\"e}"), ('Ë', "{\\\"E}"),
-    ('ï', "{\\\"i}"), ('Ï', "{\\\"I}"),
-    ('ö', "{\\\"o}"), ('Ö', "{\\\"O}"),
-    ('ü', "{\\\"u}"), ('Ü', "{\\\"U}"),
-    ('ÿ', "{\\\"y}"), ('Ÿ', "{\\\"Y}"),
+    ('ä', "{\\\"a}"),
+    ('Ä', "{\\\"A}"),
+    ('ë', "{\\\"e}"),
+    ('Ë', "{\\\"E}"),
+    ('ï', "{\\\"i}"),
+    ('Ï', "{\\\"I}"),
+    ('ö', "{\\\"o}"),
+    ('Ö', "{\\\"O}"),
+    ('ü', "{\\\"u}"),
+    ('Ü', "{\\\"U}"),
+    ('ÿ', "{\\\"y}"),
+    ('Ÿ', "{\\\"Y}"),
     // ── Tilde ─────────────────────────────────────────────────────────────────
-    ('ã', "{\\~a}"), ('Ã', "{\\~A}"),
-    ('ñ', "{\\~n}"), ('Ñ', "{\\~N}"),
-    ('õ', "{\\~o}"), ('Õ', "{\\~O}"),
+    ('ã', "{\\~a}"),
+    ('Ã', "{\\~A}"),
+    ('ñ', "{\\~n}"),
+    ('Ñ', "{\\~N}"),
+    ('õ', "{\\~o}"),
+    ('Õ', "{\\~O}"),
     // ── Cedilla ───────────────────────────────────────────────────────────────
-    ('ç', "{\\c{c}}"), ('Ç', "{\\c{C}}"),
+    ('ç', "{\\c{c}}"),
+    ('Ç', "{\\c{C}}"),
     // ── Caron ─────────────────────────────────────────────────────────────────
-    ('č', "{\\v{c}}"), ('Č', "{\\v{C}}"),
-    ('š', "{\\v{s}}"), ('Š', "{\\v{S}}"),
-    ('ž', "{\\v{z}}"), ('Ž', "{\\v{Z}}"),
-    ('ř', "{\\v{r}}"), ('Ř', "{\\v{R}}"),
-    ('ň', "{\\v{n}}"), ('Ň', "{\\v{N}}"),
-    ('ě', "{\\v{e}}"), ('Ě', "{\\v{E}}"),
+    ('č', "{\\v{c}}"),
+    ('Č', "{\\v{C}}"),
+    ('š', "{\\v{s}}"),
+    ('Š', "{\\v{S}}"),
+    ('ž', "{\\v{z}}"),
+    ('Ž', "{\\v{Z}}"),
+    ('ř', "{\\v{r}}"),
+    ('Ř', "{\\v{R}}"),
+    ('ň', "{\\v{n}}"),
+    ('Ň', "{\\v{N}}"),
+    ('ě', "{\\v{e}}"),
+    ('Ě', "{\\v{E}}"),
     // ── Double acute (Hungarian) ──────────────────────────────────────────────
-    ('ő', "{\\H{o}}"), ('Ő', "{\\H{O}}"),
-    ('ű', "{\\H{u}}"), ('Ű', "{\\H{U}}"),
+    ('ő', "{\\H{o}}"),
+    ('Ő', "{\\H{O}}"),
+    ('ű', "{\\H{u}}"),
+    ('Ű', "{\\H{U}}"),
     // ── Ogonek ────────────────────────────────────────────────────────────────
-    ('ą', "{\\k{a}}"), ('Ą', "{\\k{A}}"),
-    ('ę', "{\\k{e}}"), ('Ę', "{\\k{E}}"),
+    ('ą', "{\\k{a}}"),
+    ('Ą', "{\\k{A}}"),
+    ('ę', "{\\k{e}}"),
+    ('Ę', "{\\k{E}}"),
     // ── Breve ─────────────────────────────────────────────────────────────────
-    ('ă', "{\\u{a}}"), ('Ă', "{\\u{A}}"),
-    ('ğ', "{\\u{g}}"), ('Ğ', "{\\u{G}}"),
+    ('ă', "{\\u{a}}"),
+    ('Ă', "{\\u{A}}"),
+    ('ğ', "{\\u{g}}"),
+    ('Ğ', "{\\u{G}}"),
     // ── Macron ────────────────────────────────────────────────────────────────
-    ('ā', "{\\=a}"), ('Ā', "{\\=A}"),
-    ('ē', "{\\=e}"), ('Ē', "{\\=E}"),
-    ('ī', "{\\=i}"), ('Ī', "{\\=I}"),
-    ('ō', "{\\=o}"), ('Ō', "{\\=O}"),
-    ('ū', "{\\=u}"), ('Ū', "{\\=U}"),
+    ('ā', "{\\=a}"),
+    ('Ā', "{\\=A}"),
+    ('ē', "{\\=e}"),
+    ('Ē', "{\\=E}"),
+    ('ī', "{\\=i}"),
+    ('Ī', "{\\=I}"),
+    ('ō', "{\\=o}"),
+    ('Ō', "{\\=O}"),
+    ('ū', "{\\=u}"),
+    ('Ū', "{\\=U}"),
     // ── Dot above ─────────────────────────────────────────────────────────────
-    ('ċ', "{\\.c}"), ('Ċ', "{\\.C}"),
-    ('ġ', "{\\.g}"), ('Ġ', "{\\.G}"),
-    ('ż', "{\\.z}"), ('Ż', "{\\.Z}"),
+    ('ċ', "{\\.c}"),
+    ('Ċ', "{\\.C}"),
+    ('ġ', "{\\.g}"),
+    ('Ġ', "{\\.G}"),
+    ('ż', "{\\.z}"),
+    ('Ż', "{\\.Z}"),
 ];
 
 /// Normalize an ISBN field value to a hyphenated canonical form using
@@ -542,18 +602,14 @@ pub fn normalize_isbn(value: &str) -> String {
     match s.len() {
         13 => {
             if let Ok(isbn) = s.parse::<isbn2::Isbn13>() {
-                isbn.hyphenate()
-                    .map(|h| h.to_string())
-                    .unwrap_or(s)
+                isbn.hyphenate().map(|h| h.to_string()).unwrap_or(s)
             } else {
                 value.to_string()
             }
         }
         10 => {
             if let Ok(isbn) = s.parse::<isbn2::Isbn10>() {
-                isbn.hyphenate()
-                    .map(|h| h.to_string())
-                    .unwrap_or(s)
+                isbn.hyphenate().map(|h| h.to_string()).unwrap_or(s)
             } else {
                 value.to_string()
             }
@@ -572,12 +628,18 @@ mod tests {
 
     #[test]
     fn test_trim_field_whitespace_trailing() {
-        assert_eq!(trim_field_whitespace("University of Texas "), "University of Texas");
+        assert_eq!(
+            trim_field_whitespace("University of Texas "),
+            "University of Texas"
+        );
     }
 
     #[test]
     fn test_trim_field_whitespace_leading() {
-        assert_eq!(trim_field_whitespace(" University of Texas"), "University of Texas");
+        assert_eq!(
+            trim_field_whitespace(" University of Texas"),
+            "University of Texas"
+        );
     }
 
     #[test]
@@ -798,7 +860,10 @@ mod tests {
 
     #[test]
     fn test_escape_underscores_no_underscore() {
-        assert_eq!(escape_underscores("no underscore here"), "no underscore here");
+        assert_eq!(
+            escape_underscores("no underscore here"),
+            "no underscore here"
+        );
     }
 
     // ── escape_ampersands ─────────────────────────────────────────────────────
@@ -838,7 +903,10 @@ mod tests {
     fn test_cleanup_url_percent_encoding_preserved() {
         // Percent-encoded sequences must be left intact (GitHub issue #14).
         assert_eq!(cleanup_url("foo%20bar"), "foo%20bar");
-        assert_eq!(cleanup_url("https://example.com/a%20b/"), "https://example.com/a%20b");
+        assert_eq!(
+            cleanup_url("https://example.com/a%20b/"),
+            "https://example.com/a%20b"
+        );
     }
 
     // ── trim_url_trailing_slash ───────────────────────────────────────────────
@@ -944,7 +1012,10 @@ mod tests {
     #[test]
     fn test_ordinals_number_not_ordinal() {
         // Plain number with no suffix → unchanged
-        assert_eq!(ordinals_to_superscript("2020 Conference"), "2020 Conference");
+        assert_eq!(
+            ordinals_to_superscript("2020 Conference"),
+            "2020 Conference"
+        );
     }
 
     // ── unicode_to_latex ──────────────────────────────────────────────────────
@@ -1151,7 +1222,10 @@ mod tests {
 
     #[test]
     fn test_latex_cleanup_combined() {
-        assert_eq!(latex_cleanup("a  b  50% and \\% done"), "a b 50\\% and \\% done");
+        assert_eq!(
+            latex_cleanup("a  b  50% and \\% done"),
+            "a b 50\\% and \\% done"
+        );
     }
 
     // ── ordinals uppercase suffix ─────────────────────────────────────────────

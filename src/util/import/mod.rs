@@ -1,8 +1,8 @@
 pub mod ans;
 pub mod crossref;
 pub mod fetcher;
-pub mod isbn;
 pub mod http;
+pub mod isbn;
 pub mod pdf;
 pub mod pipeline;
 pub mod tandfonline;
@@ -62,35 +62,72 @@ pub fn fetch(doi_or_url: &str) -> ImportResult {
 /// The filename is derived from the DOI (sanitized for the filesystem).
 /// Returns the path of the saved file on success.
 pub fn download_pdf(pdf_url: &str, dest_dir: &Path, doi: &str) -> Result<PathBuf, ImportError> {
-    download_pdf_with(pdf_url, dest_dir, doi, &http::HttpClient::new()?, 100 * 1024 * 1024)
+    download_pdf_with(
+        pdf_url,
+        dest_dir,
+        doi,
+        &http::HttpClient::new()?,
+        100 * 1024 * 1024,
+    )
 }
 
-pub fn download_pdf_with(pdf_url: &str, dest_dir: &Path, doi: &str, http: &dyn http::HttpTransport, max_bytes: u64) -> Result<PathBuf, ImportError> {
+pub fn download_pdf_with(
+    pdf_url: &str,
+    dest_dir: &Path,
+    doi: &str,
+    http: &dyn http::HttpTransport,
+    max_bytes: u64,
+) -> Result<PathBuf, ImportError> {
     let filename = doi_to_filename(doi);
     let dest = dest_dir.join(&filename);
 
     let response = http.get(pdf_url, http::REQUEST_TIMEOUT)?;
-    if max_bytes < 4 || response.content_length.is_some_and(|length| length > max_bytes) {
-        return Err(ImportError::Parse(format!("PDF exceeds {} byte limit", max_bytes)));
+    if max_bytes < 4
+        || response
+            .content_length
+            .is_some_and(|length| length > max_bytes)
+    {
+        return Err(ImportError::Parse(format!(
+            "PDF exceeds {} byte limit",
+            max_bytes
+        )));
     }
     let mut reader = response.body;
     let mut header = [0; 4];
-    reader.read_exact(&mut header).map_err(|error| ImportError::Network(error.to_string()))?;
+    reader
+        .read_exact(&mut header)
+        .map_err(|error| ImportError::Network(error.to_string()))?;
     if &header != b"%PDF" {
-        return Err(ImportError::Parse("Downloaded content is not a PDF (missing %PDF header)".into()));
+        return Err(ImportError::Parse(
+            "Downloaded content is not a PDF (missing %PDF header)".into(),
+        ));
     }
-    let mut temporary = tempfile::Builder::new().prefix(".bibtui-download-").tempfile_in(dest_dir)
+    let mut temporary = tempfile::Builder::new()
+        .prefix(".bibtui-download-")
+        .tempfile_in(dest_dir)
         .map_err(|error| ImportError::Parse(error.to_string()))?;
-    temporary.write_all(&header).map_err(|error| ImportError::Parse(error.to_string()))?;
+    temporary
+        .write_all(&header)
+        .map_err(|error| ImportError::Parse(error.to_string()))?;
     let copied = std::io::copy(&mut reader.take(max_bytes - 4 + 1), &mut temporary)
         .map_err(|error| ImportError::Network(error.to_string()))?;
     if copied + 4 > max_bytes {
-        return Err(ImportError::Parse(format!("PDF exceeds {} byte limit", max_bytes)));
+        return Err(ImportError::Parse(format!(
+            "PDF exceeds {} byte limit",
+            max_bytes
+        )));
     }
-    temporary.flush().and_then(|_| temporary.as_file().sync_all())
+    temporary
+        .flush()
+        .and_then(|_| temporary.as_file().sync_all())
         .map_err(|error| ImportError::Parse(error.to_string()))?;
-    temporary.persist_noclobber(&dest)
-        .map_err(|error| ImportError::Parse(format!("Cannot create {} without overwriting: {}", dest.display(), error.error)))?;
+    temporary.persist_noclobber(&dest).map_err(|error| {
+        ImportError::Parse(format!(
+            "Cannot create {} without overwriting: {}",
+            dest.display(),
+            error.error
+        ))
+    })?;
 
     Ok(dest)
 }
@@ -141,13 +178,19 @@ mod tests {
 
     #[test]
     fn test_doi_to_filename_hyphens_preserved() {
-        assert_eq!(doi_to_filename("10.13182/NSE20-1234"), "10.13182_NSE20-1234.pdf");
+        assert_eq!(
+            doi_to_filename("10.13182/NSE20-1234"),
+            "10.13182_NSE20-1234.pdf"
+        );
     }
 
     #[test]
     fn test_doi_to_filename_special_chars_replaced() {
         // Trailing special char is absorbed; no trailing underscore in output.
-        assert_eq!(doi_to_filename("10.1234/foo:bar(baz)"), "10.1234_foo_bar_baz.pdf");
+        assert_eq!(
+            doi_to_filename("10.1234/foo:bar(baz)"),
+            "10.1234_foo_bar_baz.pdf"
+        );
     }
 
     // ── sanitize_filename_stem ────────────────────────────────────────────────
@@ -271,8 +314,20 @@ mod tests {
     fn pdf_downloads_validate_limit_and_preserve_existing_files() {
         use http::tests::MockHttp;
         let dir = tempfile::tempdir().unwrap();
-        let download = |body, limit| download_pdf_with("https://example.invalid/pdf", dir.path(), "10.1234/test", &MockHttp::new(vec![body]), limit);
-        for (body, limit) in [(Ok("<html>not PDF"), 100), (Ok("%PDFtoo big"), 5), (Err("timeout"), 100)] {
+        let download = |body, limit| {
+            download_pdf_with(
+                "https://example.invalid/pdf",
+                dir.path(),
+                "10.1234/test",
+                &MockHttp::new(vec![body]),
+                limit,
+            )
+        };
+        for (body, limit) in [
+            (Ok("<html>not PDF"), 100),
+            (Ok("%PDFtoo big"), 5),
+            (Err("timeout"), 100),
+        ] {
             assert!(download(body, limit).is_err());
             assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
         }
@@ -292,21 +347,39 @@ mod tests {
                     self.0 = true;
                     buffer[..4].copy_from_slice(b"%PDF");
                     Ok(4)
-                } else { Err(std::io::Error::new(std::io::ErrorKind::ConnectionReset, "interrupted transfer")) }
+                } else {
+                    Err(std::io::Error::new(
+                        std::io::ErrorKind::ConnectionReset,
+                        "interrupted transfer",
+                    ))
+                }
             }
         }
         struct BrokenHttp;
         impl http::HttpTransport for BrokenHttp {
-            fn get(&self, _: &str, _: std::time::Duration) -> Result<http::HttpResponse, ImportError> {
-                Ok(http::HttpResponse { body: Box::new(BrokenBody(false)), content_length: Some(10) })
+            fn get(
+                &self,
+                _: &str,
+                _: std::time::Duration,
+            ) -> Result<http::HttpResponse, ImportError> {
+                Ok(http::HttpResponse {
+                    body: Box::new(BrokenBody(false)),
+                    content_length: Some(10),
+                })
             }
         }
         let dir = tempfile::tempdir().unwrap();
         let unrelated = dir.path().join("unrelated.tmp");
         std::fs::write(&unrelated, "keep").unwrap();
-        assert!(download_pdf_with("https://example.invalid", dir.path(), "test", &BrokenHttp, 100).is_err());
+        assert!(download_pdf_with(
+            "https://example.invalid",
+            dir.path(),
+            "test",
+            &BrokenHttp,
+            100
+        )
+        .is_err());
         assert_eq!(std::fs::read_to_string(unrelated).unwrap(), "keep");
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
     }
-
 }

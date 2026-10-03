@@ -42,10 +42,7 @@ fn render_entry_list_help(f: &mut Frame, area: Rect, theme: &Theme) {
         .borders(Borders::ALL)
         .border_style(theme.border)
         .title(" Help — Entry List ")
-        .title_bottom(Line::from(Span::styled(
-            " Any key: close ",
-            theme.label,
-        )));
+        .title_bottom(Line::from(Span::styled(" Any key: close ", theme.label)));
 
     let inner = block.inner(popup);
     f.render_widget(block, popup);
@@ -60,67 +57,68 @@ fn render_entry_list_help(f: &mut Frame, area: Rect, theme: &Theme) {
     let kw = theme.header;
     let dim = theme.label;
 
-    let left_sections: &[(&str, &[(&str, &str)])] = &[
-        (
-            "Entry List",
-            &[
-                ("j / k  ↑↓",      "navigate"),
-                ("g g / G",         "top / bottom"),
-                ("Ctrl-F / Ctrl-B", "page down / up"),
-                ("Enter",           "open detail"),
-                ("/",               "search"),
-                ("a",               "add entry"),
-                ("d d",             "delete entry"),
-                ("D",               "duplicate entry"),
-                ("y y",             "yank cite key"),
-                ("Space",           "citation preview"),
-                ("I",               "import entry from DOI, URL, or PDF file"),
-                ("u",               "undo"),
-                ("o / w",           "open file / web"),
-                ("B / L",           "toggle braces / LaTeX"),
-                ("Tab",             "toggle group sidebar"),
-                ("h / l",           "focus groups / list"),
-                ("S",               "settings"),
-                ("?",               "help"),
-                ("Esc",             "clear search filter / reset sort"),
-            ],
-        ),
-    ];
+    let left_sections: &[(&str, &[(&str, &str)])] = &[(
+        "Entry List",
+        &[
+            ("j / k  ↑↓", "navigate"),
+            ("g g / G", "top / bottom"),
+            ("Ctrl-F / Ctrl-B", "page down / up"),
+            ("Enter", "open detail"),
+            ("/", "search"),
+            ("a", "add entry"),
+            ("d d", "delete entry"),
+            ("D", "duplicate entry"),
+            ("y y", "yank cite key"),
+            ("Space", "citation preview"),
+            ("I", "import entry from DOI, URL, or PDF file"),
+            ("u", "undo"),
+            ("o / w", "open file / web"),
+            ("B / L", "toggle braces / LaTeX"),
+            ("Tab", "toggle group sidebar"),
+            ("h / l", "focus groups / list"),
+            ("S", "settings"),
+            ("?", "help"),
+            ("Esc", "clear search filter / reset sort"),
+        ],
+    )];
 
     let right_sections: &[(&str, &[(&str, &str)])] = &[
         (
             "Commands  ( : )",
             &[
-                (":w",              "save"),
-                (":q",              "quit"),
-                (":q!",             "force quit"),
-                (":sort <field>",   "sort by field; :sort none = file order"),
-                (":group <name>",   "filter to group"),
+                (":w", "save"),
+                (":q", "quit"),
+                (":q!", "force quit"),
+                (":sort <field>", "sort by field; :sort none = file order"),
+                (":group <name>", "filter to group"),
                 (":search <query>", "apply search"),
-                (":import <doi/isbn/url>","import from DOI, ISBN, or URL"),
+                (":import <doi/isbn/url>", "import from DOI, ISBN, or URL"),
             ],
         ),
         (
             "Quality",
             &[
-                ("C",   "regenerate all cite keys"),
-                ("M",   "name disambiguator"),
-                ("v",   "validate (preview save)"),
-                ("F",   "sync all filenames to cite keys"),
+                ("C", "regenerate all cite keys"),
+                ("M", "name disambiguator"),
+                ("v", "validate (preview save)"),
+                ("F", "sync all filenames to cite keys"),
             ],
         ),
         (
             "Citation Preview  ( Space )",
             &[
-                ("j / k",  "scroll"),
-                ("y y",    "copy to clipboard"),
-                ("Esc",    "close"),
+                ("j / k", "scroll"),
+                ("y y", "copy to clipboard"),
+                ("Esc", "close"),
             ],
         ),
     ];
 
     f.render_widget(build_column(left_sections, cols[0].width, kw, dim), cols[0]);
-    f.render_widget(build_column(right_sections, cols[1].width, kw, dim), cols[1]);
+    f.render_widget(
+        build_column(right_sections, cols[1].width, kw, dim),
+        cols[1],
+    );
 }
 
 fn render_detail_help(f: &mut Frame, area: Rect, theme: &Theme) {
@@ -134,10 +132,7 @@ fn render_detail_help(f: &mut Frame, area: Rect, theme: &Theme) {
         .borders(Borders::ALL)
         .border_style(theme.border)
         .title(" Help — Detail View ")
-        .title_bottom(Line::from(Span::styled(
-            " Any key: close ",
-            theme.label,
-        )));
+        .title_bottom(Line::from(Span::styled(" Any key: close ", theme.label)));
 
     let inner = block.inner(popup);
     f.render_widget(block, popup);
@@ -152,68 +147,69 @@ fn render_detail_help(f: &mut Frame, area: Rect, theme: &Theme) {
     let kw = theme.header;
     let dim = theme.label;
 
-    let left_sections: &[(&str, &[(&str, &str)])] = &[
-        (
-            "Detail View",
-            &[
-                ("j / k",           "navigate fields"),
-                ("g g / G",         "top / bottom"),
-                ("Ctrl-F / Ctrl-B", "page down / up"),
-                ("e / i / Enter",   "edit field / file path"),
-                ("A",               "add field"),
-                ("f",               "add file attachment"),
-                ("d",               "delete field / file"),
-                ("T",               "title-case field"),
-                ("a",               "normalize names"),
-                ("t",               "change entry type"),
-                ("c",               "regenerate cite key"),
-                ("F",               "sync filename to cite key"),
-                ("Tab",             "assign groups"),
-                ("o / w",           "open file / web (w fetches DOI if absent)"),
-                ("B / L",           "toggle braces / LaTeX"),
-                ("u",               "undo"),
-                ("?",               "help"),
-                ("Esc",             "back to list"),
-            ],
-        ),
-    ];
+    let left_sections: &[(&str, &[(&str, &str)])] = &[(
+        "Detail View",
+        &[
+            ("j / k", "navigate fields"),
+            ("g g / G", "top / bottom"),
+            ("Ctrl-F / Ctrl-B", "page down / up"),
+            ("e / i / Enter", "edit field / file path"),
+            ("A", "add field"),
+            ("f", "add file attachment"),
+            ("d", "delete field / file"),
+            ("T", "title-case field"),
+            ("a", "normalize names"),
+            ("t", "change entry type"),
+            ("c", "regenerate cite key"),
+            ("F", "sync filename to cite key"),
+            ("Tab", "assign groups"),
+            ("o / w", "open file / web (w fetches DOI if absent)"),
+            ("B / L", "toggle braces / LaTeX"),
+            ("u", "undo"),
+            ("?", "help"),
+            ("Esc", "back to list"),
+        ],
+    )];
 
     let right_sections: &[(&str, &[(&str, &str)])] = &[
         (
             "Field Editor",
             &[
-                ("i / a / A / I",   "enter Insert mode"),
-                ("R",               "enter Replace mode"),
-                ("r{c}",            "replace char at cursor"),
-                ("f{c} / F{c}",     "find char fwd / bwd (inclusive)"),
-                ("t{c} / T{c}",     "to char fwd / bwd (exclusive)"),
-                ("dw",              "delete word forward"),
-                ("dt{c} / df{c}",   "delete to / through char fwd"),
-                ("dT{c} / dF{c}",   "delete to / through char bwd"),
-                ("yy",              "yank whole field value"),
-                ("Tab / S-Tab",     "autocomplete fwd / bwd"),
-                ("Esc",             "exit editor"),
+                ("i / a / A / I", "enter Insert mode"),
+                ("R", "enter Replace mode"),
+                ("r{c}", "replace char at cursor"),
+                ("f{c} / F{c}", "find char fwd / bwd (inclusive)"),
+                ("t{c} / T{c}", "to char fwd / bwd (exclusive)"),
+                ("dw", "delete word forward"),
+                ("dt{c} / df{c}", "delete to / through char fwd"),
+                ("dT{c} / dF{c}", "delete to / through char bwd"),
+                ("yy", "yank whole field value"),
+                ("Tab / S-Tab", "autocomplete fwd / bwd"),
+                ("Esc", "exit editor"),
             ],
         ),
         (
             "Settings  ( S )",
             &[
-                ("j / k",           "navigate"),
-                ("g / G",           "top / bottom"),
-                ("Ctrl-F/B",        "page down / up"),
-                ("Enter / Space",   "toggle"),
-                ("e",               "edit value"),
-                ("a",               "add field group"),
-                ("x",               "delete field group"),
-                ("r",               "rename field group"),
-                ("E / I",           "export / import config"),
-                ("Esc",             "close"),
+                ("j / k", "navigate"),
+                ("g / G", "top / bottom"),
+                ("Ctrl-F/B", "page down / up"),
+                ("Enter / Space", "toggle"),
+                ("e", "edit value"),
+                ("a", "add field group"),
+                ("x", "delete field group"),
+                ("r", "rename field group"),
+                ("E / I", "export / import config"),
+                ("Esc", "close"),
             ],
         ),
     ];
 
     f.render_widget(build_column(left_sections, cols[0].width, kw, dim), cols[0]);
-    f.render_widget(build_column(right_sections, cols[1].width, kw, dim), cols[1]);
+    f.render_widget(
+        build_column(right_sections, cols[1].width, kw, dim),
+        cols[1],
+    );
 }
 
 fn build_column<'a>(
@@ -259,68 +255,99 @@ mod tests {
 
     #[test]
     fn test_help_state_entry_list_context() {
-        let state = HelpState { context: HelpContext::EntryList };
+        let state = HelpState {
+            context: HelpContext::EntryList,
+        };
         assert!(matches!(state.context, HelpContext::EntryList));
     }
 
     #[test]
     fn test_help_state_detail_context() {
-        let state = HelpState { context: HelpContext::Detail };
+        let state = HelpState {
+            context: HelpContext::Detail,
+        };
         assert!(matches!(state.context, HelpContext::Detail));
     }
 
     #[test]
     fn test_render_entry_list_help_does_not_panic() {
         let mut term = make_terminal(120, 40);
-        let state = HelpState { context: HelpContext::EntryList };
+        let state = HelpState {
+            context: HelpContext::EntryList,
+        };
         let theme = default_theme();
-        term.draw(|f| render_help(f, f.area(), &state, &theme)).unwrap();
+        term.draw(|f| render_help(f, f.area(), &state, &theme))
+            .unwrap();
     }
 
     #[test]
     fn test_render_detail_help_does_not_panic() {
         let mut term = make_terminal(120, 40);
-        let state = HelpState { context: HelpContext::Detail };
+        let state = HelpState {
+            context: HelpContext::Detail,
+        };
         let theme = default_theme();
-        term.draw(|f| render_help(f, f.area(), &state, &theme)).unwrap();
+        term.draw(|f| render_help(f, f.area(), &state, &theme))
+            .unwrap();
     }
 
     #[test]
     fn test_entry_list_help_contains_expected_keys() {
         let mut term = make_terminal(120, 40);
-        let state = HelpState { context: HelpContext::EntryList };
+        let state = HelpState {
+            context: HelpContext::EntryList,
+        };
         let theme = default_theme();
-        term.draw(|f| render_help(f, f.area(), &state, &theme)).unwrap();
+        term.draw(|f| render_help(f, f.area(), &state, &theme))
+            .unwrap();
         let buf = term.backend().buffer().clone();
         let rendered: String = buf.content().iter().map(|c| c.symbol()).collect();
-        assert!(rendered.contains("Entry List"),    "missing 'Entry List' section");
-        assert!(rendered.contains("Quality"),       "missing 'Quality' section");
-        assert!(rendered.contains("Commands"),      "missing 'Commands' section");
-        assert!(rendered.contains("Citation Preview"), "missing 'Citation Preview' section");
+        assert!(
+            rendered.contains("Entry List"),
+            "missing 'Entry List' section"
+        );
+        assert!(rendered.contains("Quality"), "missing 'Quality' section");
+        assert!(rendered.contains("Commands"), "missing 'Commands' section");
+        assert!(
+            rendered.contains("Citation Preview"),
+            "missing 'Citation Preview' section"
+        );
         // Spot-check a few key bindings
-        assert!(rendered.contains(":w"),            "missing :w command");
-        assert!(rendered.contains("j / k"),         "missing j/k navigation");
+        assert!(rendered.contains(":w"), "missing :w command");
+        assert!(rendered.contains("j / k"), "missing j/k navigation");
     }
 
     #[test]
     fn test_detail_help_contains_expected_keys() {
         let mut term = make_terminal(120, 40);
-        let state = HelpState { context: HelpContext::Detail };
+        let state = HelpState {
+            context: HelpContext::Detail,
+        };
         let theme = default_theme();
-        term.draw(|f| render_help(f, f.area(), &state, &theme)).unwrap();
+        term.draw(|f| render_help(f, f.area(), &state, &theme))
+            .unwrap();
         let buf = term.backend().buffer().clone();
         let rendered: String = buf.content().iter().map(|c| c.symbol()).collect();
-        assert!(rendered.contains("Detail View"),   "missing 'Detail View' section");
-        assert!(rendered.contains("Field Editor"),  "missing 'Field Editor' section");
-        assert!(rendered.contains("Settings"),      "missing 'Settings' section");
+        assert!(
+            rendered.contains("Detail View"),
+            "missing 'Detail View' section"
+        );
+        assert!(
+            rendered.contains("Field Editor"),
+            "missing 'Field Editor' section"
+        );
+        assert!(rendered.contains("Settings"), "missing 'Settings' section");
     }
 
     #[test]
     fn test_entry_list_help_quality_section_has_correct_keys() {
         let mut term = make_terminal(120, 40);
-        let state = HelpState { context: HelpContext::EntryList };
+        let state = HelpState {
+            context: HelpContext::EntryList,
+        };
         let theme = default_theme();
-        term.draw(|f| render_help(f, f.area(), &state, &theme)).unwrap();
+        term.draw(|f| render_help(f, f.area(), &state, &theme))
+            .unwrap();
         let buf = term.backend().buffer().clone();
         let rendered: String = buf.content().iter().map(|c| c.symbol()).collect();
         // Quality section keys
@@ -334,9 +361,12 @@ mod tests {
     fn test_render_help_tiny_terminal_does_not_panic() {
         // Ensure graceful handling of very small terminal sizes.
         let mut term = make_terminal(10, 5);
-        let state = HelpState { context: HelpContext::EntryList };
+        let state = HelpState {
+            context: HelpContext::EntryList,
+        };
         let theme = default_theme();
-        term.draw(|f| render_help(f, f.area(), &state, &theme)).unwrap();
+        term.draw(|f| render_help(f, f.area(), &state, &theme))
+            .unwrap();
     }
 
     #[test]
@@ -358,9 +388,10 @@ mod tests {
     fn test_build_column_truncates_long_desc() {
         let theme = default_theme();
         // col_width=10, key_col=18 → max_desc = 10.saturating_sub(21) = 0, all descs truncated.
-        let sections: &[(&str, &[(&str, &str)])] = &[
-            ("Sec", &[("k", "a very long description that should be truncated")]),
-        ];
+        let sections: &[(&str, &[(&str, &str)])] = &[(
+            "Sec",
+            &[("k", "a very long description that should be truncated")],
+        )];
         let _ = build_column(sections, 10, theme.header, theme.label);
     }
 }

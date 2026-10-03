@@ -7,6 +7,6 @@ pub mod journal;
 pub mod latex;
 pub mod open;
 pub mod path;
+pub(crate) mod persistence;
 pub mod titlecase;
 pub mod unicode;
-pub(crate) mod persistence;

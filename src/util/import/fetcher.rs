@@ -1,5 +1,5 @@
-use super::{ImportedEntry, ImportError};
 use super::http::{HttpClient, HttpTransport};
+use super::{ImportError, ImportedEntry};
 
 /// A source that can fetch BibTeX metadata from a URL or DOI.
 pub trait Fetcher: Send + Sync {
@@ -11,5 +11,9 @@ pub trait Fetcher: Send + Sync {
         self.fetch_with(doi_or_url, &HttpClient::new()?)
     }
 
-    fn fetch_with(&self, doi_or_url: &str, http: &dyn HttpTransport) -> Result<ImportedEntry, ImportError>;
+    fn fetch_with(
+        &self,
+        doi_or_url: &str,
+        http: &dyn HttpTransport,
+    ) -> Result<ImportedEntry, ImportError>;
 }

@@ -2,7 +2,7 @@ use indexmap::IndexMap;
 
 use super::fetcher::Fetcher;
 use super::http::HttpTransport;
-use super::{ImportedEntry, ImportError};
+use super::{ImportError, ImportedEntry};
 
 /// Fetches BibTeX metadata for books from the OpenLibrary Books API using an ISBN.
 ///
@@ -28,7 +28,10 @@ impl IsbnFetcher {
                 // ISBN-10: first 9 chars must be digits; last char digit or 'X'.
                 let (body, check) = s.split_at(9);
                 if body.chars().all(|c| c.is_ascii_digit())
-                    && matches!(check, "X" | "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9")
+                    && matches!(
+                        check,
+                        "X" | "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
+                    )
                 {
                     Some(s)
                 } else {
@@ -55,9 +58,12 @@ impl Fetcher for IsbnFetcher {
         Self::normalize(input).is_some()
     }
 
-    fn fetch_with(&self, input: &str, http: &dyn HttpTransport) -> Result<ImportedEntry, ImportError> {
-        let isbn = Self::normalize(input)
-            .ok_or_else(|| ImportError::NoMatch(input.to_string()))?;
+    fn fetch_with(
+        &self,
+        input: &str,
+        http: &dyn HttpTransport,
+    ) -> Result<ImportedEntry, ImportError> {
+        let isbn = Self::normalize(input).ok_or_else(|| ImportError::NoMatch(input.to_string()))?;
 
         let url = format!(
             "https://openlibrary.org/api/books?bibkeys=ISBN:{}&format=json&jscmd=data",
@@ -67,15 +73,18 @@ impl Fetcher for IsbnFetcher {
         let json = http.get(&url, super::http::REQUEST_TIMEOUT)?.json()?;
 
         let key = format!("ISBN:{}", isbn);
-        let book = json
-            .get(&key)
-            .ok_or_else(|| ImportError::Parse(format!("No OpenLibrary record found for ISBN {}", isbn)))?;
+        let book = json.get(&key).ok_or_else(|| {
+            ImportError::Parse(format!("No OpenLibrary record found for ISBN {}", isbn))
+        })?;
 
         parse_openlibrary_book(book, &isbn)
     }
 }
 
-fn parse_openlibrary_book(book: &serde_json::Value, isbn: &str) -> Result<ImportedEntry, ImportError> {
+fn parse_openlibrary_book(
+    book: &serde_json::Value,
+    isbn: &str,
+) -> Result<ImportedEntry, ImportError> {
     let mut fields: IndexMap<String, String> = IndexMap::new();
 
     // Title
@@ -194,10 +203,7 @@ fn extract_year(book: &serde_json::Value) -> Option<String> {
     let bytes = date.as_bytes();
     for i in 0..bytes.len().saturating_sub(3) {
         if bytes[i..i + 4].iter().all(|b| b.is_ascii_digit()) {
-            let year: u32 = std::str::from_utf8(&bytes[i..i + 4])
-                .ok()?
-                .parse()
-                .ok()?;
+            let year: u32 = std::str::from_utf8(&bytes[i..i + 4]).ok()?.parse().ok()?;
             if (1000..=2999).contains(&year) {
                 return Some(year.to_string());
             }
@@ -409,7 +415,10 @@ mod tests {
                 {"name": "Amos Tversky"}
             ]
         });
-        assert_eq!(build_author_string(&book), "Kahneman, Daniel and Tversky, Amos");
+        assert_eq!(
+            build_author_string(&book),
+            "Kahneman, Daniel and Tversky, Amos"
+        );
     }
 
     #[test]
@@ -458,7 +467,10 @@ mod tests {
         assert_eq!(entry.fields["pages"], "499");
         assert_eq!(entry.fields["isbn"], "9780374528379");
         assert_eq!(entry.fields["lccn"], "2011010169");
-        assert_eq!(entry.fields["url"], "https://openlibrary.org/books/OL24916873M");
+        assert_eq!(
+            entry.fields["url"],
+            "https://openlibrary.org/books/OL24916873M"
+        );
     }
 
     #[test]

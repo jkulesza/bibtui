@@ -17,7 +17,10 @@ pub enum SettingValue {
     Bool(bool),
     Str(String),
     /// Cycles through a fixed list of string options.
-    Choice { options: &'static [&'static str], index: usize },
+    Choice {
+        options: &'static [&'static str],
+        index: usize,
+    },
 }
 
 impl SettingValue {
@@ -84,13 +87,13 @@ pub struct SettingsState {
 /// Encode a `ColumnWidth` + optional max into an editable string.
 pub fn format_width_spec(width: &ColumnWidth, max_width: Option<u16>) -> String {
     let base = match width {
-        ColumnWidth::Fixed(n)   => format!("fixed:{}", n),
+        ColumnWidth::Fixed(n) => format!("fixed:{}", n),
         ColumnWidth::Percent(n) => format!("percent:{}", n),
-        ColumnWidth::Flex       => "flex".to_string(),
+        ColumnWidth::Flex => "flex".to_string(),
     };
     match max_width {
         Some(m) => format!("{} max:{}", base, m),
-        None    => base,
+        None => base,
     }
 }
 
@@ -100,7 +103,8 @@ pub fn format_width_spec(width: &ColumnWidth, max_width: Option<u16>) -> String 
 /// optionally followed by `" max:N"`.
 pub fn parse_width_spec(s: &str) -> (ColumnWidth, Option<u16>) {
     let s = s.trim();
-    let (main, max_part) = s.find(" max:")
+    let (main, max_part) = s
+        .find(" max:")
         .map(|pos| (&s[..pos], Some(&s[pos + 5..])))
         .unwrap_or((s, None));
     let max_w: Option<u16> = max_part.and_then(|p| p.trim().parse().ok());
@@ -455,9 +459,17 @@ impl SettingsState {
             let entry_type = EntryType::parse(type_name);
             let display_name = entry_type.display_name();
             let fallback = format!("{}_[year]_[auth]", display_name);
-            let current = config.citekey.templates.get(*type_name).cloned()
+            let current = config
+                .citekey
+                .templates
+                .get(*type_name)
+                .cloned()
                 .unwrap_or_else(|| fallback.clone());
-            let default_val = defaults.citekey.templates.get(*type_name).cloned()
+            let default_val = defaults
+                .citekey
+                .templates
+                .get(*type_name)
+                .cloned()
                 .unwrap_or_else(|| fallback.clone());
             items.push(SettingItem {
                 id: format!("citekey.template.{}", type_name),
@@ -524,9 +536,9 @@ impl SettingsState {
             SettingRow::Item(13), // default_sort.field
             SettingRow::Item(14), // default_sort.ascending
             SettingRow::Section("Save"),
-            SettingRow::Item(7),  // align_fields
-            SettingRow::Item(8),  // field_order
-            SettingRow::Item(9),  // sync_filenames
+            SettingRow::Item(7), // align_fields
+            SettingRow::Item(8), // field_order
+            SettingRow::Item(9), // sync_filenames
             SettingRow::Section("Save Actions"),
             SettingRow::Item(37), // trim_whitespace
             SettingRow::Item(23), // escape_underscores
@@ -562,8 +574,17 @@ impl SettingsState {
 
         // ── Columns (one row per display column) ──
         rows.push(SettingRow::Section("Columns"));
-        let columns: Vec<(String, String, String)> = config.display.columns.iter()
-            .map(|c| (c.field.clone(), c.header.clone(), format_width_spec(&c.width, c.max_width)))
+        let columns: Vec<(String, String, String)> = config
+            .display
+            .columns
+            .iter()
+            .map(|c| {
+                (
+                    c.field.clone(),
+                    c.header.clone(),
+                    format_width_spec(&c.width, c.max_width),
+                )
+            })
             .collect();
         for i in 0..columns.len() {
             rows.push(SettingRow::Column(i));
@@ -571,7 +592,9 @@ impl SettingsState {
 
         // ── Field Groups (one row per group) ──
         rows.push(SettingRow::Section("Field Groups"));
-        let field_groups: Vec<(String, String)> = config.field_groups.iter()
+        let field_groups: Vec<(String, String)> = config
+            .field_groups
+            .iter()
             .map(|fg| (fg.name.clone(), fg.fields.join(", ")))
             .collect();
         for i in 0..field_groups.len() {
@@ -580,16 +603,30 @@ impl SettingsState {
 
         let cursor = rows
             .iter()
-            .position(|r| matches!(r, SettingRow::Item(_) | SettingRow::FieldGroup(_) | SettingRow::Column(_)))
+            .position(|r| {
+                matches!(
+                    r,
+                    SettingRow::Item(_) | SettingRow::FieldGroup(_) | SettingRow::Column(_)
+                )
+            })
             .unwrap_or(0);
 
-        SettingsState { items, rows, cursor, scroll_offset: 0, field_groups, columns }
+        SettingsState {
+            items,
+            rows,
+            cursor,
+            scroll_offset: 0,
+            field_groups,
+            columns,
+        }
     }
 
     fn is_selectable_row(&self, idx: usize) -> bool {
         matches!(
             self.rows.get(idx),
-            Some(SettingRow::Item(_)) | Some(SettingRow::FieldGroup(_)) | Some(SettingRow::Column(_))
+            Some(SettingRow::Item(_))
+                | Some(SettingRow::FieldGroup(_))
+                | Some(SettingRow::Column(_))
         )
     }
 
@@ -685,10 +722,15 @@ impl SettingsState {
         let idx = self.field_groups.len();
         self.field_groups.push((name, String::new()));
         // Insert after the last existing FieldGroup row (or after the "Field Groups" section header).
-        let insert_at = self.rows.iter().rposition(|r| matches!(r, SettingRow::FieldGroup(_)))
+        let insert_at = self
+            .rows
+            .iter()
+            .rposition(|r| matches!(r, SettingRow::FieldGroup(_)))
             .map(|i| i + 1)
             .unwrap_or_else(|| {
-                self.rows.iter().rposition(|r| matches!(r, SettingRow::Section("Field Groups")))
+                self.rows
+                    .iter()
+                    .rposition(|r| matches!(r, SettingRow::Section("Field Groups")))
                     .map(|i| i + 1)
                     .unwrap_or(self.rows.len())
             });
@@ -756,7 +798,9 @@ impl SettingsState {
     pub fn current_section(&self) -> Option<&'static str> {
         let mut last: Option<&'static str> = None;
         for (i, row) in self.rows.iter().enumerate() {
-            if i > self.cursor { break; }
+            if i > self.cursor {
+                break;
+            }
             if let SettingRow::Section(name) = row {
                 last = Some(name);
             }
@@ -768,10 +812,15 @@ impl SettingsState {
     pub fn add_column(&mut self, field: String, header: String, width_spec: String) {
         let idx = self.columns.len();
         self.columns.push((field, header, width_spec));
-        let insert_at = self.rows.iter().rposition(|r| matches!(r, SettingRow::Column(_)))
+        let insert_at = self
+            .rows
+            .iter()
+            .rposition(|r| matches!(r, SettingRow::Column(_)))
             .map(|i| i + 1)
             .unwrap_or_else(|| {
-                self.rows.iter().rposition(|r| matches!(r, SettingRow::Section("Columns")))
+                self.rows
+                    .iter()
+                    .rposition(|r| matches!(r, SettingRow::Section("Columns")))
                     .map(|i| i + 1)
                     .unwrap_or(self.rows.len())
             });
@@ -789,7 +838,9 @@ impl SettingsState {
         self.rows.remove(self.cursor);
         for row in &mut self.rows {
             if let SettingRow::Column(i) = row {
-                if *i > idx { *i -= 1; }
+                if *i > idx {
+                    *i -= 1;
+                }
             }
         }
         if self.cursor >= self.rows.len() {
@@ -828,10 +879,11 @@ impl SettingsState {
         self.selected_item().map(|i| i.id.as_str())
     }
 
-
     /// Current display string of the selected value (seed for the field editor).
     pub fn selected_value_str(&self) -> String {
-        self.selected_item().map(|i| i.value.display()).unwrap_or_default()
+        self.selected_item()
+            .map(|i| i.value.display())
+            .unwrap_or_default()
     }
 
     /// Update a setting by ID and return whether it was found.
@@ -852,7 +904,9 @@ impl SettingsState {
         for item in &self.items {
             match item.id.as_str() {
                 "general.backup_on_save" => {
-                    if let SettingValue::Bool(v) = item.value { config.general.backup_on_save = v; }
+                    if let SettingValue::Bool(v) = item.value {
+                        config.general.backup_on_save = v;
+                    }
                 }
                 "general.yank_format" => {
                     if let SettingValue::Choice { options, index } = &item.value {
@@ -860,22 +914,34 @@ impl SettingsState {
                     }
                 }
                 "general.editor" => {
-                    if let SettingValue::Str(v) = &item.value { config.general.editor = v.clone(); }
+                    if let SettingValue::Str(v) = &item.value {
+                        config.general.editor = v.clone();
+                    }
                 }
                 "display.show_groups" => {
-                    if let SettingValue::Bool(v) = item.value { config.display.show_groups = v; }
+                    if let SettingValue::Bool(v) = item.value {
+                        config.display.show_groups = v;
+                    }
                 }
                 "display.render_latex" => {
-                    if let SettingValue::Bool(v) = item.value { config.display.render_latex = v; }
+                    if let SettingValue::Bool(v) = item.value {
+                        config.display.render_latex = v;
+                    }
                 }
                 "display.show_braces" => {
-                    if let SettingValue::Bool(v) = item.value { config.display.show_braces = v; }
+                    if let SettingValue::Bool(v) = item.value {
+                        config.display.show_braces = v;
+                    }
                 }
                 "display.abbreviate_authors" => {
-                    if let SettingValue::Bool(v) = item.value { config.display.abbreviate_authors = v; }
+                    if let SettingValue::Bool(v) = item.value {
+                        config.display.abbreviate_authors = v;
+                    }
                 }
                 "save.align_fields" => {
-                    if let SettingValue::Bool(v) = item.value { config.save.align_fields = v; }
+                    if let SettingValue::Bool(v) = item.value {
+                        config.save.align_fields = v;
+                    }
                 }
                 "save.field_order" => {
                     if let SettingValue::Choice { options, index } = &item.value {
@@ -883,7 +949,9 @@ impl SettingsState {
                     }
                 }
                 "save.sync_filenames" => {
-                    if let SettingValue::Bool(v) = item.value { config.save.sync_filenames = v; }
+                    if let SettingValue::Bool(v) = item.value {
+                        config.save.sync_filenames = v;
+                    }
                 }
                 "citation.style" => {
                     if let SettingValue::Choice { options, index } = &item.value {
@@ -892,7 +960,11 @@ impl SettingsState {
                 }
                 "general.bib_file" => {
                     if let SettingValue::Str(v) = &item.value {
-                        config.general.bib_file = if v.trim().is_empty() { None } else { Some(v.trim().to_string()) };
+                        config.general.bib_file = if v.trim().is_empty() {
+                            None
+                        } else {
+                            Some(v.trim().to_string())
+                        };
                     }
                 }
                 "display.group_sidebar_width" => {
@@ -908,7 +980,9 @@ impl SettingsState {
                     }
                 }
                 "display.default_sort.ascending" => {
-                    if let SettingValue::Bool(v) = item.value { config.display.default_sort.ascending = v; }
+                    if let SettingValue::Bool(v) = item.value {
+                        config.display.default_sort.ascending = v;
+                    }
                 }
                 "titlecase.ignore_words" => {
                     if let SettingValue::Str(v) = &item.value {
@@ -931,62 +1005,117 @@ impl SettingsState {
                     }
                 }
                 "save_actions.escape_underscores" => {
-                    if let SettingValue::Bool(v) = item.value { config.save.save_action_escape_underscores = v; }
+                    if let SettingValue::Bool(v) = item.value {
+                        config.save.save_action_escape_underscores = v;
+                    }
                 }
                 "save_actions.trim_whitespace" => {
-                    if let SettingValue::Bool(v) = item.value { config.save.save_action_trim_whitespace = v; }
+                    if let SettingValue::Bool(v) = item.value {
+                        config.save.save_action_trim_whitespace = v;
+                    }
                 }
                 "save_actions.escape_ampersands" => {
-                    if let SettingValue::Bool(v) = item.value { config.save.save_action_escape_ampersands = v; }
+                    if let SettingValue::Bool(v) = item.value {
+                        config.save.save_action_escape_ampersands = v;
+                    }
                 }
                 "save_actions.cleanup_url" => {
-                    if let SettingValue::Bool(v) = item.value { config.save.save_action_cleanup_url = v; }
+                    if let SettingValue::Bool(v) = item.value {
+                        config.save.save_action_cleanup_url = v;
+                    }
                 }
                 "save_actions.latex_cleanup" => {
-                    if let SettingValue::Bool(v) = item.value { config.save.save_action_latex_cleanup = v; }
+                    if let SettingValue::Bool(v) = item.value {
+                        config.save.save_action_latex_cleanup = v;
+                    }
                 }
                 "save_actions.normalize_date" => {
-                    if let SettingValue::Bool(v) = item.value { config.save.save_action_normalize_date = v; }
+                    if let SettingValue::Bool(v) = item.value {
+                        config.save.save_action_normalize_date = v;
+                    }
                 }
                 "save_actions.normalize_month" => {
-                    if let SettingValue::Bool(v) = item.value { config.save.save_action_normalize_month = v; }
+                    if let SettingValue::Bool(v) = item.value {
+                        config.save.save_action_normalize_month = v;
+                    }
                 }
                 "save_actions.normalize_names_of_persons" => {
-                    if let SettingValue::Bool(v) = item.value { config.save.save_action_normalize_names_of_persons = v; }
+                    if let SettingValue::Bool(v) = item.value {
+                        config.save.save_action_normalize_names_of_persons = v;
+                    }
                 }
                 "save_actions.normalize_page_numbers" => {
-                    if let SettingValue::Bool(v) = item.value { config.save.save_action_normalize_page_numbers = v; }
+                    if let SettingValue::Bool(v) = item.value {
+                        config.save.save_action_normalize_page_numbers = v;
+                    }
                 }
                 "save_actions.normalize_isbn" => {
-                    if let SettingValue::Bool(v) = item.value { config.save.save_action_normalize_isbn = v; }
+                    if let SettingValue::Bool(v) = item.value {
+                        config.save.save_action_normalize_isbn = v;
+                    }
                 }
                 "save_actions.ordinals_to_superscript" => {
-                    if let SettingValue::Bool(v) = item.value { config.save.save_action_ordinals_to_superscript = v; }
+                    if let SettingValue::Bool(v) = item.value {
+                        config.save.save_action_ordinals_to_superscript = v;
+                    }
                 }
                 "save_actions.unicode_to_latex" => {
-                    if let SettingValue::Bool(v) = item.value { config.save.save_action_unicode_to_latex = v; }
+                    if let SettingValue::Bool(v) = item.value {
+                        config.save.save_action_unicode_to_latex = v;
+                    }
                 }
                 "save_actions.abbreviate_journal" => {
-                    if let SettingValue::Bool(v) = item.value { config.save.save_action_abbreviate_journal = v; }
+                    if let SettingValue::Bool(v) = item.value {
+                        config.save.save_action_abbreviate_journal = v;
+                    }
                 }
                 "save_actions.regenerate_citekeys" => {
-                    if let SettingValue::Bool(v) = item.value { config.save.save_action_regenerate_citekeys = v; }
+                    if let SettingValue::Bool(v) = item.value {
+                        config.save.save_action_regenerate_citekeys = v;
+                    }
                 }
                 "save_actions.journal_field_content" => {
                     if let SettingValue::Choice { options, index } = &item.value {
                         config.save.journal_field_content = options[*index].to_string();
                     }
                 }
-                "theme.selected_bg"  => { if let SettingValue::Str(v) = &item.value { config.theme.selected_bg  = v.clone(); } }
-                "theme.selected_fg"  => { if let SettingValue::Str(v) = &item.value { config.theme.selected_fg  = v.clone(); } }
-                "theme.header_bg"    => { if let SettingValue::Str(v) = &item.value { config.theme.header_bg    = v.clone(); } }
-                "theme.header_fg"    => { if let SettingValue::Str(v) = &item.value { config.theme.header_fg    = v.clone(); } }
-                "theme.search_match" => { if let SettingValue::Str(v) = &item.value { config.theme.search_match = v.clone(); } }
-                "theme.border_color" => { if let SettingValue::Str(v) = &item.value { config.theme.border_color = v.clone(); } }
+                "theme.selected_bg" => {
+                    if let SettingValue::Str(v) = &item.value {
+                        config.theme.selected_bg = v.clone();
+                    }
+                }
+                "theme.selected_fg" => {
+                    if let SettingValue::Str(v) = &item.value {
+                        config.theme.selected_fg = v.clone();
+                    }
+                }
+                "theme.header_bg" => {
+                    if let SettingValue::Str(v) = &item.value {
+                        config.theme.header_bg = v.clone();
+                    }
+                }
+                "theme.header_fg" => {
+                    if let SettingValue::Str(v) = &item.value {
+                        config.theme.header_fg = v.clone();
+                    }
+                }
+                "theme.search_match" => {
+                    if let SettingValue::Str(v) = &item.value {
+                        config.theme.search_match = v.clone();
+                    }
+                }
+                "theme.border_color" => {
+                    if let SettingValue::Str(v) = &item.value {
+                        config.theme.border_color = v.clone();
+                    }
+                }
                 id if id.starts_with("citekey.template.") => {
                     if let SettingValue::Str(v) = &item.value {
                         let type_name = &id["citekey.template.".len()..];
-                        config.citekey.templates.insert(type_name.to_string(), v.clone());
+                        config
+                            .citekey
+                            .templates
+                            .insert(type_name.to_string(), v.clone());
                     }
                 }
                 _ => {}
@@ -994,11 +1123,17 @@ impl SettingsState {
         }
         // Sync sorted stop_words back to the displayed SettingValue so the UI
         // reflects the canonical order without requiring the screen to be reopened.
-        if let Some(item) = self.items.iter_mut().find(|i| i.id == "titlecase.stop_words") {
+        if let Some(item) = self
+            .items
+            .iter_mut()
+            .find(|i| i.id == "titlecase.stop_words")
+        {
             item.value = SettingValue::Str(config.titlecase.stop_words.join(", "));
         }
         // Apply columns
-        config.display.columns = self.columns.iter()
+        config.display.columns = self
+            .columns
+            .iter()
             .filter(|(field, _, _)| !field.trim().is_empty())
             .map(|(field, header, width_spec)| {
                 let (width, max_width) = parse_width_spec(width_spec);
@@ -1011,11 +1146,14 @@ impl SettingsState {
             })
             .collect();
         // Apply field groups
-        config.field_groups = self.field_groups.iter()
+        config.field_groups = self
+            .field_groups
+            .iter()
             .filter(|(name, _)| !name.trim().is_empty())
             .map(|(name, fields_csv)| CustomFieldGroup {
                 name: name.clone(),
-                fields: fields_csv.split(',')
+                fields: fields_csv
+                    .split(',')
                     .map(|s| s.trim().to_string())
                     .filter(|s| !s.is_empty())
                     .collect(),
@@ -1108,11 +1246,22 @@ pub fn render_settings(f: &mut Frame, area: Rect, state: &mut SettingsState, the
     let section_sep_style = theme.border;
 
     let defaults = Config::default();
-    let default_field_groups: Vec<(String, String)> = defaults.field_groups.iter()
+    let default_field_groups: Vec<(String, String)> = defaults
+        .field_groups
+        .iter()
         .map(|fg| (fg.name.clone(), fg.fields.join(", ")))
         .collect();
-    let default_columns: Vec<(String, String, String)> = defaults.display.columns.iter()
-        .map(|c| (c.field.clone(), c.header.clone(), format_width_spec(&c.width, c.max_width)))
+    let default_columns: Vec<(String, String, String)> = defaults
+        .display
+        .columns
+        .iter()
+        .map(|c| {
+            (
+                c.field.clone(),
+                c.header.clone(),
+                format_width_spec(&c.width, c.max_width),
+            )
+        })
         .collect();
 
     // Compute dynamic column widths from the available line width.
@@ -1153,8 +1302,11 @@ pub fn render_settings(f: &mut Frame, area: Rect, state: &mut SettingsState, the
                 let is_selected = row_idx == state.cursor;
                 let is_modified = item.value != item.default;
 
-                let base_style =
-                    if is_selected { theme.selected } else { Style::default() };
+                let base_style = if is_selected {
+                    theme.selected
+                } else {
+                    Style::default()
+                };
 
                 let cursor_ch = if is_selected { "▶" } else { " " };
                 let type_ch = match &item.value {
@@ -1175,7 +1327,11 @@ pub fn render_settings(f: &mut Frame, area: Rect, state: &mut SettingsState, the
                 let mod_marker = if is_modified { "● " } else { "  " };
                 let default_hint = format!("default: {}", default_trunc);
 
-                let val_style = if is_modified { modified_style } else { base_style };
+                let val_style = if is_modified {
+                    modified_style
+                } else {
+                    base_style
+                };
                 let hint_style = if is_modified {
                     Style::default().fg(Color::DarkGray)
                 } else {
@@ -1201,10 +1357,15 @@ pub fn render_settings(f: &mut Frame, area: Rect, state: &mut SettingsState, the
                     None => return Line::from(""),
                 };
                 let is_selected = row_idx == state.cursor;
-                let is_modified = !default_columns.iter()
+                let is_modified = !default_columns
+                    .iter()
                     .any(|(df, dh, dw)| df == field && dh == header && dw == width_spec);
 
-                let base_style = if is_selected { theme.selected } else { Style::default() };
+                let base_style = if is_selected {
+                    theme.selected
+                } else {
+                    Style::default()
+                };
                 let cursor_ch = if is_selected { "▶" } else { " " };
 
                 let display_name = if header != field {
@@ -1216,15 +1377,19 @@ pub fn render_settings(f: &mut Frame, area: Rect, state: &mut SettingsState, the
                 let val_trunc: String = width_spec.chars().take(val_w).collect();
                 let val_padded = format!("{:<w$}", val_trunc, w = val_w);
                 let mod_marker = if is_modified { "● " } else { "  " };
-                let val_style = if is_modified { modified_style } else { base_style };
+                let val_style = if is_modified {
+                    modified_style
+                } else {
+                    base_style
+                };
                 let mod_style = if is_modified {
                     Style::default().fg(Color::Yellow)
                 } else {
                     base_style
                 };
 
-                let hint_text = if let Some((_, _, dw)) = default_columns.iter()
-                    .find(|(df, _, _)| df == field)
+                let hint_text = if let Some((_, _, dw)) =
+                    default_columns.iter().find(|(df, _, _)| df == field)
                 {
                     let dw_trunc: String = dw.chars().take(default_w).collect();
                     format!("default: {}", dw_trunc)
@@ -1251,17 +1416,26 @@ pub fn render_settings(f: &mut Frame, area: Rect, state: &mut SettingsState, the
                     None => return Line::from(""),
                 };
                 let is_selected = row_idx == state.cursor;
-                let is_modified = !default_field_groups.iter()
+                let is_modified = !default_field_groups
+                    .iter()
                     .any(|(dn, df)| dn == name && df == fields_csv);
 
-                let base_style = if is_selected { theme.selected } else { Style::default() };
+                let base_style = if is_selected {
+                    theme.selected
+                } else {
+                    Style::default()
+                };
                 let cursor_ch = if is_selected { "▶" } else { " " };
 
                 let label = format!(" {:<w$}", name, w = LABEL_W);
                 let val_trunc: String = fields_csv.chars().take(val_w).collect();
                 let val_padded = format!("{:<w$}", val_trunc, w = val_w);
                 let mod_marker = if is_modified { "● " } else { "  " };
-                let val_style = if is_modified { modified_style } else { base_style };
+                let val_style = if is_modified {
+                    modified_style
+                } else {
+                    base_style
+                };
                 let mod_style = if is_modified {
                     Style::default().fg(Color::Yellow)
                 } else {
@@ -1337,7 +1511,10 @@ mod tests {
 
     #[test]
     fn test_choice_display() {
-        let v = SettingValue::Choice { options: &["a", "b", "c"], index: 1 };
+        let v = SettingValue::Choice {
+            options: &["a", "b", "c"],
+            index: 1,
+        };
         assert_eq!(v.display(), "b");
     }
 
@@ -1352,13 +1529,34 @@ mod tests {
 
     #[test]
     fn test_choice_toggle_cycles() {
-        let mut v = SettingValue::Choice { options: &["x", "y", "z"], index: 0 };
+        let mut v = SettingValue::Choice {
+            options: &["x", "y", "z"],
+            index: 0,
+        };
         v.toggle();
-        assert_eq!(v, SettingValue::Choice { options: &["x", "y", "z"], index: 1 });
+        assert_eq!(
+            v,
+            SettingValue::Choice {
+                options: &["x", "y", "z"],
+                index: 1
+            }
+        );
         v.toggle();
-        assert_eq!(v, SettingValue::Choice { options: &["x", "y", "z"], index: 2 });
+        assert_eq!(
+            v,
+            SettingValue::Choice {
+                options: &["x", "y", "z"],
+                index: 2
+            }
+        );
         v.toggle(); // wraps
-        assert_eq!(v, SettingValue::Choice { options: &["x", "y", "z"], index: 0 });
+        assert_eq!(
+            v,
+            SettingValue::Choice {
+                options: &["x", "y", "z"],
+                index: 0
+            }
+        );
     }
 
     #[test]
@@ -1371,7 +1569,11 @@ mod tests {
     #[test]
     fn test_is_cyclic() {
         assert!(SettingValue::Bool(true).is_cyclic());
-        assert!(SettingValue::Choice { options: &["a"], index: 0 }.is_cyclic());
+        assert!(SettingValue::Choice {
+            options: &["a"],
+            index: 0
+        }
+        .is_cyclic());
         assert!(!SettingValue::Str("x".into()).is_cyclic());
     }
 
@@ -1443,7 +1645,10 @@ mod tests {
         let cfg = default_config();
         let mut state = SettingsState::new(&cfg);
         // Find a bool item
-        while !matches!(state.selected_item().map(|i| &i.value), Some(SettingValue::Bool(_))) {
+        while !matches!(
+            state.selected_item().map(|i| &i.value),
+            Some(SettingValue::Bool(_))
+        ) {
             state.move_down();
         }
         let before = match state.selected_item().unwrap().value.clone() {
@@ -1464,7 +1669,11 @@ mod tests {
         let mut state = SettingsState::new(&cfg);
         let found = state.set_value("general.editor", SettingValue::Str("vim".into()));
         assert!(found);
-        let item = state.items.iter().find(|i| i.id == "general.editor").unwrap();
+        let item = state
+            .items
+            .iter()
+            .find(|i| i.id == "general.editor")
+            .unwrap();
         assert_eq!(item.value, SettingValue::Str("vim".into()));
     }
 
@@ -1481,11 +1690,13 @@ mod tests {
             .unwrap();
         assert!(
             item.description.contains("trailing slash"),
-            "got: {}", item.description
+            "got: {}",
+            item.description
         );
         assert!(
             !item.description.contains("Decode"),
-            "must not claim percent-decoding: {}", item.description
+            "must not claim percent-decoding: {}",
+            item.description
         );
     }
 
@@ -1510,10 +1721,13 @@ mod tests {
     fn test_apply_to_config_choice() {
         let cfg = default_config();
         let mut state = SettingsState::new(&cfg);
-        state.set_value("save.field_order", SettingValue::Choice {
-            options: &["jabref", "alphabetical"],
-            index: 1,
-        });
+        state.set_value(
+            "save.field_order",
+            SettingValue::Choice {
+                options: &["jabref", "alphabetical"],
+                index: 1,
+            },
+        );
         let mut new_cfg = cfg.clone();
         state.apply_to_config(&mut new_cfg);
         assert_eq!(new_cfg.save.field_order, "alphabetical");
@@ -1565,7 +1779,11 @@ mod tests {
     fn test_field_groups_have_rows() {
         let cfg = default_config();
         let state = SettingsState::new(&cfg);
-        let fg_rows = state.rows.iter().filter(|r| matches!(r, SettingRow::FieldGroup(_))).count();
+        let fg_rows = state
+            .rows
+            .iter()
+            .filter(|r| matches!(r, SettingRow::FieldGroup(_)))
+            .count();
         assert_eq!(fg_rows, cfg.field_groups.len());
     }
 
@@ -1579,7 +1797,10 @@ mod tests {
         assert_eq!(state.field_groups.last().unwrap().0, "My Group");
         assert_eq!(state.field_groups.last().unwrap().1, "");
         // cursor should be on the new FieldGroup row
-        assert!(matches!(state.rows[state.cursor], SettingRow::FieldGroup(_)));
+        assert!(matches!(
+            state.rows[state.cursor],
+            SettingRow::FieldGroup(_)
+        ));
     }
 
     #[test]
@@ -1590,7 +1811,9 @@ mod tests {
         while !state.selected_is_field_group() {
             let before = state.cursor;
             state.move_down();
-            if state.cursor == before { break; }
+            if state.cursor == before {
+                break;
+            }
         }
         assert!(state.selected_is_field_group());
         let before_count = state.field_groups.len();
@@ -1633,7 +1856,9 @@ mod tests {
         while !state.selected_is_field_group() {
             let before = state.cursor;
             state.move_down();
-            if state.cursor == before { break; }
+            if state.cursor == before {
+                break;
+            }
         }
         assert!(state.selected_field_group_index().is_some());
     }
@@ -1642,9 +1867,7 @@ mod tests {
     fn test_apply_to_config_field_groups() {
         let cfg = default_config();
         let mut state = SettingsState::new(&cfg);
-        state.field_groups = vec![
-            ("Physics".to_string(), "doi, url".to_string()),
-        ];
+        state.field_groups = vec![("Physics".to_string(), "doi, url".to_string())];
         let mut new_cfg = cfg.clone();
         state.apply_to_config(&mut new_cfg);
         assert_eq!(new_cfg.field_groups.len(), 1);
@@ -1674,7 +1897,11 @@ mod tests {
         state.add_field_group("Second".to_string());
         assert_eq!(state.field_groups.len(), 2);
         // Place cursor on the first FieldGroup row (index 0)
-        let first_fg_row = state.rows.iter().position(|r| matches!(r, SettingRow::FieldGroup(0))).unwrap();
+        let first_fg_row = state
+            .rows
+            .iter()
+            .position(|r| matches!(r, SettingRow::FieldGroup(0)))
+            .unwrap();
         state.cursor = first_fg_row;
         assert_eq!(state.selected_field_group_index(), Some(0));
         state.delete_selected_field_group();
@@ -1683,7 +1910,11 @@ mod tests {
         // All FieldGroup rows should reference valid indices
         for row in &state.rows {
             if let SettingRow::FieldGroup(i) = row {
-                assert!(*i < state.field_groups.len(), "stale FieldGroup index {}", i);
+                assert!(
+                    *i < state.field_groups.len(),
+                    "stale FieldGroup index {}",
+                    i
+                );
             }
         }
     }
@@ -1700,7 +1931,9 @@ mod tests {
             }
             let before = state.cursor;
             state.move_down();
-            if state.cursor == before { break; }
+            if state.cursor == before {
+                break;
+            }
         }
         assert!(found, "move_down should reach the Field Groups section");
     }
@@ -1797,7 +2030,9 @@ mod tests {
         let cfg = default_config();
         let mut state = SettingsState::new(&cfg);
         // Navigate to a Bool item (backup_on_save = Item(0), which is at rows[2])
-        state.cursor = state.rows.iter()
+        state.cursor = state
+            .rows
+            .iter()
             .position(|r| matches!(r, SettingRow::Item(0)))
             .expect("backup_on_save row must exist");
         let before = state.selected_value_str();
@@ -1815,7 +2050,9 @@ mod tests {
         let cfg = default_config();
         let state = SettingsState::new(&cfg);
 
-        let start = state.rows.iter()
+        let start = state
+            .rows
+            .iter()
             .position(|r| matches!(r, SettingRow::Section("Save Actions")))
             .expect("Save Actions section must exist");
         let mut seen = Vec::new();
@@ -1825,7 +2062,9 @@ mod tests {
                     let id = &state.items[*i].id;
                     assert!(
                         id.starts_with("save_actions."),
-                        "row Item({}) under Save Actions resolves to '{}'", i, id
+                        "row Item({}) under Save Actions resolves to '{}'",
+                        i,
+                        id
                     );
                     seen.push(id.clone());
                 }
@@ -1834,7 +2073,8 @@ mod tests {
         }
         assert!(
             seen.contains(&"save_actions.trim_whitespace".to_string()),
-            "trim_whitespace must be listed under Save Actions; got {:?}", seen
+            "trim_whitespace must be listed under Save Actions; got {:?}",
+            seen
         );
     }
 
@@ -1842,10 +2082,14 @@ mod tests {
     fn test_toggle_trim_whitespace_persists_to_config() {
         let cfg = default_config();
         let mut state = SettingsState::new(&cfg);
-        let idx = state.items.iter()
+        let idx = state
+            .items
+            .iter()
             .position(|i| i.id == "save_actions.trim_whitespace")
             .expect("trim_whitespace item must exist");
-        state.cursor = state.rows.iter()
+        state.cursor = state
+            .rows
+            .iter()
             .position(|r| matches!(r, SettingRow::Item(i) if *i == idx))
             .expect("trim_whitespace row must exist");
 
@@ -1877,7 +2121,11 @@ mod tests {
     fn test_wrap_text_prefix_on_every_line() {
         let lines = wrap_text("a b c d", 4, " ", 4);
         for line in &lines {
-            assert!(line.starts_with(' '), "expected leading space, got: {:?}", line);
+            assert!(
+                line.starts_with(' '),
+                "expected leading space, got: {:?}",
+                line
+            );
         }
     }
 
@@ -1914,7 +2162,10 @@ mod tests {
 
     #[test]
     fn test_format_width_spec_percent() {
-        assert_eq!(format_width_spec(&ColumnWidth::Percent(30), None), "percent:30");
+        assert_eq!(
+            format_width_spec(&ColumnWidth::Percent(30), None),
+            "percent:30"
+        );
     }
 
     #[test]
@@ -1976,10 +2227,11 @@ mod tests {
         ] {
             let s = format_width_spec(&w, m);
             let (w2, m2) = parse_width_spec(&s);
-            assert!(matches!((w, w2),
-                (ColumnWidth::Flex, ColumnWidth::Flex) |
-                (ColumnWidth::Fixed(_), ColumnWidth::Fixed(_)) |
-                (ColumnWidth::Percent(_), ColumnWidth::Percent(_))
+            assert!(matches!(
+                (w, w2),
+                (ColumnWidth::Flex, ColumnWidth::Flex)
+                    | (ColumnWidth::Fixed(_), ColumnWidth::Fixed(_))
+                    | (ColumnWidth::Percent(_), ColumnWidth::Percent(_))
             ));
             assert_eq!(m, m2);
         }

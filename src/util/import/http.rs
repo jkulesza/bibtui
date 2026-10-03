@@ -16,11 +16,16 @@ pub struct HttpResponse {
 
 impl HttpResponse {
     pub fn text(self) -> Result<String, ImportError> {
-        if self.content_length.is_some_and(|length| length > METADATA_LIMIT) {
+        if self
+            .content_length
+            .is_some_and(|length| length > METADATA_LIMIT)
+        {
             return Err(ImportError::Parse("Metadata exceeds 4 MiB limit".into()));
         }
         let mut bytes = Vec::new();
-        self.body.take(METADATA_LIMIT + 1).read_to_end(&mut bytes)
+        self.body
+            .take(METADATA_LIMIT + 1)
+            .read_to_end(&mut bytes)
             .map_err(|error| ImportError::Network(error.to_string()))?;
         if bytes.len() as u64 > METADATA_LIMIT {
             return Err(ImportError::Parse("Metadata exceeds 4 MiB limit".into()));
@@ -50,15 +55,23 @@ impl HttpClient {
             .timeout_write(Duration::from_secs(10))
             .timeout(REQUEST_TIMEOUT)
             .redirects(5)
-            .user_agent(concat!("bibtui/", env!("CARGO_PKG_VERSION"), " (https://github.com/jkulesza/bibtui)"));
+            .user_agent(concat!(
+                "bibtui/",
+                env!("CARGO_PKG_VERSION"),
+                " (https://github.com/jkulesza/bibtui)"
+            ));
         // ureq's native-tls feature only supplies this adapter; it does not
         // select it automatically. Keep normal certificate/hostname validation.
         #[cfg(not(target_env = "musl"))]
         let builder = builder.tls_connector(std::sync::Arc::new(
-            ureq::native_tls::TlsConnector::new().map_err(|error| ImportError::Network(error.to_string()))?
+            ureq::native_tls::TlsConnector::new()
+                .map_err(|error| ImportError::Network(error.to_string()))?,
         ));
         // musl uses ureq's default rustls/webpki trust roots.
-        Ok(Self { agent: builder.build(), deadline: Instant::now() + IMPORT_TIMEOUT })
+        Ok(Self {
+            agent: builder.build(),
+            deadline: Instant::now() + IMPORT_TIMEOUT,
+        })
     }
 }
 
@@ -66,11 +79,22 @@ impl HttpTransport for HttpClient {
     fn get(&self, url: &str, budget: Duration) -> Result<HttpResponse, ImportError> {
         let remaining = self.deadline.saturating_duration_since(Instant::now());
         let timeout = budget.min(remaining).min(REQUEST_TIMEOUT);
-        if timeout.is_zero() { return Err(ImportError::Network("Import time budget exhausted".into())); }
-        let response = self.agent.get(url).timeout(timeout).call()
+        if timeout.is_zero() {
+            return Err(ImportError::Network("Import time budget exhausted".into()));
+        }
+        let response = self
+            .agent
+            .get(url)
+            .timeout(timeout)
+            .call()
             .map_err(|error| ImportError::Network(error.to_string()))?;
-        let content_length = response.header("Content-Length").and_then(|value| value.parse().ok());
-        Ok(HttpResponse { body: response.into_reader(), content_length })
+        let content_length = response
+            .header("Content-Length")
+            .and_then(|value| value.parse().ok());
+        Ok(HttpResponse {
+            body: response.into_reader(),
+            content_length,
+        })
     }
 }
 
@@ -86,14 +110,24 @@ pub(super) mod tests {
     }
     impl MockHttp {
         pub fn new(replies: Vec<Result<&'static str, &'static str>>) -> Self {
-            Self { replies: Mutex::new(replies.into()), requests: Mutex::new(vec![]) }
+            Self {
+                replies: Mutex::new(replies.into()),
+                requests: Mutex::new(vec![]),
+            }
         }
     }
     impl HttpTransport for MockHttp {
         fn get(&self, url: &str, budget: Duration) -> Result<HttpResponse, ImportError> {
             self.requests.lock().unwrap().push((url.into(), budget));
-            self.replies.lock().unwrap().pop_front().expect("unexpected HTTP request")
-                .map(|body| HttpResponse { body: Box::new(std::io::Cursor::new(body.as_bytes())), content_length: None })
+            self.replies
+                .lock()
+                .unwrap()
+                .pop_front()
+                .expect("unexpected HTTP request")
+                .map(|body| HttpResponse {
+                    body: Box::new(std::io::Cursor::new(body.as_bytes())),
+                    content_length: None,
+                })
                 .map_err(|error| ImportError::Network(error.into()))
         }
     }
@@ -102,13 +136,18 @@ pub(super) mod tests {
     fn exhausted_budget_is_rejected_without_network() {
         let mut client = HttpClient::new().unwrap();
         client.deadline = Instant::now();
-        assert!(matches!(client.get("https://example.invalid", REQUEST_TIMEOUT), Err(ImportError::Network(message)) if message.contains("budget")));
+        assert!(
+            matches!(client.get("https://example.invalid", REQUEST_TIMEOUT), Err(ImportError::Network(message)) if message.contains("budget"))
+        );
     }
 
     #[test]
     fn metadata_reads_are_bounded_with_or_without_content_length() {
         for content_length in [None, Some(METADATA_LIMIT + 1)] {
-            let response = HttpResponse { body: Box::new(std::io::repeat(b'x')), content_length };
+            let response = HttpResponse {
+                body: Box::new(std::io::repeat(b'x')),
+                content_length,
+            };
             assert!(response.text().unwrap_err().to_string().contains("limit"));
         }
     }
@@ -123,28 +162,55 @@ pub(super) mod tests {
             let deadline = Instant::now() + Duration::from_secs(3);
             let mut handled = 0;
             while handled < 3 && Instant::now() < deadline {
-                let Ok((mut stream, _)) = listener.accept() else { std::thread::sleep(Duration::from_millis(5)); continue };
-                stream.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+                let Ok((mut stream, _)) = listener.accept() else {
+                    std::thread::sleep(Duration::from_millis(5));
+                    continue;
+                };
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(1)))
+                    .unwrap();
                 let mut request = [0; 4096];
                 let count = stream.read(&mut request).unwrap();
                 if request[..count].starts_with(b"GET /redirect ") {
                     stream.write_all(b"HTTP/1.1 302 Found\r\nLocation: /ok\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
                 } else if request[..count].starts_with(b"GET /stall ") {
-                    stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\n").unwrap();
+                    stream
+                        .write_all(
+                            b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\n",
+                        )
+                        .unwrap();
                     std::thread::sleep(Duration::from_millis(250));
                 } else {
-                    stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok").unwrap();
+                    stream
+                        .write_all(
+                            b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok",
+                        )
+                        .unwrap();
                 }
                 handled += 1;
             }
         });
         let client = HttpClient::new().unwrap();
-        assert_eq!(client.get(&format!("http://{address}/redirect"), Duration::from_secs(1)).unwrap().text().unwrap(), "ok");
+        assert_eq!(
+            client
+                .get(
+                    &format!("http://{address}/redirect"),
+                    Duration::from_secs(1)
+                )
+                .unwrap()
+                .text()
+                .unwrap(),
+            "ok"
+        );
         let start = Instant::now();
-        let result = client.get(&format!("http://{address}/stall"), Duration::from_millis(100)).and_then(HttpResponse::text);
+        let result = client
+            .get(
+                &format!("http://{address}/stall"),
+                Duration::from_millis(100),
+            )
+            .and_then(HttpResponse::text);
         assert!(matches!(result, Err(ImportError::Network(_))));
         assert!(start.elapsed() < Duration::from_secs(2));
         server.join().unwrap();
     }
-
 }

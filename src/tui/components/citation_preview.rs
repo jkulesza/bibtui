@@ -22,7 +22,9 @@ pub fn render_citation_preview(
     // Estimate how many lines the wrapped text will need so the box fits snugly.
     let inner_width = width.saturating_sub(2) as usize;
     let line_count = estimate_wrapped_lines(&state.citation, inner_width);
-    let height = (line_count as u16 + 4).min(area.height.saturating_sub(4)).max(5);
+    let height = (line_count as u16 + 4)
+        .min(area.height.saturating_sub(4))
+        .max(5);
 
     let x = area.x + (area.width.saturating_sub(width)) / 2;
     let y = area.y + (area.height.saturating_sub(height)) / 2;
@@ -35,10 +37,7 @@ pub fn render_citation_preview(
         .border_style(theme.border)
         .title(format!(" {} ", state.entry_key))
         .title_bottom(Line::from(vec![
-            Span::styled(
-                format!(" {} ", state.style_name),
-                theme.label,
-            ),
+            Span::styled(format!(" {} ", state.style_name), theme.label),
             Span::styled(" j/k: navigate  yy: copy  Space/Esc: close ", theme.label),
         ]));
 
@@ -61,7 +60,11 @@ fn estimate_wrapped_lines(text: &str, width: usize) -> usize {
     text.lines()
         .map(|line| {
             let chars = line.chars().count();
-            if chars == 0 { 1 } else { chars.div_ceil(width) }
+            if chars == 0 {
+                1
+            } else {
+                chars.div_ceil(width)
+            }
         })
         .sum::<usize>()
         .max(1)
@@ -142,7 +145,8 @@ mod tests {
             style_name: "IEEEtranN".to_string(),
         };
         let theme = default_theme();
-        term.draw(|f| render_citation_preview(f, f.area(), &state, &theme)).unwrap();
+        term.draw(|f| render_citation_preview(f, f.area(), &state, &theme))
+            .unwrap();
     }
 
     #[test]
@@ -154,7 +158,8 @@ mod tests {
             style_name: "S".to_string(),
         };
         let theme = default_theme();
-        term.draw(|f| render_citation_preview(f, f.area(), &state, &theme)).unwrap();
+        term.draw(|f| render_citation_preview(f, f.area(), &state, &theme))
+            .unwrap();
     }
 
     #[test]
@@ -166,7 +171,8 @@ mod tests {
             style_name: "IEEE".to_string(),
         };
         let theme = default_theme();
-        term.draw(|f| render_citation_preview(f, f.area(), &state, &theme)).unwrap();
+        term.draw(|f| render_citation_preview(f, f.area(), &state, &theme))
+            .unwrap();
     }
 
     #[test]
@@ -178,6 +184,7 @@ mod tests {
             style_name: "Chicago".to_string(),
         };
         let theme = default_theme();
-        term.draw(|f| render_citation_preview(f, f.area(), &state, &theme)).unwrap();
+        term.draw(|f| render_citation_preview(f, f.area(), &state, &theme))
+            .unwrap();
     }
 }

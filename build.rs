@@ -2,8 +2,8 @@ fn main() {
     // Derive version from `git describe` (e.g. "v0.4.0" or "v0.4.0-3-gabcdef").
     // Strip the leading 'v' to match Cargo version convention.
     // Fall back to the Cargo.toml version when git is unavailable.
-    let version = git_describe()
-        .unwrap_or_else(|| std::env::var("CARGO_PKG_VERSION").unwrap_or_default());
+    let version =
+        git_describe().unwrap_or_else(|| std::env::var("CARGO_PKG_VERSION").unwrap_or_default());
 
     println!("cargo:rustc-env=GIT_VERSION={}", version);
 

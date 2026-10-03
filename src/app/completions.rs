@@ -15,8 +15,7 @@ impl App {
         // filtered by whatever the user has typed so far.
         if editor.is_month {
             const MONTHS: [&str; 12] = [
-                "jan", "feb", "mar", "apr", "may", "jun",
-                "jul", "aug", "sep", "oct", "nov", "dec",
+                "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
             ];
             let prefix = editor.value.to_lowercase();
             let completions: Vec<String> = MONTHS
@@ -60,7 +59,12 @@ impl App {
     /// Delegates to path completion when `editor.is_path` is set.
     /// `forward`: true = Tab (next), false = Shift-Tab (previous).
     pub(super) fn do_field_tab_complete_dir(&mut self, forward: bool) {
-        if self.field_editor_state.as_ref().map(|e| e.is_path).unwrap_or(false) {
+        if self
+            .field_editor_state
+            .as_ref()
+            .map(|e| e.is_path)
+            .unwrap_or(false)
+        {
             self.do_path_tab_complete_dir(forward);
             return;
         }
@@ -273,7 +277,11 @@ impl App {
         self.path_completions = completions;
         self.path_completion_idx = 0;
 
-        let start_idx = if forward { 0 } else { self.path_completions.len().saturating_sub(1) };
+        let start_idx = if forward {
+            0
+        } else {
+            self.path_completions.len().saturating_sub(1)
+        };
         match self.path_completions.len() {
             0 => {
                 self.status_message = Some("No completions".to_string());
@@ -324,11 +332,37 @@ pub(super) fn contract_tilde(s: &str) -> String {
 /// All BibTeX field names the user might want to type (for new-field name completion).
 pub(super) fn field_name_candidates(database: &Database) -> Vec<String> {
     let mut names: std::collections::BTreeSet<String> = [
-        "abstract", "address", "annote", "author", "booktitle", "chapter",
-        "crossref", "doi", "edition", "editor", "howpublished", "institution",
-        "isbn", "issn", "journal", "keywords", "language", "lccn", "month",
-        "note", "number", "organization", "pages", "publisher", "school",
-        "series", "title", "type", "url", "volume", "year",
+        "abstract",
+        "address",
+        "annote",
+        "author",
+        "booktitle",
+        "chapter",
+        "crossref",
+        "doi",
+        "edition",
+        "editor",
+        "howpublished",
+        "institution",
+        "isbn",
+        "issn",
+        "journal",
+        "keywords",
+        "language",
+        "lccn",
+        "month",
+        "note",
+        "number",
+        "organization",
+        "pages",
+        "publisher",
+        "school",
+        "series",
+        "title",
+        "type",
+        "url",
+        "volume",
+        "year",
     ]
     .iter()
     .map(|s| s.to_string())
@@ -353,14 +387,16 @@ pub(super) fn field_value_candidates(
     // These fields hold unique identifiers or numeric ranges — skip them.
     if matches!(
         field,
-        "doi" | "eprint" | "isbn" | "issn" | "lccn" | "pages" | "url"
-            | "volume" | "number"
+        "doi" | "eprint" | "isbn" | "issn" | "lccn" | "pages" | "url" | "volume" | "number"
     ) {
         return Vec::new();
     }
     let mut freq: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     for (key, entry) in &database.entries {
-        if current_entry_key.map(|k| k == key.as_str()).unwrap_or(false) {
+        if current_entry_key
+            .map(|k| k == key.as_str())
+            .unwrap_or(false)
+        {
             continue;
         }
         if let Some(v) = entry.fields.get(field) {
@@ -380,7 +416,12 @@ pub(super) fn field_value_candidates(
 /// Includes the standard virtual fields plus every field key present in the database.
 pub(super) fn sort_field_candidates(database: &Database) -> Vec<String> {
     let mut fields: std::collections::BTreeSet<String> = [
-        "author", "citation_key", "entrytype", "journal", "title", "year",
+        "author",
+        "citation_key",
+        "entrytype",
+        "journal",
+        "title",
+        "year",
     ]
     .iter()
     .map(|s| s.to_string())
@@ -407,7 +448,11 @@ pub(super) fn path_completions(prefix: &str) -> Vec<String> {
     } else {
         let stem = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
         let parent = path.parent().unwrap_or(Path::new("."));
-        let parent = if parent == Path::new("") { Path::new(".") } else { parent };
+        let parent = if parent == Path::new("") {
+            Path::new(".")
+        } else {
+            parent
+        };
         (parent, stem)
     };
 
@@ -436,7 +481,11 @@ pub(super) fn path_completions(prefix: &str) -> Vec<String> {
                 }
             };
             // Re-apply `~` contraction so the editor shows the tilde form.
-            let candidate = if tilde { contract_tilde(&candidate) } else { candidate };
+            let candidate = if tilde {
+                contract_tilde(&candidate)
+            } else {
+                candidate
+            };
             matches.push(candidate);
         }
     }
@@ -522,6 +571,8 @@ pub(super) fn longest_common_prefix(items: &[String]) -> String {
             }
         }
     }
-    while !items[0].is_char_boundary(len) { len -= 1; }
+    while !items[0].is_char_boundary(len) {
+        len -= 1;
+    }
     items[0][..len].to_string()
 }

@@ -181,7 +181,10 @@ pub(super) enum UndoItem {
         original_index: usize,
     },
     /// The group tree was changed (group added or deleted).
-    GroupTreeChanged { old_tree: GroupTree, active_path: Option<Vec<usize>> },
+    GroupTreeChanged {
+        old_tree: GroupTree,
+        active_path: Option<Vec<usize>>,
+    },
     /// An entry's group memberships were reassigned.
     GroupMembershipChanged {
         entry_key: String,
@@ -210,18 +213,32 @@ pub(super) enum PendingAction {
     AddEntryType,
     OpenFile(Vec<crate::util::open::ParsedFile>),
     OpenWeb(Vec<String>),
-    AddGroup { parent_path: Vec<usize> },
-    DeleteGroup { path: Vec<usize> },
-    AssignGroups { entry_key: String },
-    EditSetting { setting_id: String },
+    AddGroup {
+        parent_path: Vec<usize>,
+    },
+    DeleteGroup {
+        path: Vec<usize>,
+    },
+    AssignGroups {
+        entry_key: String,
+    },
+    EditSetting {
+        setting_id: String,
+    },
     ExportSettings,
     ImportSettings,
-    YankPrompt { entry_key: String },
+    YankPrompt {
+        entry_key: String,
+    },
     Save,
     SaveAndQuit,
     AddFieldGroup,
-    EditFieldGroupFields { index: usize },
-    RenameFieldGroup { index: usize },
+    EditFieldGroupFields {
+        index: usize,
+    },
+    RenameFieldGroup {
+        index: usize,
+    },
     /// No bib file was given on the command line; waiting for the user to
     /// supply a path for the new library before we can do anything else.
     NewFile,
@@ -229,33 +246,52 @@ pub(super) enum PendingAction {
     ImportUrl,
     /// Deleting an entry that has exactly one local file; TypePicker offers
     /// "delete entry+file", "delete entry only", or "cancel".
-    DeleteEntryWithFile { entry_key: String, file: std::path::PathBuf },
+    DeleteEntryWithFile {
+        entry_key: String,
+        file: std::path::PathBuf,
+    },
     /// Deleting an entry that has multiple local files; FileDeleteSelect lets
     /// the user choose which files to also remove.
-    DeleteEntryWithFileSelect { entry_key: String, files: Vec<std::path::PathBuf> },
+    DeleteEntryWithFileSelect {
+        entry_key: String,
+        files: Vec<std::path::PathBuf>,
+    },
     /// Waiting for the user to provide a path for a new file attachment.
-    AddFileAttachment { entry_key: String },
+    AddFileAttachment {
+        entry_key: String,
+    },
     /// Dismiss a non-interactive message popup (no side effect on confirm).
     DismissMessage,
     /// Waiting for the user to edit the path of the file at `index` in the `file` field.
-    EditFileAttachment { entry_key: String, index: usize },
+    EditFileAttachment {
+        entry_key: String,
+        index: usize,
+    },
     /// Waiting for the user to type a path for CSL-JSON export.
     ExportJson,
     /// Waiting for the user to type a path for RIS export.
     ExportRis,
     /// Waiting for the user to pick a new type for an existing entry.
-    ChangeEntryType { entry_key: String },
+    ChangeEntryType {
+        entry_key: String,
+    },
     /// Waiting for the user to type a field name for a new display column.
     AddColumn,
     /// Waiting for the user to edit the width spec of a column.
-    EditColumnWidth { index: usize },
+    EditColumnWidth {
+        index: usize,
+    },
     /// Waiting for the user to rename a column (field|header string).
-    RenameColumn { index: usize },
+    RenameColumn {
+        index: usize,
+    },
     /// Confirmed the manual filename-sync preview — apply renames now.
     SyncFilenamesOnly,
     /// Follow-up to a group deletion: confirm removing the deleted group's
     /// name from every entry whose `groups` field still lists it.
-    StripGroupMembership { group_name: String },
+    StripGroupMembership {
+        group_name: String,
+    },
     /// Quit-confirm dialog (`:q` with unsaved changes): confirm quits without
     /// saving.
     Quit,

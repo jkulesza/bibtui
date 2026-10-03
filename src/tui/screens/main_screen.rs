@@ -23,10 +23,16 @@ pub fn render_main_screen(f: &mut Frame, app: &mut App) {
     let entry_count = app.visible_entry_count();
     let range = app.entry_list_state.viewport(entry_count, main_area.height);
     let entries: Vec<&Entry> = if let Some(ref indices) = app.filtered_indices {
-        indices[range].iter().filter_map(|&i| app.sorted_keys.get(i))
-            .filter_map(|key| app.database.entries.get(key)).collect()
+        indices[range]
+            .iter()
+            .filter_map(|&i| app.sorted_keys.get(i))
+            .filter_map(|key| app.database.entries.get(key))
+            .collect()
     } else {
-        app.sorted_keys[range].iter().filter_map(|key| app.database.entries.get(key)).collect()
+        app.sorted_keys[range]
+            .iter()
+            .filter_map(|key| app.database.entries.get(key))
+            .collect()
     };
 
     let bib_dir = crate::util::open::effective_file_dir(
@@ -47,11 +53,9 @@ pub fn render_main_screen(f: &mut Frame, app: &mut App) {
     // Main area: optional groups sidebar + entry list
     if app.show_groups {
         let sidebar_width = app.config.display.group_sidebar_width;
-        let horizontal = Layout::horizontal([
-            Constraint::Length(sidebar_width),
-            Constraint::Min(1),
-        ])
-        .split(main_area);
+        let horizontal =
+            Layout::horizontal([Constraint::Length(sidebar_width), Constraint::Min(1)])
+                .split(main_area);
 
         let total_entries = app.database.entries.len();
         let is_groups_focused = app.focus == Focus::Groups;
@@ -153,22 +157,21 @@ pub fn render_main_screen(f: &mut Frame, app: &mut App) {
     // Citation preview overlay
     if let Some(ref preview_state) = app.citation_preview_state {
         crate::tui::components::citation_preview::render_citation_preview(
-            f, area, preview_state, &app.theme,
+            f,
+            area,
+            preview_state,
+            &app.theme,
         );
     }
 
     // Validate results overlay
     if let Some(ref mut vrs) = app.validate_results_state {
-        crate::tui::components::validate_results::render_validate_results(
-            f, area, vrs, &app.theme,
-        );
+        crate::tui::components::validate_results::render_validate_results(f, area, vrs, &app.theme);
     }
 
     // Name disambiguator overlay
     if let Some(ref mut nds) = app.name_disambig_state {
-        crate::tui::components::name_disambig::render_name_disambig(
-            f, area, nds, &app.theme,
-        );
+        crate::tui::components::name_disambig::render_name_disambig(f, area, nds, &app.theme);
     }
 
     // Help overlay

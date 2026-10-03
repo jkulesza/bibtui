@@ -45,9 +45,7 @@ impl CommandPaletteState {
             None => return "",
         };
         match self.completions.get(self.completion_idx) {
-            Some(c) if c.starts_with(partial) && partial.len() < c.len() => {
-                &c[partial.len()..]
-            }
+            Some(c) if c.starts_with(partial) && partial.len() < c.len() => &c[partial.len()..],
             _ => "",
         }
     }
@@ -77,7 +75,9 @@ pub fn render_command_palette(
     theme: &Theme,
 ) {
     let ghost = state.ghost_text().to_string();
-    let ghost_style = Style::default().fg(Color::DarkGray).add_modifier(Modifier::DIM);
+    let ghost_style = Style::default()
+        .fg(Color::DarkGray)
+        .add_modifier(Modifier::DIM);
     let mut spans = vec![
         Span::styled(":", theme.search_match),
         Span::raw(state.input.clone()),
@@ -85,7 +85,10 @@ pub fn render_command_palette(
     if !ghost.is_empty() {
         spans.push(Span::styled(ghost, ghost_style));
     }
-    spans.push(Span::styled("_", Style::default().add_modifier(Modifier::SLOW_BLINK)));
+    spans.push(Span::styled(
+        "_",
+        Style::default().add_modifier(Modifier::SLOW_BLINK),
+    ));
     let line = Line::from(spans);
 
     let para = Paragraph::new(line);

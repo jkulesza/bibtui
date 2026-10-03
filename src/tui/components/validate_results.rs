@@ -27,7 +27,11 @@ pub struct ValidateResultsState {
 
 impl ValidateResultsState {
     pub fn new(violations: Vec<Violation>) -> Self {
-        ValidateResultsState { violations, scroll: 0, last_viewport_height: None }
+        ValidateResultsState {
+            violations,
+            scroll: 0,
+            last_viewport_height: None,
+        }
     }
 
     pub fn scroll_down(&mut self, inner_height: u16, total_lines: usize) {
@@ -62,7 +66,11 @@ pub fn render_validate_results(
             " Validate: {} field(s) in {} entr{} would change on save ",
             state.violations.len(),
             unique_entry_count(&state.violations),
-            if unique_entry_count(&state.violations) == 1 { "y" } else { "ies" },
+            if unique_entry_count(&state.violations) == 1 {
+                "y"
+            } else {
+                "ies"
+            },
         )
     };
 
@@ -81,10 +89,8 @@ pub fn render_validate_results(
     f.render_widget(block, popup_area);
 
     if state.violations.is_empty() {
-        let para = Paragraph::new(
-            "No entries would be modified by the current save actions.",
-        )
-        .style(theme.value);
+        let para = Paragraph::new("No entries would be modified by the current save actions.")
+            .style(theme.value);
         f.render_widget(para, inner);
         return;
     }
@@ -178,7 +184,10 @@ mod tests {
 
     #[test]
     fn test_new_with_violations() {
-        let v = vec![make_violation("k1", "title"), make_violation("k2", "author")];
+        let v = vec![
+            make_violation("k1", "title"),
+            make_violation("k2", "author"),
+        ];
         let s = ValidateResultsState::new(v);
         assert_eq!(s.violations.len(), 2);
     }
@@ -329,7 +338,8 @@ mod tests {
         let mut term = make_terminal(120, 40);
         let mut state = ValidateResultsState::new(vec![]);
         let theme = default_theme();
-        term.draw(|f| render_validate_results(f, f.area(), &mut state, &theme)).unwrap();
+        term.draw(|f| render_validate_results(f, f.area(), &mut state, &theme))
+            .unwrap();
     }
 
     #[test]
@@ -340,7 +350,8 @@ mod tests {
             make_violation("Jones2021", "author"),
         ]);
         let theme = default_theme();
-        term.draw(|f| render_validate_results(f, f.area(), &mut state, &theme)).unwrap();
+        term.draw(|f| render_validate_results(f, f.area(), &mut state, &theme))
+            .unwrap();
     }
 
     #[test]
@@ -350,7 +361,8 @@ mod tests {
         let mut state = ValidateResultsState::new(vec![make_violation("k", "f")]);
         state.scroll = 9999;
         let theme = default_theme();
-        term.draw(|f| render_validate_results(f, f.area(), &mut state, &theme)).unwrap();
+        term.draw(|f| render_validate_results(f, f.area(), &mut state, &theme))
+            .unwrap();
         assert!(state.scroll < 9999);
     }
 
@@ -358,9 +370,13 @@ mod tests {
     fn test_render_records_viewport_height() {
         let mut term = make_terminal(120, 40);
         let mut state = ValidateResultsState::new(vec![make_violation("k", "f")]);
-        assert_eq!(state.last_viewport_height, None, "unset before first render");
+        assert_eq!(
+            state.last_viewport_height, None,
+            "unset before first render"
+        );
         let theme = default_theme();
-        term.draw(|f| render_validate_results(f, f.area(), &mut state, &theme)).unwrap();
+        term.draw(|f| render_validate_results(f, f.area(), &mut state, &theme))
+            .unwrap();
         // Popup height = area 40 - 4 = 36; inner = 36 - 2 border rows = 34.
         assert_eq!(state.last_viewport_height, Some(34));
     }
@@ -369,8 +385,9 @@ mod tests {
     fn test_scroll_down_uses_recorded_viewport_height() {
         // 10 violations render as 40 lines. With a recorded inner height of
         // 34, max scroll is 6; with the old hardcoded 24 it would be 16.
-        let violations: Vec<Violation> =
-            (0..10).map(|i| make_violation(&format!("k{i}"), "f")).collect();
+        let violations: Vec<Violation> = (0..10)
+            .map(|i| make_violation(&format!("k{i}"), "f"))
+            .collect();
         let mut state = ValidateResultsState::new(violations);
         state.last_viewport_height = Some(34);
         let total = state.violations.len() * 4;
@@ -386,6 +403,7 @@ mod tests {
         let mut term = make_terminal(20, 6);
         let mut state = ValidateResultsState::new(vec![make_violation("k", "f")]);
         let theme = default_theme();
-        term.draw(|f| render_validate_results(f, f.area(), &mut state, &theme)).unwrap();
+        term.draw(|f| render_validate_results(f, f.area(), &mut state, &theme))
+            .unwrap();
     }
 }

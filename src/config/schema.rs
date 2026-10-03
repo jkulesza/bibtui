@@ -67,7 +67,11 @@ pub struct ImportConfig {
 }
 
 impl Default for ImportConfig {
-    fn default() -> Self { Self { max_pdf_size_mb: 100 } }
+    fn default() -> Self {
+        Self {
+            max_pdf_size_mb: 100,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -270,18 +274,8 @@ impl Default for TitlecaseConfig {
         TitlecaseConfig {
             ignore_words: vec!["MCNP".to_string(), "OpenMC".to_string()],
             stop_words: vec![
-                "a", "an", "and", "as", "at",
-                "but", "by",
-                "for",
-                "in",
-                "nor",
-                "of", "off", "on", "or", "out",
-                "per",
-                "so",
-                "the", "to",
-                "up",
-                "via", "vs",
-                "yet",
+                "a", "an", "and", "as", "at", "but", "by", "for", "in", "nor", "of", "off", "on",
+                "or", "out", "per", "so", "the", "to", "up", "via", "vs", "yet",
             ]
             .into_iter()
             .map(str::to_string)
@@ -325,7 +319,9 @@ pub struct CitationConfig {
 
 impl Default for CitationConfig {
     fn default() -> Self {
-        CitationConfig { style: "IEEEtranN".to_string() }
+        CitationConfig {
+            style: "IEEEtranN".to_string(),
+        }
     }
 }
 
@@ -368,7 +364,11 @@ mod tests {
         cfg.save.entry_sort_order = "author".to_string();
         let warnings = cfg.validation_warnings();
         assert_eq!(warnings.len(), 1);
-        assert!(warnings[0].contains("entry_sort_order"), "got: {}", warnings[0]);
+        assert!(
+            warnings[0].contains("entry_sort_order"),
+            "got: {}",
+            warnings[0]
+        );
     }
 
     #[test]
@@ -380,7 +380,9 @@ mod tests {
                 cfg.save.entry_sort_order = so.to_string();
                 assert!(
                     cfg.validation_warnings().is_empty(),
-                    "'{}'/'{}' must be accepted", fo, so
+                    "'{}'/'{}' must be accepted",
+                    fo,
+                    so
                 );
             }
         }

@@ -16,7 +16,6 @@ pub(super) enum SaveError {
     Write(std::io::Error),
 }
 
-
 #[derive(Clone)]
 struct SaveState {
     database: Database,
@@ -32,9 +31,17 @@ struct SaveState {
 
 impl SaveState {
     fn capture(app: &App) -> Self {
-        Self { database: app.database.clone(), undo: app.undo_stack.clone(),
-            generation: app.save_generation, deleted: app.deleted_raw_indices.clone(),
-            sorted: app.sorted_keys.clone(), detail_key: app.detail_entry_key.clone(), dirty: app.dirty, view_dirty: app.view_dirty, search_cache_dirty: app.search_cache_dirty }
+        Self {
+            database: app.database.clone(),
+            undo: app.undo_stack.clone(),
+            generation: app.save_generation,
+            deleted: app.deleted_raw_indices.clone(),
+            sorted: app.sorted_keys.clone(),
+            detail_key: app.detail_entry_key.clone(),
+            dirty: app.dirty,
+            view_dirty: app.view_dirty,
+            search_cache_dirty: app.search_cache_dirty,
+        }
     }
     fn restore(self, app: &mut App) {
         app.database = self.database;
@@ -57,35 +64,51 @@ pub(super) struct SavePlan {
     renames: Vec<PlannedRename>,
 }
 
-
 impl App {
     /// Synchronize all attachments, retaining successful changes and reporting
     /// failures individually. A manual bulk sync is a single undo operation.
     pub(super) fn sync_filenames(&mut self, force: bool) {
-        if !force && !self.config.save.sync_filenames { return; }
+        if !force && !self.config.save.sync_filenames {
+            return;
+        }
         let keys: Vec<String> = self.database.entries.keys().cloned().collect();
         let mut undo = Vec::new();
         let mut errors = Vec::new();
         for key in keys {
             let (item, entry_errors) = self.rename_entry_files(&key);
-            if let Some(item) = item { undo.push(item); }
+            if let Some(item) = item {
+                undo.push(item);
+            }
             errors.extend(entry_errors);
         }
-        if !undo.is_empty() { self.push_undo(UndoItem::Batch(undo)); }
+        if !undo.is_empty() {
+            self.push_undo(UndoItem::Batch(undo));
+        }
         self.status_message = Some(if errors.is_empty() {
             "Filenames synced to citation keys".to_string()
-        } else { format!("File rename errors: {}", errors.join("; ")) });
+        } else {
+            format!("File rename errors: {}", errors.join("; "))
+        });
     }
 
     pub(super) fn sync_entry_filename(&mut self) {
-        let Some(key) = self.detail_entry_key.clone() else { return };
-        if !self.database.entries.get(&key).is_some_and(|e| e.fields.contains_key("file")) {
+        let Some(key) = self.detail_entry_key.clone() else {
+            return;
+        };
+        if !self
+            .database
+            .entries
+            .get(&key)
+            .is_some_and(|e| e.fields.contains_key("file"))
+        {
             self.status_message = Some("No file attachment to sync".into());
             return;
         }
         let (item, errors) = self.rename_entry_files(&key);
         let changed = item.is_some();
-        if let Some(item) = item { self.push_undo(item); }
+        if let Some(item) = item {
+            self.push_undo(item);
+        }
         self.status_message = Some(if !errors.is_empty() {
             format!("File rename errors: {}", errors.join("; "))
         } else if changed {
@@ -96,9 +119,16 @@ impl App {
     }
 
     fn rename_entry_files(&mut self, key: &str) -> (Option<UndoItem>, Vec<String>) {
-        let Some(entry) = self.database.entries.get(key) else { return (None, vec![]) };
-        let Some(old_file_value) = entry.fields.get("file").cloned() else { return (None, vec![]) };
-        let file_dir = effective_file_dir(&self.bib_path, self.database.jabref_meta.file_directory.as_deref());
+        let Some(entry) = self.database.entries.get(key) else {
+            return (None, vec![]);
+        };
+        let Some(old_file_value) = entry.fields.get("file").cloned() else {
+            return (None, vec![]);
+        };
+        let file_dir = effective_file_dir(
+            &self.bib_path,
+            self.database.jabref_meta.file_directory.as_deref(),
+        );
         let mut files = parse_file_field(&old_file_value);
         let plans = plan_filename_renames(&entry.citation_key, &files, &file_dir);
         let mut renames = Vec::new();
@@ -109,31 +139,65 @@ impl App {
                     files[plan.index].path = plan.new_rel_path;
                     renames.push((plan.new_abs, plan.old_abs));
                 }
-                Err(error) => errors.push(format!("rename {} to {}: {}", plan.old_abs.display(), plan.new_abs.display(), error)),
+                Err(error) => errors.push(format!(
+                    "rename {} to {}: {}",
+                    plan.old_abs.display(),
+                    plan.new_abs.display(),
+                    error
+                )),
             }
         }
-        if renames.is_empty() { return (None, errors); }
+        if renames.is_empty() {
+            return (None, errors);
+        }
         if let Some(entry) = self.database.entries.get_mut(key) {
-            entry.fields.insert("file".into(), serialize_file_field(&files));
+            entry
+                .fields
+                .insert("file".into(), serialize_file_field(&files));
             entry.dirty = true;
             if self.detail_entry_key.as_deref() == Some(key) {
-                if let Some(detail) = self.detail_state.as_mut() { detail.refresh(entry); }
+                if let Some(detail) = self.detail_state.as_mut() {
+                    detail.refresh(entry);
+                }
             }
         }
-        (Some(UndoItem::FilenamesSynced { entry_key: key.into(), old_file_value, renames }), errors)
+        (
+            Some(UndoItem::FilenamesSynced {
+                entry_key: key.into(),
+                old_file_value,
+                renames,
+            }),
+            errors,
+        )
     }
 
-    pub(super) fn undo_filename_sync(&mut self, key: &str, old_value: String, renames: Vec<(PathBuf, PathBuf)>) -> bool {
-        let file_dir = effective_file_dir(&self.bib_path, self.database.jabref_meta.file_directory.as_deref());
+    pub(super) fn undo_filename_sync(
+        &mut self,
+        key: &str,
+        old_value: String,
+        renames: Vec<(PathBuf, PathBuf)>,
+    ) -> bool {
+        let file_dir = effective_file_dir(
+            &self.bib_path,
+            self.database.jabref_meta.file_directory.as_deref(),
+        );
         let old_files = parse_file_field(&old_value);
-        let mut files = self.database.entries.get(key).and_then(|e| e.fields.get("file")).map(|v| parse_file_field(v)).unwrap_or_default();
+        let mut files = self
+            .database
+            .entries
+            .get(key)
+            .and_then(|e| e.fields.get("file"))
+            .map(|v| parse_file_field(v))
+            .unwrap_or_default();
         let mut errors = Vec::new();
         for (new_abs, old_abs) in renames.into_iter().rev() {
             match self.save_io.rename_attachment(&new_abs, &old_abs) {
                 Ok(()) => {
                     for file in &mut files {
                         if crate::util::open::resolve_file_path(&file.path, &file_dir) == new_abs {
-                            if let Some(original) = old_files.iter().find(|f| crate::util::open::resolve_file_path(&f.path, &file_dir) == old_abs) {
+                            if let Some(original) = old_files.iter().find(|f| {
+                                crate::util::open::resolve_file_path(&f.path, &file_dir) == old_abs
+                            }) {
                                 *file = original.clone();
                             }
                         }
@@ -143,13 +207,26 @@ impl App {
             }
         }
         if let Some(entry) = self.database.entries.get_mut(key) {
-            entry.fields.insert("file".into(), if errors.is_empty() { old_value } else { serialize_file_field(&files) });
+            entry.fields.insert(
+                "file".into(),
+                if errors.is_empty() {
+                    old_value
+                } else {
+                    serialize_file_field(&files)
+                },
+            );
             entry.dirty = true;
             if self.detail_entry_key.as_deref() == Some(key) {
-                if let Some(detail) = self.detail_state.as_mut() { detail.refresh(entry); }
+                if let Some(detail) = self.detail_state.as_mut() {
+                    detail.refresh(entry);
+                }
             }
         }
-        self.status_message = Some(if errors.is_empty() { "Undo: filename sync".into() } else { format!("Undo errors: {}", errors.join("; ")) });
+        self.status_message = Some(if errors.is_empty() {
+            "Undo: filename sync".into()
+        } else {
+            format!("Undo errors: {}", errors.join("; "))
+        });
         errors.is_empty()
     }
 
@@ -222,7 +299,8 @@ impl App {
     pub(super) fn request_sync_filenames(&mut self) {
         let renames = self.compute_sync_renames(true);
         if renames.is_empty() {
-            self.status_message = Some("All filenames already match their citation keys".to_string());
+            self.status_message =
+                Some("All filenames already match their citation keys".to_string());
         } else {
             self.dialog_state = Some(DialogState::file_sync_preview(renames));
             self.pending_action = Some(PendingAction::SyncFilenamesOnly);
@@ -241,21 +319,38 @@ impl App {
                 return;
             }
         };
-        let preview: Vec<_> = plan.renames.iter().map(|p| (
-            p.old_abs.display().to_string(), p.new_abs.display().to_string()
-        )).collect();
+        let preview: Vec<_> = plan
+            .renames
+            .iter()
+            .map(|p| {
+                (
+                    p.old_abs.display().to_string(),
+                    p.new_abs.display().to_string(),
+                )
+            })
+            .collect();
         self.pending_save = Some(plan);
         if preview.is_empty() {
-            if self.save() && and_quit { self.should_quit = true; }
+            if self.save() && and_quit {
+                self.should_quit = true;
+            }
         } else {
             self.dialog_state = Some(DialogState::file_sync_preview(preview));
-            self.pending_action = Some(if and_quit { PendingAction::SaveAndQuit } else { PendingAction::Save });
+            self.pending_action = Some(if and_quit {
+                PendingAction::SaveAndQuit
+            } else {
+                PendingAction::Save
+            });
             self.mode = InputMode::Dialog;
         }
     }
 
     pub(super) fn save(&mut self) -> bool {
-        let plan = self.pending_save.take().map(Ok).unwrap_or_else(|| self.prepare_save_plan());
+        let plan = self
+            .pending_save
+            .take()
+            .map(Ok)
+            .unwrap_or_else(|| self.prepare_save_plan());
         match plan.and_then(|plan| self.execute_save_plan(plan)) {
             Ok(()) => {
                 self.status_message = Some(format!("Saved to {}", self.bib_path.display()));
@@ -270,8 +365,13 @@ impl App {
     }
 
     fn verify_saved_contents(&self) -> std::result::Result<(), SaveError> {
-        let current = self.save_io.read(&self.bib_path).map_err(SaveError::Write)?;
-        if current != self.saved_contents { return Err(SaveError::ExternalChange); }
+        let current = self
+            .save_io
+            .read(&self.bib_path)
+            .map_err(SaveError::Write)?;
+        if current != self.saved_contents {
+            return Err(SaveError::ExternalChange);
+        }
         Ok(())
     }
 
@@ -279,34 +379,59 @@ impl App {
         self.verify_saved_contents()?;
         let before = SaveState::capture(self);
         self.apply_save_actions();
-        if self.config.save.save_action_regenerate_citekeys && self.regen_all_citekeys_impl(true) > 0 {
+        if self.config.save.save_action_regenerate_citekeys
+            && self.regen_all_citekeys_impl(true) > 0
+        {
             self.sorted_keys = sort_entries(&self.database.entries, &self.config);
         }
-        let file_dir = effective_file_dir(&self.bib_path, self.database.jabref_meta.file_directory.as_deref());
+        let file_dir = effective_file_dir(
+            &self.bib_path,
+            self.database.jabref_meta.file_directory.as_deref(),
+        );
         let mut renames = Vec::new();
         let mut undo = Vec::new();
         if self.config.save.sync_filenames {
             for (key, entry) in &mut self.database.entries {
-                let Some(old_value) = entry.fields.get("file").cloned() else { continue };
+                let Some(old_value) = entry.fields.get("file").cloned() else {
+                    continue;
+                };
                 let mut files = parse_file_field(&old_value);
                 let plans = plan_filename_renames(&entry.citation_key, &files, &file_dir);
-                if plans.is_empty() { continue; }
-                let undo_renames = plans.iter().map(|p| (p.new_abs.clone(), p.old_abs.clone())).collect();
-                for plan in &plans { files[plan.index].path = plan.new_rel_path.clone(); }
-                entry.fields.insert("file".into(), serialize_file_field(&files));
+                if plans.is_empty() {
+                    continue;
+                }
+                let undo_renames = plans
+                    .iter()
+                    .map(|p| (p.new_abs.clone(), p.old_abs.clone()))
+                    .collect();
+                for plan in &plans {
+                    files[plan.index].path = plan.new_rel_path.clone();
+                }
+                entry
+                    .fields
+                    .insert("file".into(), serialize_file_field(&files));
                 entry.dirty = true;
-                undo.push(UndoItem::FilenamesSynced { entry_key: key.clone(), old_file_value: old_value, renames: undo_renames });
+                undo.push(UndoItem::FilenamesSynced {
+                    entry_key: key.clone(),
+                    old_file_value: old_value,
+                    renames: undo_renames,
+                });
                 renames.extend(plans);
             }
         }
-        if !undo.is_empty() { self.push_undo(UndoItem::Batch(undo)); }
+        if !undo.is_empty() {
+            self.push_undo(UndoItem::Batch(undo));
+        }
         self.sync_dirty_entries();
         self.sort_entries_for_save();
         crate::bib::writer::normalize_separators(&mut self.database.raw_file);
         let output = write_bib_file(&self.database.raw_file);
         let plan = SavePlan {
-            original: before.database.clone(), path: self.bib_path.clone(),
-            staged: SaveState::capture(self), output, renames,
+            original: before.database.clone(),
+            path: self.bib_path.clone(),
+            staged: SaveState::capture(self),
+            output,
+            renames,
         };
         before.restore(self);
         self.validate_save_renames(&plan)?;
@@ -315,8 +440,13 @@ impl App {
 
     fn validate_save_renames(&self, plan: &SavePlan) -> std::result::Result<(), SaveError> {
         use std::collections::{HashMap, HashSet};
-        if plan.renames.is_empty() { return Ok(()); }
-        let file_dir = effective_file_dir(&self.bib_path, self.database.jabref_meta.file_directory.as_deref());
+        if plan.renames.is_empty() {
+            return Ok(());
+        }
+        let file_dir = effective_file_dir(
+            &self.bib_path,
+            self.database.jabref_meta.file_directory.as_deref(),
+        );
         let mut owners: HashMap<PathBuf, usize> = HashMap::new();
         for entry in self.database.entries.values() {
             if let Some(value) = entry.fields.get("file") {
@@ -329,12 +459,26 @@ impl App {
         }
         let mut targets = HashSet::new();
         for rename in &plan.renames {
-            let source = rename.old_abs.canonicalize().map_err(|error| SaveError::Plan(format!("attachment {}: {}", rename.old_abs.display(), error)))?;
+            let source = rename.old_abs.canonicalize().map_err(|error| {
+                SaveError::Plan(format!(
+                    "attachment {}: {}",
+                    rename.old_abs.display(),
+                    error
+                ))
+            })?;
             if owners.get(&source).copied().unwrap_or(0) > 1 {
-                return Err(SaveError::Plan(format!("shared attachment {} cannot be renamed to multiple citation keys", source.display())));
+                return Err(SaveError::Plan(format!(
+                    "shared attachment {} cannot be renamed to multiple citation keys",
+                    source.display()
+                )));
             }
-            if !targets.insert(rename.new_abs.clone()) || std::fs::symlink_metadata(&rename.new_abs).is_ok() {
-                return Err(SaveError::Plan(format!("attachment target {} already exists or is used twice", rename.new_abs.display())));
+            if !targets.insert(rename.new_abs.clone())
+                || std::fs::symlink_metadata(&rename.new_abs).is_ok()
+            {
+                return Err(SaveError::Plan(format!(
+                    "attachment target {} already exists or is used twice",
+                    rename.new_abs.display()
+                )));
             }
         }
         Ok(())
@@ -342,34 +486,56 @@ impl App {
 
     fn execute_save_plan(&mut self, plan: SavePlan) -> std::result::Result<(), SaveError> {
         if self.database != plan.original || self.bib_path != plan.path {
-            return Err(SaveError::Plan("library changed during the preview; save again to review a new plan".into()));
+            return Err(SaveError::Plan(
+                "library changed during the preview; save again to review a new plan".into(),
+            ));
         }
         self.verify_saved_contents()?;
         self.validate_save_renames(&plan)?;
         // Output is fully serialized before either backup or attachment mutation.
         if self.config.general.backup_on_save && self.saved_contents.is_some() {
-            self.save_io.backup(&self.bib_path, &self.bib_path.with_extension("bib.bak")).map_err(SaveError::Backup)?;
+            self.save_io
+                .backup(&self.bib_path, &self.bib_path.with_extension("bib.bak"))
+                .map_err(SaveError::Backup)?;
         }
         self.verify_saved_contents()?;
         let mut completed = Vec::new();
         let result = (|| {
             for rename in &plan.renames {
-                self.save_io.rename_attachment(&rename.old_abs, &rename.new_abs).map_err(SaveError::Write)?;
+                self.save_io
+                    .rename_attachment(&rename.old_abs, &rename.new_abs)
+                    .map_err(SaveError::Write)?;
                 completed.push(rename);
             }
             self.verify_saved_contents()?;
-            self.save_io.persist(&self.bib_path, plan.output.as_bytes()).map_err(SaveError::Write)
+            self.save_io
+                .persist(&self.bib_path, plan.output.as_bytes())
+                .map_err(SaveError::Write)
         })();
         if let Err(error) = result {
             let mut recovery_errors = Vec::new();
             for rename in completed.into_iter().rev() {
-                if let Err(recovery) = self.save_io.rename_attachment(&rename.new_abs, &rename.old_abs) {
+                if let Err(recovery) = self
+                    .save_io
+                    .rename_attachment(&rename.new_abs, &rename.old_abs)
+                {
                     self.retain_unreversed_rename(rename);
-                    recovery_errors.push(format!("{} remains at {}: {}", rename.old_abs.display(), rename.new_abs.display(), recovery));
+                    recovery_errors.push(format!(
+                        "{} remains at {}: {}",
+                        rename.old_abs.display(),
+                        rename.new_abs.display(),
+                        recovery
+                    ));
                 }
             }
-            return Err(if recovery_errors.is_empty() { error } else {
-                SaveError::Plan(format!("{}; attachment recovery failed: {}", error, recovery_errors.join("; ")))
+            return Err(if recovery_errors.is_empty() {
+                error
+            } else {
+                SaveError::Plan(format!(
+                    "{}; attachment recovery failed: {}",
+                    error,
+                    recovery_errors.join("; ")
+                ))
             });
         }
         plan.staged.restore(self);
@@ -378,18 +544,27 @@ impl App {
         self.saved_contents = Some(plan.output.into_bytes());
         self.save_generation = Some(self.undo_stack.len());
         self.dirty = false;
-        for entry in self.database.entries.values_mut() { entry.dirty = false; }
+        for entry in self.database.entries.values_mut() {
+            entry.dirty = false;
+        }
         if let (Some(key), Some(detail)) = (&self.detail_entry_key, &mut self.detail_state) {
-            if let Some(entry) = self.database.entries.get(key) { detail.refresh(entry); }
+            if let Some(entry) = self.database.entries.get(key) {
+                detail.refresh(entry);
+            }
         }
         Ok(())
     }
 
     fn retain_unreversed_rename(&mut self, rename: &PlannedRename) {
-        let file_dir = effective_file_dir(&self.bib_path, self.database.jabref_meta.file_directory.as_deref());
+        let file_dir = effective_file_dir(
+            &self.bib_path,
+            self.database.jabref_meta.file_directory.as_deref(),
+        );
         let mut undo = Vec::new();
         for (key, entry) in &mut self.database.entries {
-            let Some(old_value) = entry.fields.get("file").cloned() else { continue };
+            let Some(old_value) = entry.fields.get("file").cloned() else {
+                continue;
+            };
             let mut files = parse_file_field(&old_value);
             let mut changed = false;
             for file in &mut files {
@@ -399,12 +574,20 @@ impl App {
                 }
             }
             if changed {
-                entry.fields.insert("file".into(), serialize_file_field(&files));
+                entry
+                    .fields
+                    .insert("file".into(), serialize_file_field(&files));
                 entry.dirty = true;
-                undo.push(UndoItem::FilenamesSynced { entry_key: key.clone(), old_file_value: old_value, renames: vec![(rename.new_abs.clone(), rename.old_abs.clone())] });
+                undo.push(UndoItem::FilenamesSynced {
+                    entry_key: key.clone(),
+                    old_file_value: old_value,
+                    renames: vec![(rename.new_abs.clone(), rename.old_abs.clone())],
+                });
             }
         }
-        if !undo.is_empty() { self.push_undo(UndoItem::Batch(undo)); }
+        if !undo.is_empty() {
+            self.push_undo(UndoItem::Batch(undo));
+        }
         self.save_generation = None;
     }
 
@@ -480,9 +663,7 @@ impl App {
                     // Reuse the original raw values for fields the user did not
                     // change (preserves `#` concatenation and @String references).
                     let original = match &self.database.raw_file.items[entry.raw_index] {
-                        RawItem::Entry(re) => {
-                            Some(re)
-                        }
+                        RawItem::Entry(re) => Some(re),
                         _ => None,
                     };
                     let serialized = serialize_entry(
@@ -492,15 +673,14 @@ impl App {
                         original,
                     );
                     let merged_fields = merged_raw_fields(entry, original);
-                    self.database.raw_file.items[entry.raw_index] =
-                        RawItem::Entry(RawEntry {
-                            entry_type: entry.entry_type.display_name().to_string(),
-                            citation_key: entry.citation_key.clone(),
-                            // Keep raw values so a later save can still tell
-                            // which fields are unchanged.
-                            fields: merged_fields,
-                            raw_text: serialized,
-                        });
+                    self.database.raw_file.items[entry.raw_index] = RawItem::Entry(RawEntry {
+                        entry_type: entry.entry_type.display_name().to_string(),
+                        citation_key: entry.citation_key.clone(),
+                        // Keep raw values so a later save can still tell
+                        // which fields are unchanged.
+                        fields: merged_fields,
+                        raw_text: serialized,
+                    });
                 } else {
                     new_keys.push(key);
                 }
@@ -548,10 +728,10 @@ impl App {
                 // Insert: blank line, entry, blank line (before @Comment).
                 // normalize_separators will collapse any excess, ensuring exactly
                 // one blank line on each side of the new entry.
-                self.database.raw_file.items.insert(
-                    insert_pos,
-                    RawItem::Preamble("\n".to_string()),
-                );
+                self.database
+                    .raw_file
+                    .items
+                    .insert(insert_pos, RawItem::Preamble("\n".to_string()));
                 self.database.raw_file.items.insert(
                     insert_pos + 1,
                     RawItem::Entry(RawEntry {
@@ -561,10 +741,10 @@ impl App {
                         raw_text: serialized,
                     }),
                 );
-                self.database.raw_file.items.insert(
-                    insert_pos + 2,
-                    RawItem::Preamble("\n".to_string()),
-                );
+                self.database
+                    .raw_file
+                    .items
+                    .insert(insert_pos + 2, RawItem::Preamble("\n".to_string()));
             }
         }
 
@@ -594,7 +774,13 @@ impl App {
             .items
             .iter()
             .enumerate()
-            .filter_map(|(i, item)| if matches!(item, RawItem::Entry(_)) { Some(i) } else { None })
+            .filter_map(|(i, item)| {
+                if matches!(item, RawItem::Entry(_)) {
+                    Some(i)
+                } else {
+                    None
+                }
+            })
             .collect();
 
         if entry_indices.len() < 2 {
@@ -629,17 +815,39 @@ impl App {
 
 /// Text fields that contain natural-language prose / titles.
 const TEXT: &[&str] = &[
-    "abstract", "addendum", "address", "annote",
-    "booktitle", "chapter", "edition", "institution", "journal",
-    "keywords", "language", "note", "organization", "publisher",
-    "school", "series", "subtitle", "title", "titleaddon", "type",
+    "abstract",
+    "addendum",
+    "address",
+    "annote",
+    "booktitle",
+    "chapter",
+    "edition",
+    "institution",
+    "journal",
+    "keywords",
+    "language",
+    "note",
+    "organization",
+    "publisher",
+    "school",
+    "series",
+    "subtitle",
+    "title",
+    "titleaddon",
+    "type",
     "venue",
 ];
 
 /// Person-name (name-list) fields.
 const NAMES: &[&str] = &[
-    "author", "editor", "editora", "editorb", "editorc",
-    "bookauthor", "afterword", "translator",
+    "author",
+    "editor",
+    "editora",
+    "editorb",
+    "editorc",
+    "bookauthor",
+    "afterword",
+    "translator",
 ];
 
 /// A single net field change produced by the enabled save actions.
@@ -828,15 +1036,17 @@ pub(super) fn compute_save_transforms(
 
 /// Return a short label describing which save action is responsible for
 /// the change in `field`.  Used in the Validate results popup.
-pub(super) fn action_label_for_field(field: &str, cfg: &crate::config::schema::SaveConfig) -> &'static str {
+pub(super) fn action_label_for_field(
+    field: &str,
+    cfg: &crate::config::schema::SaveConfig,
+) -> &'static str {
     match field {
         "url" if cfg.save_action_cleanup_url => "cleanup_url",
         "date" if cfg.save_action_normalize_date => "normalize_date",
         "month" if cfg.save_action_normalize_month => "normalize_month",
         "pages" if cfg.save_action_normalize_page_numbers => "normalize_pages",
         "isbn" if cfg.save_action_normalize_isbn => "normalize_isbn",
-        "author" | "editor" | "editora" | "editorb" | "editorc"
-        | "bookauthor" | "translator"
+        "author" | "editor" | "editora" | "editorb" | "editorc" | "bookauthor" | "translator"
             if cfg.save_action_normalize_names_of_persons =>
         {
             "normalize_names"
@@ -927,7 +1137,11 @@ fn numeric_sort_key(field: &str, value: &str) -> (u8, i64, String) {
 /// `Some(123)`). Returns `None` when the value does not start with a digit.
 fn leading_integer(v: &str) -> Option<i64> {
     let sign = usize::from(v.starts_with(['-', '+']));
-    let end = sign + v.as_bytes()[sign..].iter().take_while(|b| b.is_ascii_digit()).count();
+    let end = sign
+        + v.as_bytes()[sign..]
+            .iter()
+            .take_while(|b| b.is_ascii_digit())
+            .count();
     v[..end].parse::<i64>().ok()
 }
 

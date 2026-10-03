@@ -72,7 +72,12 @@ fn titlecase_compound_word(
             // First part inherits the boundary status of the whole compound.
             // Parts after a hyphen are treated as non-boundary: stop words stay
             // lowercase, all other words are capitalized.
-            titlecase_word(part, if j == 0 { force_cap } else { false }, ignore_words, stop_words)
+            titlecase_word(
+                part,
+                if j == 0 { force_cap } else { false },
+                ignore_words,
+                stop_words,
+            )
         })
         .collect::<Vec<_>>()
         .join("-")
@@ -132,8 +137,7 @@ mod tests {
     }
 
     fn stops() -> Vec<String> {
-        crate::config::schema::TitlecaseConfig::default()
-            .stop_words
+        crate::config::schema::TitlecaseConfig::default().stop_words
     }
 
     #[test]
