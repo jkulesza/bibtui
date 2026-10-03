@@ -2,3 +2,5 @@
 *.bak
 jabref.bib
 .claude/
+
+__pycache__/

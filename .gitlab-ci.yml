@@ -14,15 +14,46 @@ variables:
 
 test:
   stage: test
-  image: rust:latest
+  image: rust:${RUST_VERSION}
+  parallel:
+    matrix:
+      - RUST_VERSION: ["1.88.0", "1.93.1"]
   cache:
-    key: "test-${CI_COMMIT_REF_SLUG}"
+    key: "test-${RUST_VERSION}-${CI_COMMIT_REF_SLUG}"
     paths:
       - .cargo/registry/
       - .cargo/git/
       - target/
   script:
-    - cargo test --verbose
+    - cargo test --workspace --locked --verbose
+
+quality:
+  stage: test
+  image: rust:1.93.1
+  before_script:
+    - rustup component add rustfmt clippy
+    - apt-get update -qq && apt-get install -y python3
+  script:
+    - cargo fmt --all -- --check
+    - cargo clippy --locked --all-targets -- -D warnings
+    - python3 -m unittest discover -s scripts -p 'test_*.py'
+
+coverage:
+  stage: test
+  image: rust:1.93.1
+  before_script:
+    - rustup component add llvm-tools-preview
+    - apt-get update -qq && apt-get install -y python3
+    - cargo install cargo-llvm-cov --version 0.8.4 --locked
+  script:
+    - cargo llvm-cov --locked --workspace --json --output-path coverage.json
+    - python3 scripts/check_coverage.py coverage.json
+    - cargo llvm-cov report --summary-only | tee coverage-summary.txt
+  artifacts:
+    when: always
+    paths:
+      - coverage.json
+      - coverage-summary.txt
 
 # ── Build ─────────────────────────────────────────────────────────────────────
 # Runs on every push (after test). Produces stripped release binaries.
@@ -41,7 +72,7 @@ build:linux-x86_64:
     - apt-get update -qq && apt-get install -y musl-tools
     - rustup target add x86_64-unknown-linux-musl
   script:
-    - cargo build --release --target x86_64-unknown-linux-musl
+    - cargo build --locked --release --target x86_64-unknown-linux-musl
     - strip target/x86_64-unknown-linux-musl/release/${PACKAGE_NAME}
   artifacts:
     paths:
@@ -63,7 +94,7 @@ build:windows-x86_64:
     - apt-get update -qq && apt-get install -y mingw-w64
     - rustup target add x86_64-pc-windows-gnu
   script:
-    - cargo build --release --target x86_64-pc-windows-gnu
+    - cargo build --locked --release --target x86_64-pc-windows-gnu
       --config target.x86_64-pc-windows-gnu.linker=\"x86_64-w64-mingw32-gcc\"
     - x86_64-w64-mingw32-strip target/x86_64-pc-windows-gnu/release/${PACKAGE_NAME}.exe
   artifacts:
@@ -96,8 +127,8 @@ build:macos:
     - rustup target add aarch64-apple-darwin x86_64-apple-darwin
   script:
     - source "${HOME}/.cargo/env"
-    - cargo build --release --target aarch64-apple-darwin
-    - cargo build --release --target x86_64-apple-darwin
+    - cargo build --locked --release --target aarch64-apple-darwin
+    - cargo build --locked --release --target x86_64-apple-darwin
     - strip target/aarch64-apple-darwin/release/${PACKAGE_NAME}
     - strip target/x86_64-apple-darwin/release/${PACKAGE_NAME}
   artifacts:

@@ -6,7 +6,7 @@ Implementation of the October 1 review. Each item is committed separately after 
 
 - R03: restored entries rebind to the current raw document; key undo retains the current binding and marks it dirty. Automatic save-time renames are undo batches, preserving older field history.
 
-Remaining: Q02 build/quality gates and final measurements.
+All 19 numbered review items are implemented. Final validation and measurements are recorded below.
 
 - R09 (part 1): owned atomic temporary files, permission/symlink preservation, injectable persistence, and in-memory rollback on failure.
 
@@ -55,3 +55,15 @@ Remaining: Q02 build/quality gates and final measurements.
 - R14 follow-up: serialize imported attachment paths through the shared escaping routine; use escaped absolute paths in native-platform test fixtures and test semicolon filenames through save/reload.
 
 - R04 follow-up: aggregate failed reversals across undo batches so later successful changes cannot hide attachment recovery errors.
+
+- Q02 (quality gates): declare and test Rust 1.88.0, bump the minor version to 0.62.0, replace drain/collect with mem::take, and add native Linux/macOS/Windows CI tests. Pin format/Clippy/coverage to Rust 1.93.1 and cargo-llvm-cov 0.8.4; enforce reviewed overall/application coverage floors and export existing reports without rerunning tests.
+
+Validation on x86_64 macOS (October 3, 2026):
+
+- 1,676 Rust tests pass on Rust 1.88.0, 1.93.1 (instrumented coverage), and 1.98.1. The two Python coverage-gate tests pass.
+- All 18 archived review regressions pass. The comparator probe now checks ordering laws under the documented lexical policy rather than requiring natural ordering.
+- rustfmt checks and strict Clippy pass; the release binary reports `bibtui 0.62.0`.
+- Overall LLVM line coverage is 90.77% (review: 88.44%). App editing is 34.29% (22.97%), App state/dispatch is 73.06% (62.56%), and saving is 95.10% (90.71%). Overall counts include inline unit tests, and formatting changed the line denominator; module values are more useful for planning further coverage work.
+- Coverage floors are rounded down deliberately; the worker has a wider floor for scheduler-dependent cancellation branches. Baseline changes are explicit edits reviewed with the measurements.
+
+Native Linux and Windows jobs are configured but were not executed locally. The review's separately scoped macro-resolution/export compatibility project remains future work. Persistence detects ordinary external edits and recovers ordinary failures; it does not lock other processes or provide filesystem-wide crash atomicity.

@@ -691,7 +691,7 @@ impl App {
         // relative to the pre-save layout, so this must run before any insertion.
         // Process in reverse index order so earlier removals don't shift later ones.
         if !self.deleted_raw_indices.is_empty() {
-            let mut to_remove = self.deleted_raw_indices.drain(..).collect::<Vec<_>>();
+            let mut to_remove = std::mem::take(&mut self.deleted_raw_indices);
             to_remove.sort_unstable_by(|a, b| b.cmp(a)); // descending
             to_remove.dedup();
             for idx in to_remove {

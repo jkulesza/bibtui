@@ -42,7 +42,7 @@ A terminal UI BibTeX manager written in Rust. Designed as a lightweight, keyboar
 
 ## Requirements
 
-- Rust toolchain (stable, 1.70+): https://rustup.rs
+- Rust toolchain (1.88.0 or newer): https://rustup.rs
 
 ## Build
 
@@ -434,7 +434,14 @@ PDF candidates are tried in order (Unpaywall OA → publisher PDF → ANS direct
 cargo test
 ```
 
-All 1598 tests pass (unit tests, round-trip, parser edge cases, JabRef compatibility, citekey generation, journal abbreviation, TUI component state machines, config loading, import pipeline, and export serialisation). Line coverage: ~88%.
+Run `cargo test --locked` for the complete suite. CI runs native tests on Linux,
+macOS, and Windows and checks the minimum compiler, Rust 1.88.0. Formatting and
+strict Clippy use Rust 1.93.1. Coverage uses the same fixed compiler and
+cargo-llvm-cov 0.8.4; `scripts/check_coverage.py` checks the checked-in overall and
+application-module floors in `coverage-baseline.json`. Baseline changes require an
+explicit edit with an explanation. `cargo llvm-cov report --summary-only` displays
+an existing report without rerunning tests. See `review/IMPLEMENTATION.md` for
+measured coverage, performance, and remaining platform-validation limits.
 
 Coverage analysis runs automatically in CI via `cargo-llvm-cov`. To run locally:
 

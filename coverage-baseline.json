@@ -1,0 +1,8 @@
+{
+  "TOTAL": 90.0,
+  "src/app/mod.rs": 72.0,
+  "src/app/editing.rs": 34.0,
+  "src/app/save.rs": 94.0,
+  "src/search/engine.rs": 97.0,
+  "src/search/worker.rs": 95.0
+}
