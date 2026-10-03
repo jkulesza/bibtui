@@ -839,3 +839,154 @@ fn background_search_discards_old_queries_and_edits_and_batches_paste() {
     app.poll_search();
     assert!(app.filtered_indices.is_none());
 }
+
+fn workflow_key(app: &mut App, code: KeyCode) {
+    app.handle_event(Event::Key(KeyEvent::new(code, crossterm::event::KeyModifiers::NONE)));
+}
+fn workflow_chars(app: &mut App, text: &str) {
+    for c in text.chars() { workflow_key(app, KeyCode::Char(c)); }
+}
+fn workflow_command(app: &mut App, command: &str) {
+    workflow_key(app, KeyCode::Char(':'));
+    app.handle_event(Event::Paste(command.into()));
+    workflow_key(app, KeyCode::Enter);
+}
+
+#[test]
+fn event_workflow_edit_save_undo_save_and_reload() {
+    let (mut app, _dir) = review_app("@Misc{A, title={Original}, year={2020}}\n");
+    app.config.citekey.templates.insert("misc".into(), "A".into());
+    app.focus = Focus::List;
+    workflow_key(&mut app, KeyCode::Enter);
+    workflow_chars(&mut app, "/title");
+    workflow_key(&mut app, KeyCode::Enter);
+    workflow_chars(&mut app, "eS");
+    app.handle_event(Event::Paste("Updated\nUnicode é".into()));
+    workflow_key(&mut app, KeyCode::Enter);
+    assert_eq!(app.database.entries["A"].fields["title"], "Updated Unicode é");
+    assert!(app.dirty);
+    // One Escape clears detail search; the next returns to the entry list.
+    workflow_key(&mut app, KeyCode::Esc);
+    workflow_key(&mut app, KeyCode::Esc);
+    workflow_command(&mut app, "w");
+    assert!(!app.dirty);
+    workflow_chars(&mut app, "u");
+    assert!(app.dirty);
+    workflow_command(&mut app, "w");
+    let reload = App::new(app.bib_path.clone(), app.config.clone()).unwrap();
+    assert_eq!(reload.database.entries["A"].fields["title"], "Original");
+    assert_eq!(app.selected_entry_key().as_deref(), Some("A"));
+    assert!(!app.dirty);
+}
+
+#[test]
+fn event_workflow_creates_library_and_roundtrips_settings() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut config = default_config();
+    config.general.backup_on_save = false;
+    config.save.save_action_regenerate_citekeys = false;
+    let mut app = App::new_empty(config).unwrap();
+    let path = dir.path().join("new_library");
+    app.handle_event(Event::Paste(path.display().to_string()));
+    workflow_key(&mut app, KeyCode::Enter);
+    assert!(path.with_extension("bib").exists());
+    assert_eq!(app.mode, InputMode::Normal);
+    app.focus = Focus::List;
+    workflow_chars(&mut app, "a");
+    workflow_key(&mut app, KeyCode::Enter);
+    assert_eq!(app.database.entries.len(), 1);
+    workflow_key(&mut app, KeyCode::Esc);
+    workflow_command(&mut app, "w");
+    assert!(!app.dirty);
+    let reload = App::new(app.bib_path.clone(), app.config.clone()).unwrap();
+    assert_eq!(reload.database.entries.len(), 1);
+    workflow_chars(&mut app, "SE");
+    // Path editors begin in Insert mode. Clear their default at the cursor.
+    app.handle_event(Event::Key(KeyEvent::new(KeyCode::Char('u'), crossterm::event::KeyModifiers::CONTROL)));
+    let settings_path = dir.path().join("settings.yaml");
+    app.handle_event(Event::Paste(settings_path.display().to_string()));
+    workflow_key(&mut app, KeyCode::Enter);
+    assert!(settings_path.exists());
+    let mut imported = app.config.clone();
+    imported.display.show_braces = !app.show_braces;
+    std::fs::write(&settings_path, serde_yaml::to_string(&imported).unwrap()).unwrap();
+    workflow_chars(&mut app, "I");
+    app.handle_event(Event::Paste(settings_path.display().to_string()));
+    workflow_key(&mut app, KeyCode::Enter);
+    assert_eq!(app.show_braces, imported.display.show_braces);
+    assert_eq!(app.mode, InputMode::Settings);
+}
+
+#[test]
+fn event_workflow_attachment_confirmation_failure_retry_and_undo() {
+    let (mut app, dir) = review_app("@Misc{A, file={:old.pdf:PDF}}\n");
+    app.config.save.sync_filenames = true;
+    std::fs::write(dir.path().join("old.pdf"), "%PDF attachment").unwrap();
+    app.save_io = Box::new(FailingSaveIo);
+    workflow_command(&mut app, "wq");
+    assert_eq!(app.mode, InputMode::Dialog);
+    workflow_chars(&mut app, "y");
+    assert!(!app.should_quit);
+    assert!(app.dirty);
+    assert!(dir.path().join("old.pdf").exists());
+    app.save_io = Box::new(crate::util::persistence::FileSaveIo);
+    workflow_command(&mut app, "w");
+    workflow_chars(&mut app, "y");
+    assert!(!app.dirty);
+    assert!(dir.path().join("A.pdf").exists());
+    workflow_chars(&mut app, "u");
+    assert!(app.dirty);
+    assert!(dir.path().join("old.pdf").exists());
+    assert_eq!(parse_file_field(&app.database.entries["A"].fields["file"])[0].path, "old.pdf");
+}
+
+#[test]
+fn generated_valid_values_preserve_parsing_and_save_reload_semantics() {
+    let values = ["ASCII", "Café", "漢字", "{Protected}", "line\n\nnext", r"\LaTeX{}", "😀", "e\u{301}"];
+    for newline in ["\n", "\r\n"] {
+        for value in values {
+            let input = format!("@Misc{{A, title={{{value}}}, year={{2020}}}}\n@Misc{{B, note={{Unchanged}}}}\n").replace('\n', newline);
+            let raw = parse_bib_file(&input).unwrap();
+            assert!(raw.warnings.is_empty());
+            assert_eq!(write_bib_file(&raw), input);
+            let (mut app, _dir) = review_app(&input);
+            let expected = app.database.entries["A"].fields["title"].clone();
+            review_edit(&mut app, "A", "year", "2021");
+            assert!(app.save());
+            let reload = App::new(app.bib_path.clone(), app.config.clone()).unwrap();
+            assert_eq!(reload.database.entries.len(), 2);
+            assert_eq!(reload.database.entries["A"].fields["title"], expected);
+            assert_eq!(reload.database.entries["A"].fields["year"], "2021");
+            assert_eq!(reload.database.entries["B"].fields["note"], "Unchanged");
+        }
+    }
+}
+
+#[test]
+fn event_workflow_type_and_group_changes_save_and_undo() {
+    let input = include_str!("../../tests/fixtures/jabref_groups.bib");
+    let (mut app, _dir) = review_app(input);
+    app.focus = Focus::List;
+    let key = app.selected_entry_key().unwrap();
+    let original_type = app.database.entries[&key].entry_type.clone();
+    let original_groups = app.database.entries[&key].group_memberships.clone();
+    workflow_key(&mut app, KeyCode::Enter);
+    workflow_chars(&mut app, "t");
+    workflow_key(&mut app, KeyCode::Down);
+    workflow_key(&mut app, KeyCode::Enter);
+    assert_ne!(app.database.entries[&key].entry_type, original_type);
+    workflow_key(&mut app, KeyCode::Tab);
+    workflow_key(&mut app, KeyCode::Char(' '));
+    workflow_key(&mut app, KeyCode::Enter);
+    assert_ne!(app.database.entries[&key].group_memberships, original_groups);
+    workflow_key(&mut app, KeyCode::Esc);
+    workflow_command(&mut app, "w");
+    assert!(!app.dirty);
+    workflow_chars(&mut app, "uu");
+    assert_eq!(app.database.entries[&key].entry_type, original_type);
+    assert_eq!(app.database.entries[&key].group_memberships, original_groups);
+    workflow_command(&mut app, "w");
+    let reload = App::new(app.bib_path.clone(), app.config.clone()).unwrap();
+    assert_eq!(reload.database.entries[&key].entry_type, original_type);
+    assert_eq!(reload.database.entries[&key].group_memberships, original_groups);
+}

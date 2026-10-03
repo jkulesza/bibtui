@@ -212,14 +212,12 @@ fn review_documented_multi_field_search_must_match() {
 
 #[test]
 fn review_sort_comparator_must_be_transitive() {
-    use std::cmp::Ordering::Less;
-    assert_eq!(compare_sort_values("title", "2", "10"), Less);
-    assert_eq!(compare_sort_values("title", "10", "1a"), Less);
-    assert_eq!(
-        compare_sort_values("title", "2", "1a"),
-        Less,
-        "comparator violates transitivity"
-    );
+    let values = ["2", "10", "1a"];
+    for a in values { for b in values { for c in values {
+        if compare_sort_values("title", a, b).is_le() && compare_sort_values("title", b, c).is_le() {
+            assert!(compare_sort_values("title", a, c).is_le());
+        }
+    } } }
 }
 
 #[test]

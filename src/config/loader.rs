@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
@@ -7,10 +7,14 @@ use super::schema::Config;
 
 /// Load configuration with precedence: CLI flag > ./bibtui.yaml > $XDG_CONFIG_HOME/bibtui/config.yaml
 pub fn load_config(cli_config: Option<&str>) -> Result<Config> {
+    load_config_from(cli_config, Path::new("."), dirs::config_dir().as_deref())
+}
+
+fn load_config_from(cli_config: Option<&str>, current_dir: &Path, config_dir: Option<&Path>) -> Result<Config> {
     // An explicitly requested config file must exist — silently falling back
     // to the implicit search paths would hide typos in `--config`.
     if let Some(p) = cli_config {
-        let path = PathBuf::from(p);
+        let path = current_dir.join(p);
         if !path.exists() {
             anyhow::bail!("Config file not found: {}", path.display());
         }
@@ -21,13 +25,13 @@ pub fn load_config(cli_config: Option<&str>) -> Result<Config> {
         let mut v = Vec::new();
 
         if let Some(p) = cli_config {
-            v.push(PathBuf::from(p));
+            v.push(current_dir.join(p));
         }
 
-        v.push(PathBuf::from("bibtui.yaml"));
-        v.push(PathBuf::from("bibtui.yml"));
+        v.push(current_dir.join("bibtui.yaml"));
+        v.push(current_dir.join("bibtui.yml"));
 
-        if let Some(config_dir) = dirs::config_dir() {
+        if let Some(config_dir) = config_dir {
             v.push(config_dir.join("bibtui").join("config.yaml"));
             v.push(config_dir.join("bibtui").join("config.yml"));
         }
@@ -88,17 +92,9 @@ mod tests {
 
     #[test]
     fn test_load_config_none_cli_falls_back_to_defaults() {
-        // When no bibtui.yaml exists in CWD and no CLI path, we get defaults.
-        // This test may pass or fail depending on whether bibtui.yaml exists
-        // in the working directory; skip it if the file is present.
-        if std::path::Path::new("bibtui.yaml").exists()
-            || std::path::Path::new("bibtui.yml").exists()
-        {
-            return;
-        }
-        let cfg = load_config(None).unwrap();
-        // Just verify it doesn't panic and returns a usable config.
-        let _ = cfg.general.backup_on_save;
+        let directory = tempfile::tempdir().unwrap();
+        let cfg = load_config_from(None, directory.path(), None).unwrap();
+        assert_eq!(serde_yaml::to_string(&cfg).unwrap(), serde_yaml::to_string(&Config::default()).unwrap());
     }
 
     #[test]
@@ -161,4 +157,17 @@ mod tests {
         // An explicit CLI path that doesn't exist must not fall through to defaults.
         assert!(load_config(Some("/tmp/__definitely_does_not_exist_xyz.yaml")).is_err());
     }
+    #[test]
+    fn isolated_search_roots_obey_cli_local_and_user_precedence() {
+        let local = tempfile::tempdir().unwrap();
+        let user = tempfile::tempdir().unwrap();
+        std::fs::create_dir(user.path().join("bibtui")).unwrap();
+        std::fs::write(user.path().join("bibtui/config.yml"), "general:\n  editor: user").unwrap();
+        assert_eq!(load_config_from(None, local.path(), Some(user.path())).unwrap().general.editor, "user");
+        std::fs::write(local.path().join("bibtui.yml"), "general:\n  editor: local").unwrap();
+        assert_eq!(load_config_from(None, local.path(), Some(user.path())).unwrap().general.editor, "local");
+        std::fs::write(local.path().join("explicit.yaml"), "general:\n  editor: explicit").unwrap();
+        assert_eq!(load_config_from(Some("explicit.yaml"), local.path(), Some(user.path())).unwrap().general.editor, "explicit");
+    }
+
 }

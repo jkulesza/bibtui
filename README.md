@@ -490,3 +490,8 @@ shows progress; newer queries and document changes invalidate older results.
 Search text is cached per entry, including complete abstracts and custom fields,
 and unchanged snapshots are shared across queries. Pasting runs one query update.
 The cache stores one extra copy of searchable text plus field offsets.
+
+Regression tests exercise real keyboard and paste events through edit/save/undo,
+new-library creation, attachment failure/retry, and settings import/export. Config
+search tests use isolated roots, and JabRef round-trip checks use tracked fixtures;
+the default test suite makes no requests to public services.

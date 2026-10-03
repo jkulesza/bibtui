@@ -43,3 +43,5 @@ Remaining: R04–R14, P01–P03, Q01–Q02.
 - P03: window-only entry gathering and row construction with separate global/local table state; row counts and TestBackend navigation/resize/empty-filter checks.
 
 - P01: batch search paste; one cancellable worker above 500 entries, combined query/document generations, immutable per-entry text/range cache, stale-result rejection and responsiveness/full-field tests.
+
+- Q01: event-driven workflow helpers and save/reload/failure sequences, generated semantic round-trip cases, tracked JabRef fixtures and isolated config roots; existing injected filesystem/HTTP/order/Unicode tests retained.
