@@ -2316,11 +2316,21 @@ impl App {
         match item {
             UndoItem::Batch(items) => {
                 // Nested batches: revert each contained item in reverse order.
-                let mut succeeded = true;
+                let mut errors = Vec::new();
                 for it in items.into_iter().rev() {
-                    succeeded &= self.undo_apply(it);
+                    if !self.undo_apply(it) {
+                        errors.push(
+                            self.status_message
+                                .clone()
+                                .unwrap_or_else(|| "Undo failed".into()),
+                        );
+                    }
                 }
-                return succeeded;
+                if !errors.is_empty() {
+                    self.status_message = Some(errors.join("; "));
+                    return false;
+                }
+                return true;
             }
             UndoItem::FieldChanged {
                 entry_key,

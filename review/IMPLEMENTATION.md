@@ -53,3 +53,5 @@ Remaining: Q02 build/quality gates and final measurements.
 - R03 follow-up: restoration excludes raw slots already claimed by a live entry. A reproduced delete → key reuse → save → undo twice → save case now retains both entries.
 
 - R14 follow-up: serialize imported attachment paths through the shared escaping routine; use escaped absolute paths in native-platform test fixtures and test semicolon filenames through save/reload.
+
+- R04 follow-up: aggregate failed reversals across undo batches so later successful changes cannot hide attachment recovery errors.

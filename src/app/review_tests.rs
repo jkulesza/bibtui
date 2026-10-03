@@ -1288,3 +1288,32 @@ fn imported_attachment_paths_escape_jabref_separators() {
         "paper;part.pdf"
     );
 }
+
+#[test]
+fn grouped_attachment_undo_retains_errors_after_other_moves_succeed() {
+    let (mut app, dir) =
+        review_app("@Misc{A,file={:old-a.pdf:PDF}}\n@Misc{B,file={:old-b.pdf:PDF}}\n");
+    std::fs::write(dir.path().join("old-a.pdf"), "A").unwrap();
+    std::fs::write(dir.path().join("old-b.pdf"), "B").unwrap();
+    app.sync_filenames(true);
+    std::fs::write(dir.path().join("old-b.pdf"), "unrelated").unwrap();
+    app.undo();
+    assert!(app
+        .status_message
+        .as_deref()
+        .unwrap()
+        .contains("Undo errors"));
+    assert_eq!(
+        parse_file_field(&app.database.entries["A"].fields["file"])[0].path,
+        "old-a.pdf"
+    );
+    assert_eq!(
+        parse_file_field(&app.database.entries["B"].fields["file"])[0].path,
+        "B.pdf"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("old-b.pdf")).unwrap(),
+        "unrelated"
+    );
+    assert!(app.dirty);
+}

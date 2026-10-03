@@ -507,3 +507,6 @@ reused by another entry and saved before the deletion was undone.
 
 Imported attachment paths escape JabRef separators, including Windows drive
 colons and semicolons in filenames.
+
+Grouped undo retains every attachment recovery error even when other reversals
+in the same operation succeed.
