@@ -585,3 +585,12 @@ fn sort_order_is_transitive_and_antisymmetric_for_mixed_values() {
     app.config.display.default_sort.ascending = false;
     assert_eq!(sort_entries(&app.database.entries, &app.config), ascending);
 }
+
+#[test]
+fn documented_multi_field_search_matches_all_qualifiers() {
+    let (mut app, _dir) = review_app("@Article{A, author={Smith, John}, year={2020}}\n@Article{B, author={Smith, John}, year={2021}}\n");
+    app.search_bar_state.query = "author:smith year:2020".into();
+    app.update_search();
+    assert_eq!(app.visible_entry_count(), 1);
+    assert_eq!(app.selected_entry_key().as_deref(), Some("A"));
+}

@@ -449,3 +449,11 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 Sorting uses numeric order for `year`, `volume`, `number`, and the leading page
 number; other fields use lexical order, even when some values contain only digits.
 Sort keys are computed once per entry.
+
+Search terms separated by spaces must all match. Qualifiers such as
+`author:smith year:2020` restrict individual terms; unqualified terms search all
+fields. Double quotes match a contiguous phrase (`title:"neural methods"`); an
+unclosed quote consumes the remaining input. Empty qualified terms match nothing;
+empty quotes are ignored. Unknown qualifiers search custom fields (missing fields
+do not match). URLs and DOI strings containing colons remain literal terms;
+`key`, `citekey`, and `citation_key` are aliases, as are `type` and `entrytype`.

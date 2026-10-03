@@ -23,3 +23,5 @@ Remaining: R04–R14, P01–P03, Q01–Q02.
 - R08: normalize only whitespace-only raw separators, preserving opaque content and CRLF blank lines; insertion/deletion spacing tests retained.
 
 - R10: per-field total ordering with cached sort keys, including signed page numbers; mixed-value order laws and ascending/descending tests.
+
+- R11: AND terms with individual qualifiers, quoted phrases, URL/DOI compatibility, aliases, and documented incomplete-input behavior.

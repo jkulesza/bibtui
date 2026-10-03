@@ -1,4 +1,4 @@
-use nucleo_matcher::pattern::{AtomKind, CaseMatching, Normalization, Pattern};
+use nucleo_matcher::pattern::{Atom, AtomKind, CaseMatching, Normalization, Pattern};
 use nucleo_matcher::{Config, Matcher, Utf32Str};
 
 use crate::bib::model::Entry;
@@ -29,28 +29,30 @@ impl SearchEngine {
             return entries.iter().enumerate().map(|(i, _)| (i, 0)).collect();
         }
 
-        let (field_filter, search_term) = parse_query(query);
-
-        let pattern = Pattern::new(
-            search_term,
-            CaseMatching::Ignore,
-            Normalization::Smart,
-            AtomKind::Fuzzy,
-        );
-
-        let mut results: Vec<(usize, u32)> = Vec::new();
+        let terms = parse_query(query);
+        let patterns: Vec<_> = terms.iter().map(|term| {
+            if term.quoted {
+                let mut pattern = Pattern::default();
+                pattern.atoms.push(Atom::new(&term.text, CaseMatching::Ignore, Normalization::Smart, AtomKind::Substring, false));
+                pattern
+            } else {
+                Pattern::new(&term.text, CaseMatching::Ignore, Normalization::Smart, AtomKind::Fuzzy)
+            }
+        }).collect();
+        let mut results = Vec::new();
         let mut buf = Vec::new();
-
         for (idx, entry) in entries.iter().enumerate() {
-            let haystack = build_search_string(entry, field_filter);
-            if haystack.is_empty() {
-                continue;
-            }
-
-            let haystack_utf32 = Utf32Str::new(&haystack, &mut buf);
-            if let Some(score) = pattern.score(haystack_utf32, &mut self.matcher) {
-                results.push((idx, score));
-            }
+            let mut total = 0u32;
+            let matches = terms.iter().zip(&patterns).all(|(term, pattern)| {
+                if term.text.is_empty() { return false; }
+                let haystack = build_search_string(entry, term.field.as_deref());
+                if haystack.is_empty() { return false; }
+                match pattern.score(Utf32Str::new(&haystack, &mut buf), &mut self.matcher) {
+                    Some(score) => { total = total.saturating_add(score); true }
+                    None => false,
+                }
+            });
+            if matches { results.push((idx, total)); }
         }
 
         results.sort_by_key(|&(_, score)| std::cmp::Reverse(score));
@@ -58,23 +60,45 @@ impl SearchEngine {
     }
 }
 
-/// Parse a query for field-specific syntax (e.g., "author:Kulesza").
-fn parse_query(query: &str) -> (Option<&str>, &str) {
-    if let Some(colon_pos) = query.find(':') {
-        let field = &query[..colon_pos];
-        let rest = &query[colon_pos + 1..];
-        // Only treat as field filter if the field name looks valid and the
-        // query isn't a URL (e.g. "https://doi.org/...").
-        if !field.is_empty()
-            && !rest.starts_with("//")
-            && field
-                .chars()
-                .all(|c| c.is_alphanumeric() || c == '_')
-        {
-            return (Some(field), rest);
+#[derive(Debug, PartialEq, Eq)]
+struct QueryTerm {
+    field: Option<String>,
+    text: String,
+    quoted: bool,
+}
+
+/// Whitespace separates AND terms; double quotes retain a contiguous phrase.
+/// An unfinished quote consumes the rest, permitting incremental typing.
+/// Unknown qualifiers are custom field names. URLs remain unqualified text.
+fn parse_query(query: &str) -> Vec<QueryTerm> {
+    let mut tokens = Vec::new();
+    let mut token = String::new();
+    let mut in_quote = false;
+    let mut quoted = false;
+    let mut chars = query.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\"' => { in_quote = !in_quote; quoted = true; }
+            '\\' if in_quote && matches!(chars.peek(), Some('\"' | '\\')) => {
+                if let Some(escaped) = chars.next() { token.push(escaped); }
+            }
+            c if c.is_whitespace() && !in_quote => {
+                if !token.is_empty() { tokens.push((std::mem::take(&mut token), quoted)); }
+                quoted = false;
+            }
+            c => token.push(c),
         }
     }
-    (None, query)
+    if !token.is_empty() { tokens.push((token, quoted)); }
+    tokens.into_iter().map(|(text, quoted)| {
+        if let Some((field, value)) = text.split_once(':') {
+            if !field.is_empty() && !value.starts_with("//")
+                && field.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                return QueryTerm { field: Some(field.to_lowercase()), text: value.into(), quoted };
+            }
+        }
+        QueryTerm { field: None, text, quoted }
+    }).collect()
 }
 
 /// Build a search string from an entry, optionally filtering to a specific field.
@@ -132,18 +156,18 @@ mod tests {
 
     #[test]
     fn test_parse_query_no_colon() {
-        assert_eq!(parse_query("smith"), (None, "smith"));
+        assert_eq!(parse_query("smith"), vec![QueryTerm { field: None, text: "smith".into(), quoted: false }]);
     }
 
     #[test]
     fn test_parse_query_with_field() {
-        assert_eq!(parse_query("author:smith"), (Some("author"), "smith"));
+        assert_eq!(parse_query("author:smith"), vec![QueryTerm { field: Some("author".into()), text: "smith".into(), quoted: false }]);
     }
 
     #[test]
     fn test_parse_query_empty_field() {
         // colon at start — not a valid field filter
-        assert_eq!(parse_query(":smith"), (None, ":smith"));
+        assert_eq!(parse_query(":smith"), vec![QueryTerm { field: None, text: ":smith".into(), quoted: false }]);
     }
 
     #[test]
@@ -186,4 +210,24 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].0, 0);
     }
+    #[test]
+    fn multi_term_queries_and_quoted_phrases() {
+        let a = make_entry("A", &[("author", "Smith, John"), ("year", "2020"), ("title", "Fast neural methods"), ("url", "https://doi.org/10.1234/a:b")]);
+        let b = make_entry("B", &[("author", "Smith, John"), ("year", "2021"), ("title", "Fast useful neural methods")]);
+        let c = make_entry("C", &[("author", "Jones, Jane"), ("year", "2020")]);
+        let entries = [&a, &b, &c];
+        let mut engine = SearchEngine::new();
+        for query in ["author:smith year:2020", "AUTHOR:smith 2020", "title:\"fast neural\"", "title:\"fast neural", "https://doi.org/10.1234/a:b", "url:https://doi.org/10.1234/a:b", "key:A", "citekey:A", "citation_key:A", "10.1234/a:b"] {
+            let results = engine.search(&entries, query);
+            assert_eq!(results.iter().map(|r| r.0).collect::<Vec<_>>(), [0], "{query}");
+        }
+        for query in ["missing:smith", "author:", "author:smith year:1990", "\"fast methods\""] {
+            assert!(engine.search(&entries, query).is_empty(), "{query}");
+        }
+        assert_eq!(engine.search(&entries, " \"\" ").len(), 3);
+        assert_eq!(engine.search(&entries, "type:article").len(), 3);
+        assert_eq!(engine.search(&entries, "smith").len(), 2);
+        assert_eq!(engine.search(&entries, "smith 2020").len(), 1);
+    }
+
 }
