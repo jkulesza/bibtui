@@ -2350,12 +2350,23 @@ impl App {
                 let key = entry.citation_key.clone();
                 // A save may have removed/reordered this entry's historical slot.
                 // Bind to the current raw document, never to the undo snapshot's index.
+                let occupied: std::collections::HashSet<_> = self
+                    .database
+                    .entries
+                    .values()
+                    .map(|entry| entry.raw_index)
+                    .collect();
                 entry.raw_index = self
                     .database
                     .raw_file
                     .items
                     .iter()
-                    .position(|item| matches!(item, RawItem::Entry(raw) if raw.citation_key == key))
+                    .enumerate()
+                    .find_map(|(index, item)| {
+                        (matches!(item, RawItem::Entry(raw) if raw.citation_key == key)
+                            && !occupied.contains(&index))
+                        .then_some(index)
+                    })
                     .unwrap_or(usize::MAX);
                 if let Some(pos) = self
                     .deleted_raw_indices

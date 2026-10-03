@@ -49,3 +49,5 @@ Remaining: Q02 build/quality gates and final measurements.
 - P01 follow-up: release benchmarks exposed excess copying in synchronous qualified search; borrow selected fields and share compiled-query scoring with the worker.
 
 - Q02 (formatting): apply rustfmt as a separate mechanical commit, with the full suite rerun before committing.
+
+- R03 follow-up: restoration excludes raw slots already claimed by a live entry. A reproduced delete → key reuse → save → undo twice → save case now retains both entries.

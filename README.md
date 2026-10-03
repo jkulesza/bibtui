@@ -501,3 +501,6 @@ large unrelated fields do not add copying overhead.
 
 Source formatting is standardized with `cargo fmt --all`; check it with
 `cargo fmt --all -- --check` before submitting changes.
+
+Undo also preserves both entries when a deleted citation key was temporarily
+reused by another entry and saved before the deletion was undone.

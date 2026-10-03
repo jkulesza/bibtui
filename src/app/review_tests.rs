@@ -1244,3 +1244,24 @@ fn event_workflow_type_and_group_changes_save_and_undo() {
         original_groups
     );
 }
+
+#[test]
+fn restore_deleted_key_after_another_entry_reused_it_and_was_saved() {
+    let (mut app, _dir) =
+        review_app("@Misc{A, title={Original A}}\n@Misc{B, title={Original B}}\n");
+    app.delete_entry("A");
+    app.config
+        .citekey
+        .templates
+        .insert("misc".into(), "A".into());
+    app.detail_entry_key = Some("B".into());
+    app.regen_citekey();
+    assert!(app.save());
+    app.undo();
+    app.undo();
+    assert!(app.save());
+    let reload = App::new(app.bib_path.clone(), app.config.clone()).unwrap();
+    assert_eq!(reload.database.entries.len(), 2);
+    assert_eq!(reload.database.entries["A"].fields["title"], "Original A");
+    assert_eq!(reload.database.entries["B"].fields["title"], "Original B");
+}
