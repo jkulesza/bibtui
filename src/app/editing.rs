@@ -125,7 +125,12 @@ impl App {
             .map(|e| e.value.trim().to_string())
             .unwrap_or_else(|| "bibtui.yaml".to_string());
         self.field_editor_state = None;
-        self.mode = InputMode::Settings;
+        // `:settings-export yaml` can run with the settings editor closed.
+        self.mode = if self.settings_state.is_some() {
+            InputMode::Settings
+        } else {
+            InputMode::Normal
+        };
         if !path_str.is_empty() {
             self.export_settings(&path_str);
         }
@@ -198,7 +203,7 @@ impl App {
         if let Some(ref mut s) = self.settings_state {
             s.set_value(&setting_id, SettingValue::Str(new_val));
             s.apply_to_config(&mut self.config);
-            self.sync_runtime_from_config();
+            self.commit_settings_edit();
         }
     }
 
@@ -216,7 +221,7 @@ impl App {
                 s.add_field_group(name);
                 s.apply_to_config(&mut self.config);
             }
-            self.sync_runtime_from_config();
+            self.commit_settings_edit();
         }
     }
 
@@ -233,7 +238,7 @@ impl App {
             s.set_field_group_fields(index, fields_csv);
             s.apply_to_config(&mut self.config);
         }
-        self.sync_runtime_from_config();
+        self.commit_settings_edit();
     }
 
     /// Rename a field group.
@@ -250,7 +255,7 @@ impl App {
                 s.set_field_group_name(index, name);
                 s.apply_to_config(&mut self.config);
             }
-            self.sync_runtime_from_config();
+            self.commit_settings_edit();
         }
     }
 
@@ -269,7 +274,7 @@ impl App {
                 s.add_column(field, header, "flex".to_string());
                 s.apply_to_config(&mut self.config);
             }
-            self.sync_runtime_from_config();
+            self.commit_settings_edit();
         }
     }
 
@@ -286,7 +291,7 @@ impl App {
             s.set_column_width(index, width_spec);
             s.apply_to_config(&mut self.config);
         }
-        self.sync_runtime_from_config();
+        self.commit_settings_edit();
     }
 
     /// Rename a display column.
@@ -304,7 +309,7 @@ impl App {
                 s.set_column_name(index, field, header);
                 s.apply_to_config(&mut self.config);
             }
-            self.sync_runtime_from_config();
+            self.commit_settings_edit();
         }
     }
 

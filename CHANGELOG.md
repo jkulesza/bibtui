@@ -1,5 +1,14 @@
 # Changelog
 
+### 0.63.0
+
+- **Library settings stored in the `.bib` file**: settings in a library now take precedence over the YAML config (built-in defaults < YAML < library), so a library behaves the same on every machine. JabRef-shared capabilities use JabRef's own metadata keys: citation-key templates as `keypattern_<type>`, entry order on save as `saveOrderConfig`, and save actions JabRef also has as `saveActions` (so JabRef applies them too). Everything else is stored as `@Comment{jabref-meta: bibtui.<setting>:<json>;}`, which JabRef keeps when it saves; verified with JabRef 5.15, which rewrites bibtui-written settings byte for byte
+- **Existing JabRef `saveActions` and `saveOrderConfig` now take effect**: a library that already has them overrides the matching YAML settings, and bibtui says so at startup. JabRef's `all-text-fields[identity]` placeholder is ignored; configurations bibtui cannot represent are read as far as possible and never rewritten
+- **Settings editor**: `◆` marks settings that come from the library. Editing one updates the library as an undoable edit saved with `:w`; editing any other setting changes the YAML layer. `B` writes settings into the library after previewing every metadata line to be added, changed, or removed
+- **Commands**: `:settings-export bib`, `:settings-export yaml [path]`, and `:settings-clear-bib` (removes bibtui's keys, keeps JabRef's)
+- **YAML export (`E`) writes only the YAML layer**, so library settings never leak into a global config; YAML import still lets library settings win
+- **Fix**: JabRef's `\;` escaping is now undone in `keypattern_*` values
+
 ### 0.62.1
 
 - **Windows saves**: the library is replaced with a POSIX-semantics rename, so saving works even while another program holds the `.bib` open with delete sharing

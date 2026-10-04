@@ -134,18 +134,91 @@ pub fn parse_jabref_comment(raw_text: &str, meta: &mut JabRefMeta) {
             "saveOrderConfig" => {
                 meta.save_order_config = Some(value.to_string());
             }
+            // Key patterns are single JabRef list items: undo its escaping so
+            // a pattern containing `;` or `\` is used as written in JabRef.
             "keypatterndefault" => {
-                meta.key_pattern_default = Some(value.to_string());
+                meta.key_pattern_default = Some(unescape_meta(value));
             }
             _ if key.starts_with("keypattern_") => {
                 let type_name = key["keypattern_".len()..].to_lowercase();
-                meta.key_patterns.insert(type_name, value.to_string());
+                meta.key_patterns.insert(type_name, unescape_meta(value));
             }
             _ => {
                 meta.unknown_meta.insert(key.to_string(), value.to_string());
             }
         }
     }
+}
+
+/// Re-read every JabRef metadata comment in `raw`, e.g. after metadata
+/// comments were added, changed, or removed.
+pub fn parse_meta(raw: &RawBibFile) -> JabRefMeta {
+    let mut meta = JabRefMeta::default();
+    for item in &raw.items {
+        if let RawItem::Comment { raw_text } = item {
+            parse_jabref_comment(raw_text, &mut meta);
+        }
+    }
+    meta
+}
+
+/// The key of a `@Comment{jabref-meta: key:value;}` block, if `raw_text` is one.
+pub fn meta_comment_key(raw_text: &str) -> Option<&str> {
+    let trimmed = raw_text.trim();
+    let inner = trimmed
+        .strip_prefix("@Comment{")
+        .or_else(|| trimmed.strip_prefix("@comment{"))?;
+    let content = inner
+        .trim_start()
+        .strip_prefix("jabref-meta:")?
+        .trim_start();
+    let key = content[..content.find(':')?].trim();
+    (!key.is_empty()).then_some(key)
+}
+
+/// Undo JabRef's metadata escaping: `\;` becomes `;` and `\\` becomes `\`.
+/// Any other backslash is kept, so an unescaped pattern such as `\s` survives.
+pub fn unescape_meta(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    let mut chars = value.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\\' && matches!(chars.peek(), Some(';' | '\\')) {
+            if let Some(next) = chars.next() {
+                out.push(next);
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// Escape one metadata list item the way JabRef does when writing it.
+pub fn escape_meta(value: &str) -> String {
+    value.replace('\\', "\\\\").replace(';', "\\;")
+}
+
+/// Split a metadata value into JabRef list items at unescaped `;`, unescaping
+/// each item. A trailing empty item (from a final `;`) is dropped.
+pub fn split_meta_list(value: &str) -> Vec<String> {
+    let mut items = Vec::new();
+    let mut current = String::new();
+    let mut chars = value.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' if matches!(chars.peek(), Some(';' | '\\')) => {
+                if let Some(next) = chars.next() {
+                    current.push(next);
+                }
+            }
+            ';' => items.push(std::mem::take(&mut current)),
+            _ => current.push(c),
+        }
+    }
+    if !current.trim().is_empty() {
+        items.push(current);
+    }
+    items
 }
 
 /// Build a GroupTree from parsed JabRef metadata.

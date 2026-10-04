@@ -52,6 +52,7 @@ mod completions;
 mod editing;
 mod groups;
 mod import;
+mod library;
 mod name_disambig;
 mod save;
 pub use actions::Action;
@@ -64,7 +65,13 @@ type DoiFetchReceiver = mpsc::Receiver<Result<(String, String), String>>;
 
 pub struct App {
     pub database: Database,
+    /// Effective configuration: built-in defaults < YAML < library settings.
     pub config: Config,
+    /// The YAML layer (defaults plus config file plus in-session edits to
+    /// settings the library does not override); what `E` exports.
+    base_config: Config,
+    /// Settings read from the library's metadata comments.
+    library: crate::config::library::LibrarySettings,
     pub theme: Theme,
     pub bib_path: PathBuf,
     pub mode: InputMode,
@@ -183,6 +190,13 @@ impl App {
         };
         let database = build_database(raw);
 
+        // `config` is the YAML layer; library settings take precedence.
+        let base_config = config;
+        let library = crate::config::library::LibrarySettings::from_meta(&database.jabref_meta);
+        let (config, mut library_warnings) =
+            crate::config::library::apply_overrides(&base_config, &library.overrides());
+        library_warnings.extend(library.warnings.iter().cloned());
+
         let theme = Theme::from_config(&config.theme);
         let group_tree_state = GroupTreeState::new(&database.groups);
 
@@ -216,6 +230,25 @@ impl App {
                 None => warning,
             });
         }
+        // Save settings change file contents, so say when the library
+        // overrides the YAML ones (e.g. JabRef's own saveActions).
+        let overridden = crate::config::library::overridden_save_settings(&base_config, &config);
+        if !overridden.is_empty() {
+            library_warnings.insert(
+                0,
+                format!(
+                    "this library overrides YAML save settings ({}); see ◆ in Settings",
+                    overridden.join(", ")
+                ),
+            );
+        }
+        if !library_warnings.is_empty() {
+            let warning = format!("Library settings: {}", library_warnings.join("; "));
+            status_message = Some(match status_message {
+                Some(msg) => format!("{} | {}", msg, warning),
+                None => warning,
+            });
+        }
         let parse_warnings = &database.raw_file.warnings;
         if !parse_warnings.is_empty() {
             let lines: Vec<String> = parse_warnings.iter().map(|w| w.line.to_string()).collect();
@@ -232,6 +265,8 @@ impl App {
         let app = App {
             database,
             config,
+            base_config,
+            library,
             theme,
             clipboard: Box::new(SystemClipboard),
             opener: Box::new(SystemOpener),
@@ -305,7 +340,9 @@ impl App {
 
         let app = App {
             database,
+            base_config: config.clone(),
             config,
+            library: Default::default(),
             theme,
             clipboard: Box::new(SystemClipboard),
             opener: Box::new(SystemOpener),
@@ -1026,7 +1063,9 @@ impl App {
                 self.pending_save = None;
                 self.dialog_state = None;
                 self.pending_action = None;
-                self.mode = if self.detail_state.is_some() {
+                self.mode = if self.settings_state.is_some() {
+                    InputMode::Settings
+                } else if self.detail_state.is_some() {
                     InputMode::Detail
                 } else {
                     InputMode::Normal
@@ -1162,6 +1201,7 @@ impl App {
             | Action::SettingsDeleteFieldGroup
             | Action::SettingsRenameFieldGroup
             | Action::SettingsExport
+            | Action::SettingsExportLibrary
             | Action::SettingsImport => self.handle_settings_action(action),
             Action::EditTabComplete => self.do_field_tab_complete_dir(true),
             Action::EditTabCompleteReverse => self.do_field_tab_complete_dir(false),
@@ -1937,6 +1977,24 @@ impl App {
             "wq!" => {
                 self.request_save_with(true, true);
             }
+            "settings-export bib" => self.request_library_export(),
+            "settings-clear-bib" => self.clear_library_settings(),
+            _ if cmd == "settings-export yaml" || cmd.starts_with("settings-export yaml ") => {
+                let path = cmd["settings-export yaml".len()..].trim();
+                if path.is_empty() {
+                    self.field_editor_state =
+                        Some(FieldEditorState::for_path("Export path", "bibtui.yaml"));
+                    self.path_completions.clear();
+                    self.pending_action = Some(PendingAction::ExportSettings);
+                    self.mode = InputMode::Editing;
+                } else {
+                    self.export_settings(path);
+                }
+            }
+            _ if cmd.starts_with("settings-export") => {
+                self.status_message =
+                    Some("Usage: :settings-export bib | :settings-export yaml [path]".into());
+            }
             _ if cmd.starts_with("sort ") || cmd == "sort" => {
                 let field = cmd.trim_start_matches("sort").trim().to_string();
                 let msg = if field == "none" {
@@ -2036,6 +2094,12 @@ impl App {
         match action {
             Some(PendingAction::DeleteEntry(key)) => {
                 self.delete_entry(&key);
+            }
+            Some(PendingAction::ApplyLibrarySettings { changes }) => {
+                if self.settings_state.is_some() {
+                    self.mode = InputMode::Settings;
+                }
+                self.confirm_library_changes(changes);
             }
             Some(PendingAction::DeleteEntryWithFile { entry_key, file }) => {
                 let selected = dialog.as_ref().map(|d| d.selected()).unwrap_or(2);
@@ -2191,11 +2255,19 @@ impl App {
 
     // ── Settings import / export ──
 
+    /// Export the YAML layer. Settings stored in the library are not
+    /// included, so a library's overrides never leak into a global config.
     fn export_settings(&mut self, path: &str) {
-        match serde_yaml::to_string(&self.config) {
-            Ok(yaml) => match std::fs::write(path, yaml) {
+        let path = expand_tilde(path);
+        match serde_yaml::to_string(&self.base_config) {
+            Ok(yaml) => match std::fs::write(&path, yaml) {
                 Ok(()) => {
-                    self.status_message = Some(format!("Settings exported to {}", path));
+                    let note = if self.library.overrides().is_empty() {
+                        ""
+                    } else {
+                        " (library settings not included; B writes them to the .bib)"
+                    };
+                    self.status_message = Some(format!("Settings exported to {}{}", path, note));
                 }
                 Err(e) => {
                     self.status_message = Some(format!("Export failed: {}", e));
@@ -2270,11 +2342,16 @@ impl App {
                 match serde_yaml::from_str::<crate::config::schema::Config>(&contents) {
                     Ok(mut cfg) => {
                         crate::config::defaults::normalize_citekey_templates(&mut cfg);
-                        self.config = cfg;
-                        self.sync_runtime_from_config();
-                        // Refresh settings panel to reflect imported values
-                        self.settings_state = Some(SettingsState::new(&self.config));
-                        self.status_message = Some(format!("Settings imported from {}", path));
+                        // Imported YAML replaces the YAML layer; library
+                        // settings still take precedence.
+                        self.base_config = cfg;
+                        let warnings = self.recompute_config();
+                        let mut message = format!("Settings imported from {}", path);
+                        if !warnings.is_empty() {
+                            message
+                                .push_str(&format!(" | Library settings: {}", warnings.join("; ")));
+                        }
+                        self.status_message = Some(message);
                     }
                     Err(e) => {
                         self.status_message = Some(format!("Parse failed: {}", e));
@@ -2509,6 +2586,9 @@ impl App {
                 }
                 self.status_message = Some("Undo: group membership".to_string());
             }
+            UndoItem::LibraryMetaChanged { previous } => {
+                self.undo_library_changes(previous);
+            }
             UndoItem::FilenamesSynced {
                 entry_key,
                 old_file_value,
@@ -2525,7 +2605,7 @@ impl App {
     fn handle_settings_action(&mut self, action: Action) {
         match action {
             Action::EnterSettings => {
-                let mut s = SettingsState::new(&self.config);
+                let mut s = self.new_settings_state();
                 let row_count = s.rows.len();
                 if self.last_settings_cursor < row_count {
                     s.cursor = self.last_settings_cursor;
@@ -2578,7 +2658,7 @@ impl App {
                     {
                         s.toggle_selected();
                         s.apply_to_config(&mut self.config);
-                        self.sync_runtime_from_config();
+                        self.commit_settings_edit();
                     }
                 }
             }
@@ -2663,7 +2743,7 @@ impl App {
                     };
                     if deleted {
                         s.apply_to_config(&mut self.config);
-                        self.sync_runtime_from_config();
+                        self.commit_settings_edit();
                     }
                 }
             }
@@ -2706,6 +2786,7 @@ impl App {
                 self.pending_action = Some(PendingAction::ExportSettings);
                 self.mode = InputMode::Editing;
             }
+            Action::SettingsExportLibrary => self.request_library_export(),
             Action::SettingsImport => {
                 self.field_editor_state = Some(FieldEditorState::for_path("Import path", ""));
                 self.path_completions.clear();
@@ -2747,3 +2828,6 @@ mod tests;
 
 #[cfg(test)]
 mod review_tests;
+
+#[cfg(test)]
+mod library_tests;

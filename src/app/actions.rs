@@ -84,6 +84,7 @@ pub enum Action {
     SettingsToggle,
     SettingsEdit,
     SettingsExport,
+    SettingsExportLibrary,
     SettingsImport,
     SettingsAddFieldGroup,
     SettingsDeleteFieldGroup,
@@ -199,6 +200,12 @@ pub(super) enum UndoItem {
         /// (new_abs_path, old_abs_path) — reversed on undo.
         renames: Vec<(std::path::PathBuf, std::path::PathBuf)>,
     },
+    /// Library metadata comments were added, changed, or removed (library
+    /// settings). Each entry is a metadata key and its previous `@Comment`
+    /// text (`None` if the key did not exist); undo restores them.
+    LibraryMetaChanged {
+        previous: Vec<(String, Option<String>)>,
+    },
     /// A group of changes made together by one command (e.g. disambiguating
     /// many fields or regenerating all citation keys).  Undo reverts every
     /// contained item, in reverse order, and counts as a single undo step.
@@ -227,6 +234,10 @@ pub(super) enum PendingAction {
     },
     ExportSettings,
     ImportSettings,
+    /// Waiting for confirmation of previewed library-settings changes.
+    ApplyLibrarySettings {
+        changes: Vec<crate::config::library::MetaChange>,
+    },
     YankPrompt {
         entry_key: String,
     },

@@ -25,6 +25,11 @@ pub enum DialogKind {
     FileSyncPreview {
         renames: Vec<(String, String)>,
     },
+    /// Scrollable yes/no preview of a list of changes (one line each).
+    ChangePreview {
+        title: String,
+        lines: Vec<String>,
+    },
     /// Multi-select: choose which attached files to delete alongside an entry.
     /// Each item is (display_label, delete_this_file).
     FileDeleteSelect {
@@ -83,6 +88,20 @@ impl DialogState {
         }
     }
 
+    pub fn change_preview(title: &str, lines: Vec<String>) -> Self {
+        let mut state = ListState::default();
+        if !lines.is_empty() {
+            state.select(Some(0));
+        }
+        DialogState {
+            kind: DialogKind::ChangePreview {
+                title: title.to_string(),
+                lines,
+            },
+            list_state: state,
+        }
+    }
+
     pub fn group_assign(groups: Vec<(String, bool)>) -> Self {
         let mut state = ListState::default();
         if !groups.is_empty() {
@@ -133,6 +152,7 @@ impl DialogState {
             DialogKind::TypePicker { options, .. } => options.len(),
             DialogKind::GroupAssign { groups } => groups.len(),
             DialogKind::FileSyncPreview { renames } => renames.len(),
+            DialogKind::ChangePreview { lines, .. } => lines.len(),
             DialogKind::FileDeleteSelect { files, .. } => files.len(),
             DialogKind::Message { .. } => 1,
         }
@@ -154,6 +174,7 @@ impl DialogState {
             DialogKind::Confirm { .. }
             | DialogKind::TypePicker { .. }
             | DialogKind::FileSyncPreview { .. }
+            | DialogKind::ChangePreview { .. }
             | DialogKind::Message { .. } => {}
         }
     }
@@ -240,6 +261,11 @@ fn dialog_width(kind: &DialogKind, area_width: u16) -> u16 {
                 .max()
                 .unwrap_or(30)
         }
+        DialogKind::ChangePreview { title, lines } => {
+            // Rows render as "  {line}": 2 indent + 2 borders + 2 spare.
+            let widest = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0);
+            title_width(title).max(widest + 6)
+        }
         DialogKind::GroupAssign { .. } => 50,
         DialogKind::FileDeleteSelect { title, files } => {
             // Rows render as "  [x] {filename}": 6 prefix + 2 borders + 2 spare.
@@ -274,6 +300,7 @@ fn dialog_height(kind: &DialogKind, width: u16, area_height: u16) -> u16 {
         DialogKind::TypePicker { options, .. } => (options.len() as u16 + 2).min(max_height),
         DialogKind::GroupAssign { groups } => (groups.len() as u16 + 5).min(max_height),
         DialogKind::FileSyncPreview { renames } => (renames.len() as u16 + 4).min(max_height),
+        DialogKind::ChangePreview { lines, .. } => (lines.len() as u16 + 4).min(max_height),
         DialogKind::FileDeleteSelect { files, .. } => (files.len() as u16 + 5).min(max_height),
         DialogKind::Message { message, .. } => {
             let inner_w = (width as usize).saturating_sub(2).max(1);
@@ -420,6 +447,28 @@ pub fn render_dialog(f: &mut Frame, area: Rect, state: &mut DialogState, theme: 
                 .block(block)
                 .highlight_style(theme.selected);
 
+            f.render_stateful_widget(list, dialog_area, &mut state.list_state);
+        }
+        DialogKind::ChangePreview { title, lines } => {
+            let block = Block::default()
+                .borders(Borders::ALL)
+                .border_style(theme.border)
+                .title(title.as_str())
+                .title_bottom(Line::from(vec![
+                    Span::raw(" "),
+                    Span::styled("[y]es", theme.search_match),
+                    Span::raw(" — apply  "),
+                    Span::styled("[n]o", theme.label),
+                    Span::raw(" — cancel "),
+                ]));
+            let budget = dialog_area.width.saturating_sub(4) as usize;
+            let items: Vec<ListItem> = lines
+                .iter()
+                .map(|line| ListItem::new(Line::from(format!("  {}", truncate_to(line, budget)))))
+                .collect();
+            let list = List::new(items)
+                .block(block)
+                .highlight_style(theme.selected);
             f.render_stateful_widget(list, dialog_area, &mut state.list_state);
         }
         DialogKind::Message { title, message } => {

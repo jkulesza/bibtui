@@ -871,42 +871,7 @@ impl App {
     }
 }
 
-/// Text fields that contain natural-language prose / titles.
-const TEXT: &[&str] = &[
-    "abstract",
-    "addendum",
-    "address",
-    "annote",
-    "booktitle",
-    "chapter",
-    "edition",
-    "institution",
-    "journal",
-    "keywords",
-    "language",
-    "note",
-    "organization",
-    "publisher",
-    "school",
-    "series",
-    "subtitle",
-    "title",
-    "titleaddon",
-    "type",
-    "venue",
-];
-
-/// Person-name (name-list) fields.
-const NAMES: &[&str] = &[
-    "author",
-    "editor",
-    "editora",
-    "editorb",
-    "editorc",
-    "bookauthor",
-    "afterword",
-    "translator",
-];
+use crate::config::library::{NAME_FIELDS as NAMES, TEXT_FIELDS as TEXT};
 
 /// A single net field change produced by the enabled save actions.
 pub(super) struct FieldTransform {

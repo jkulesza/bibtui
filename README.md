@@ -15,6 +15,7 @@ A terminal UI BibTeX manager written in Rust. Designed as a lightweight, keyboar
 - Vim-style navigation throughout
 - Entry CRUD: add, edit, duplicate, delete with undo (`u`); editing after undo correctly retains unsaved-change protection
 - JabRef-compatible citation key patterns with three-level precedence (`.bib` metadata, YAML config, defaults)
+- Per-library settings stored in the `.bib` file override the YAML config; JabRef-shared capabilities (key patterns, save order, save actions) use JabRef's own metadata keys, and everything else is kept as `bibtui.*` metadata that JabRef preserves
 - Clipboard yank (`yy`) in configurable format: citation key, raw BibTeX, or formatted citation
 - Per-entry status indicators: `●` unsaved change, `⎘` file attachment, `⎋` DOI/URL
 - Open attached files (`o`) or DOI/URL links (`w`) with OS default applications
@@ -263,11 +264,15 @@ Opens a full-screen view of all configuration options. Changes apply immediately
 | `r` | Rename selected field group |
 | `a` | Add new field group |
 | `x` | Delete selected field group |
-| `E` | Export current config to a YAML file (path dialog with `Tab` completion) |
-| `I` | Import config from a YAML file (path dialog with `Tab` completion) |
+| `E` | Export the YAML layer of the config to a YAML file (path dialog with `Tab` completion); settings stored in the library are not included |
+| `B` | Write settings into the library's `.bib` file, after previewing the exact changes (see [Library settings](#library-settings-stored-in-the-bib)) |
+| `I` | Import config from a YAML file (path dialog with `Tab` completion); library settings still take precedence |
 | `Esc` | Close settings |
 
-Settings marked with `●` differ from their default value.
+Settings marked with `●` differ from their default value; settings marked with
+`◆` come from the library's `.bib` file and override the YAML config. Changing a
+`◆` setting updates the library (an undoable edit, saved with `:w`); changing
+any other setting changes the session's YAML layer, which `E` exports.
 
 ### Command palette
 
@@ -289,6 +294,9 @@ Open with `:` from the entry list.
 | `:import <doi-or-url-or-path>` | Import entry from DOI, URL, or local PDF file |
 | `:export-json [path]` | Export all entries as CSL-JSON (prompts for path if omitted) |
 | `:export-ris [path]` | Export all entries as RIS (prompts for path if omitted) |
+| `:settings-export bib` | Write settings into the library's `.bib` file (same as `B` in Settings) |
+| `:settings-export yaml [path]` | Export the YAML layer of the config (prompts for path if omitted) |
+| `:settings-clear-bib` | Remove all bibtui settings from the library; JabRef's own keys are kept (undoable) |
 
 Example: `:sort year`, `:sort author`, `:sort title`, `:sort citation_key`, `:sort none`
 
@@ -358,6 +366,40 @@ Copy the annotated example to get started:
 ```sh
 cp bibtui.yaml.example ~/.config/bibtui/config.yaml
 ```
+
+### Library settings (stored in the `.bib`)
+
+A library can carry its own settings, so it behaves the same on every machine
+and for every collaborator. Precedence is: built-in defaults < YAML config <
+library. Settings are stored as JabRef metadata comments, so JabRef keeps them
+when it saves the file:
+
+| Setting | Stored as |
+|---|---|
+| Citation-key templates | JabRef's `keypattern_<type>` (also used by JabRef) |
+| Entry order on save (`save.entry_sort_order`) | JabRef's `saveOrderConfig` |
+| Save actions JabRef also has: Unicode→LaTeX, escape `_`/`&`, LaTeX cleanup, URL cleanup, ordinals, date/month/page/name normalization | JabRef's `saveActions` (JabRef applies them too) |
+| Everything else | `@Comment{jabref-meta: bibtui.<setting>:<value>;}` |
+
+Press `B` in Settings (or run `:settings-export bib`) to write settings into the
+library. A preview lists every metadata line that will be added (`+`), changed
+(`~`), or removed (`-`); nothing changes until you confirm, and the result is an
+ordinary undoable edit saved with `:w`. bibtui writes the settings that differ
+from its built-in defaults, plus any the library already stores.
+`:settings-clear-bib` removes bibtui's own keys and leaves JabRef's alone.
+
+Notes:
+
+- A library that already has JabRef `saveActions` or `saveOrderConfig`
+  (for example JabRef's defaults, which only normalize dates, months, and
+  pages) overrides the corresponding YAML settings. bibtui says so at startup;
+  turn an action back on in Settings to rewrite `saveActions` for both programs.
+- If JabRef's `saveActions` use formatters bibtui does not have, or its
+  `saveOrderConfig` sorts by other fields, bibtui reads what it can and never
+  rewrites them.
+- `general.bib_file` cannot be stored in a library.
+- `bibtui.*` values are one-line JSON. A bare word (`alphabetical`) is read as a
+  string; invalid values are reported at startup and ignored.
 
 ### Key config options
 

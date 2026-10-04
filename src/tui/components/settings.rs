@@ -80,6 +80,22 @@ pub struct SettingsState {
     /// `width_spec` encodes width and optional max: `"fixed:12"`,
     /// `"percent:20"`, `"flex"`, `"percent:20 max:30"`, etc.
     pub columns: Vec<(String, String, String)>,
+    /// Setting paths (e.g. `save.sync_filenames`) whose value comes from the
+    /// library's `.bib` metadata rather than the YAML config.
+    pub library_paths: std::collections::BTreeSet<String>,
+}
+
+/// The configuration path (as used by library settings) of a settings item.
+pub fn setting_path(id: &str) -> String {
+    if id == "save_actions.journal_field_content" {
+        "save.journal_field_content".to_string()
+    } else if let Some(action) = id.strip_prefix("save_actions.") {
+        format!("save.save_action_{action}")
+    } else if let Some(type_name) = id.strip_prefix("citekey.template.") {
+        format!("citekey.templates.{type_name}")
+    } else {
+        id.to_string()
+    }
 }
 
 // ── Column width helpers ───────────────────────────────────────────────────────
@@ -618,7 +634,22 @@ impl SettingsState {
             scroll_offset: 0,
             field_groups,
             columns,
+            library_paths: Default::default(),
         }
+    }
+
+    /// True when the setting shown in `row` comes from the library.
+    pub fn row_from_library(&self, row: &SettingRow) -> bool {
+        let path = match row {
+            SettingRow::Section(_) => return false,
+            SettingRow::Item(index) => match self.items.get(*index) {
+                Some(item) => setting_path(&item.id),
+                None => return false,
+            },
+            SettingRow::FieldGroup(_) => "field_groups".to_string(),
+            SettingRow::Column(_) => "display.columns".to_string(),
+        };
+        self.library_paths.contains(&path)
     }
 
     fn is_selectable_row(&self, idx: usize) -> bool {
@@ -1209,10 +1240,19 @@ fn wrap_text(text: &str, width: usize, prefix: &str, max_lines: usize) -> Vec<St
 pub fn render_settings(f: &mut Frame, area: Rect, state: &mut SettingsState, theme: &Theme) {
     // Description height: word-wrap the selected item's text and size to fit,
     // capped at 4 inner lines so it never dominates the layout.
+    let from_library = state
+        .rows
+        .get(state.cursor)
+        .is_some_and(|row| state.row_from_library(row));
     let desc_text = state
         .selected_item()
         .map(|i| i.description.clone())
         .unwrap_or_default();
+    let desc_text = if from_library {
+        format!("◆ Stored in this library's .bib file (overrides YAML). {desc_text}")
+    } else {
+        desc_text
+    };
     let desc_inner_w = area.width.saturating_sub(3) as usize; // 2 borders + 1 leading space
     let desc_wrapped = wrap_text(&desc_text, desc_inner_w, " ", 4);
     let desc_height = (desc_wrapped.len() as u16).max(1) + 2; // +2 for top/bottom borders
@@ -1324,7 +1364,14 @@ pub fn render_settings(f: &mut Frame, area: Rect, state: &mut SettingsState, the
                 let default_str = item.default.display();
                 let default_trunc: String = default_str.chars().take(default_w).collect();
 
-                let mod_marker = if is_modified { "● " } else { "  " };
+                let in_library = state.row_from_library(row);
+                let mod_marker = if in_library {
+                    "◆ "
+                } else if is_modified {
+                    "● "
+                } else {
+                    "  "
+                };
                 let default_hint = format!("default: {}", default_trunc);
 
                 let val_style = if is_modified {
@@ -1337,7 +1384,9 @@ pub fn render_settings(f: &mut Frame, area: Rect, state: &mut SettingsState, the
                 } else {
                     theme.label
                 };
-                let mod_style = if is_modified {
+                let mod_style = if in_library {
+                    Style::default().fg(Color::Cyan)
+                } else if is_modified {
                     Style::default().fg(Color::Yellow)
                 } else {
                     base_style
@@ -1376,13 +1425,22 @@ pub fn render_settings(f: &mut Frame, area: Rect, state: &mut SettingsState, the
                 let label = format!(" {:<w$}", display_name, w = LABEL_W);
                 let val_trunc: String = width_spec.chars().take(val_w).collect();
                 let val_padded = format!("{:<w$}", val_trunc, w = val_w);
-                let mod_marker = if is_modified { "● " } else { "  " };
+                let in_library = state.row_from_library(row);
+                let mod_marker = if in_library {
+                    "◆ "
+                } else if is_modified {
+                    "● "
+                } else {
+                    "  "
+                };
                 let val_style = if is_modified {
                     modified_style
                 } else {
                     base_style
                 };
-                let mod_style = if is_modified {
+                let mod_style = if in_library {
+                    Style::default().fg(Color::Cyan)
+                } else if is_modified {
                     Style::default().fg(Color::Yellow)
                 } else {
                     base_style
@@ -1430,13 +1488,22 @@ pub fn render_settings(f: &mut Frame, area: Rect, state: &mut SettingsState, the
                 let label = format!(" {:<w$}", name, w = LABEL_W);
                 let val_trunc: String = fields_csv.chars().take(val_w).collect();
                 let val_padded = format!("{:<w$}", val_trunc, w = val_w);
-                let mod_marker = if is_modified { "● " } else { "  " };
+                let in_library = state.row_from_library(row);
+                let mod_marker = if in_library {
+                    "◆ "
+                } else if is_modified {
+                    "● "
+                } else {
+                    "  "
+                };
                 let val_style = if is_modified {
                     modified_style
                 } else {
                     base_style
                 };
-                let mod_style = if is_modified {
+                let mod_style = if in_library {
+                    Style::default().fg(Color::Cyan)
+                } else if is_modified {
                     Style::default().fg(Color::Yellow)
                 } else {
                     base_style
@@ -1482,7 +1549,7 @@ pub fn render_settings(f: &mut Frame, area: Rect, state: &mut SettingsState, the
         }
     };
     let hint = format!(
-        " j/k: navigate  {}  E: export  I: import  Esc: close",
+        " j/k: navigate  {}  E: export YAML  B: write to .bib  I: import  Esc: close",
         action_hint
     );
     f.render_widget(

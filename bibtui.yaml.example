@@ -1,6 +1,12 @@
 # bibtui configuration file
 # Copy to ~/.config/bibtui/config.yaml (or $XDG_CONFIG_HOME/bibtui/config.yaml)
 # All fields are optional — built-in defaults are used for anything not specified.
+#
+# Settings stored in a library's .bib file take precedence over this file
+# (built-in defaults < YAML < library). Press B in the settings editor, or run
+# :settings-export bib, to write settings into the library; citation-key
+# templates, save order, and JabRef-compatible save actions use JabRef's own
+# metadata keys. See "Library settings" in the README.
 
 general:
   # Default .bib file to open when none is given on the command line
