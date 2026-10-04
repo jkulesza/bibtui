@@ -6,6 +6,7 @@
 - **Safe group names**: names containing `,`, `;`, or `\` (JabRef separators) are refused when adding or renaming, as are names another group already uses. Renaming is refused when another static group shares the name and entries are assigned to it, since those entries cannot be attributed to either group
 - **Help**: `?` lists the group-pane keys in a new Groups section
 - **Fix**: the group tree is written back in JabRef's exact layout (closing brace on its own line), so group edits no longer change the block differently from JabRef and undo restores the file byte for byte; files written by older versions are still read correctly
+- **Revert citation preview width-cap**: the citation preview uses the pre-v0.61.6 behavior of fixed-width fraction capped at 90 columns
 
 ### 0.63.0
 
