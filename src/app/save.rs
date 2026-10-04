@@ -1211,6 +1211,16 @@ pub(super) fn get_sort_value(entry: &Entry, field: &str) -> String {
     }
 }
 
+/// Replace the final component of a stored attachment path with `name`,
+/// keeping everything before it byte-for-byte.
+fn replace_file_name(path: &str, name: &str) -> String {
+    let is_separator = |c: char| c == '/' || (cfg!(windows) && c == '\\');
+    match path.rfind(is_separator) {
+        Some(index) => format!("{}{}", &path[..=index], name),
+        None => name.to_string(),
+    }
+}
+
 /// One attachment rename planned by [`plan_filename_renames`].
 struct PlannedRename {
     /// Index of the attachment in the parsed `file` field.
@@ -1280,18 +1290,10 @@ fn plan_filename_renames(
             .map(|p| p.join(&new_filename))
             .unwrap_or_else(|| file_dir.join(&new_filename));
 
-        // New stored path, preserving relative vs absolute form (and the
-        // original subdirectory for relative paths).
-        let new_rel_path = if old_rel.is_absolute() {
-            new_abs.to_string_lossy().into_owned()
-        } else {
-            old_rel
-                .parent()
-                .map(|p| p.join(&new_filename))
-                .unwrap_or_else(|| PathBuf::from(&new_filename))
-                .to_string_lossy()
-                .into_owned()
-        };
+        // New stored path: replace only the file name, preserving relative vs
+        // absolute form, the subdirectory, and the original separator style
+        // (JabRef files use `/`, which must not become `\` on Windows).
+        let new_rel_path = replace_file_name(&pf.path, &new_filename);
 
         plans.push(PlannedRename {
             index: i,

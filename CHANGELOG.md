@@ -1,5 +1,12 @@
 # Changelog
 
+### 0.62.1
+
+- **Windows saves**: the library is replaced with a POSIX-semantics rename, so saving works even while another program holds the `.bib` open with delete sharing
+- **Attachment paths keep their separators**: renaming an attachment replaces only the file name in the stored path, so `PDF/old.pdf` becomes `PDF/Smith2020.pdf` on Windows too instead of `PDF\Smith2020.pdf`
+- **`~` expansion** uses the native separator after the home directory and accepts `~\` on Windows
+- **CI**: fixed Clippy failures in Linux-only clipboard code
+
 ### 0.62.0
 
 - **Safer saving**: saves write an exclusive temporary file next to the library and rename it into place, keep the existing file's permissions, follow symlinks without replacing them, and leave in-memory state untouched when a write fails so the save can be retried. A failed `:w`/`:wq` keeps bibtui open

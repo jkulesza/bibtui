@@ -38,7 +38,7 @@ pub fn read_from_clipboard() -> anyhow::Result<String> {
                 .args(["--clipboard", "--output"])
                 .output()?,
         };
-        return Ok(String::from_utf8_lossy(&output.stdout).into_owned());
+        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     }
 
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
@@ -85,7 +85,7 @@ pub fn copy_to_clipboard(text: &str) -> anyhow::Result<()> {
             stdin.write_all(text.as_bytes())?;
         }
         child.wait()?;
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]

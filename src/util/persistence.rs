@@ -69,7 +69,14 @@ impl SaveIo for FileSaveIo {
                 .set_permissions(metadata.permissions())?;
         }
         temporary.as_file().sync_all()?;
-        temporary.persist(path).map_err(|error| error.error)?;
+        // std::fs::rename uses POSIX rename semantics on Windows 10+, so it can
+        // replace a library another process holds open (with delete sharing);
+        // tempfile's MoveFileExW-based persist cannot. If the rename fails, the
+        // TempPath is dropped and the temporary file removed.
+        let temporary = temporary.into_temp_path();
+        fs::rename(&temporary, path)?;
+        // Already renamed into place: just stop the TempPath from deleting it.
+        let _ = temporary.keep();
         Ok(())
     }
 }

@@ -5,9 +5,26 @@
 /// Returns the input unchanged when it does not start with a tilde or when
 /// no home directory can be determined.
 pub fn expand_tilde(s: &str) -> String {
-    if s == "~" || s.starts_with("~/") {
+    let rest = if s == "~" {
+        Some("")
+    } else {
+        s.strip_prefix("~/").or_else(|| {
+            if cfg!(windows) {
+                s.strip_prefix("~\\")
+            } else {
+                None
+            }
+        })
+    };
+    if let Some(rest) = rest {
         if let Some(home) = dirs::home_dir() {
-            return format!("{}{}", home.to_string_lossy(), &s[1..]);
+            // Join so the separator after the home directory is native.
+            let expanded = if rest.is_empty() {
+                home
+            } else {
+                home.join(rest)
+            };
+            return expanded.to_string_lossy().into_owned();
         }
     }
     s.to_string()
