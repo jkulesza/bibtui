@@ -440,8 +440,10 @@ strict Clippy use Rust 1.93.1. Coverage uses the same fixed compiler and
 cargo-llvm-cov 0.8.4; `scripts/check_coverage.py` checks the checked-in overall and
 application-module floors in `coverage-baseline.json`. Baseline changes require an
 explicit edit with an explanation. `cargo llvm-cov report --summary-only` displays
-an existing report without rerunning tests. See `review/IMPLEMENTATION.md` for
-measured coverage, performance, and remaining platform-validation limits.
+an existing report without rerunning tests. See the
+[review implementation report](review/IMPLEMENTATION.md) for all 19 completed
+items, measured coverage, before/after performance, reproducible probes, and
+remaining platform-validation limits.
 
 Coverage analysis runs automatically in CI via `cargo-llvm-cov`. To run locally:
 

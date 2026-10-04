@@ -80,6 +80,22 @@ fn review_perf_scaling() {
             },
             5,
         );
+        app.search_bar_state.query = "reactor methods".into();
+        let start = Instant::now();
+        app.update_search();
+        let first_dispatch_ms = start.elapsed().as_secs_f64() * 1000.0;
+        while app.search_bar_state.searching {
+            app.poll_search();
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        let async_total_ms = start.elapsed().as_secs_f64() * 1000.0;
+        let cached_dispatch_ms = median_ms(|| app.update_search(), 5);
+        while app.search_bar_state.searching {
+            app.poll_search();
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        assert_eq!(app.visible_entry_count(), n);
+        println!("ASYNC n={n} first_dispatch_ms={first_dispatch_ms:.3} cached_dispatch_ms={cached_dispatch_ms:.3} completion_ms={async_total_ms:.3} searchable_text_bytes={}", cached.iter().map(String::len).sum::<usize>());
         app.config
             .citekey
             .templates

@@ -19,6 +19,7 @@ def main():
         for name in ("Cargo.toml", "Cargo.lock", "build.rs"):
             shutil.copy2(root / name, scratch / name)
         shutil.copytree(root / "src", scratch / "src")
+        shutil.copytree(root / "tests/fixtures", scratch / "tests/fixtures")
         with (scratch / "src/app/tests.rs").open("a") as tests:
             tests.write("\n" + (root / "review/regression_probes.rs").read_text())
             if args.mode == "performance":

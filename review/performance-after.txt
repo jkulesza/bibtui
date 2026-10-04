@@ -1,0 +1,18 @@
+Running in disposable copy: /var/folders/fv/fc0dgl4j5234j51vrk_gqhx80000gn/T/bibtui-review-0tjmtw1t
+cargo test --locked --lib --release app::tests::review_perf_scaling -- --exact --nocapture
+   Compiling bibtui v0.62.0 (/private/var/folders/fv/fc0dgl4j5234j51vrk_gqhx80000gn/T/bibtui-review-0tjmtw1t)
+    Finished `release` profile [optimized] target(s) in 42.78s
+     Running unittests src/lib.rs (/Users/jkulesza/GIT/bibtui/target/release/deps/bibtui-c49bf13774d035e4)
+
+running 1 test
+ASYNC n=1000 first_dispatch_ms=4.163 cached_dispatch_ms=0.392 completion_ms=80.801 searchable_text_bytes=2169000
+PERF n=1000 bytes=2211000 parse_ms=12.606 search_ms=88.335 author_ms=0.436 cached_match_ms=88.953 sort_ms=0.464 render_ms=15.544 regen_ms=5.702
+ASYNC n=5000 first_dispatch_ms=18.263 cached_dispatch_ms=2.726 completion_ms=360.642 searchable_text_bytes=10845000
+PERF n=5000 bytes=11055000 parse_ms=55.682 search_ms=424.518 author_ms=1.760 cached_match_ms=419.168 sort_ms=2.064 render_ms=8.233 regen_ms=27.935
+ASYNC n=10000 first_dispatch_ms=45.440 cached_dispatch_ms=6.359 completion_ms=781.502 searchable_text_bytes=21690000
+PERF n=10000 bytes=22110000 parse_ms=194.517 search_ms=820.392 author_ms=5.085 cached_match_ms=752.961 sort_ms=5.666 render_ms=13.598 regen_ms=87.884
+ASYNC n=20000 first_dispatch_ms=57.649 cached_dispatch_ms=9.788 completion_ms=1246.882 searchable_text_bytes=43380000
+PERF n=20000 bytes=44220000 parse_ms=252.346 search_ms=1640.394 author_ms=7.316 cached_match_ms=1183.183 sort_ms=8.155 render_ms=7.768 regen_ms=81.286
+test app::tests::review_perf_scaling ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1576 filtered out; finished in 34.96s

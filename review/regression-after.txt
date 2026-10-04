@@ -1,0 +1,27 @@
+Running in disposable copy: /var/folders/fv/fc0dgl4j5234j51vrk_gqhx80000gn/T/bibtui-review-54t1w4oc
+cargo test --locked --lib app::tests::review_ -- --test-threads=1
+   Compiling bibtui v0.62.0 (/private/var/folders/fv/fc0dgl4j5234j51vrk_gqhx80000gn/T/bibtui-review-54t1w4oc)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 21.64s
+     Running unittests src/lib.rs (/Users/jkulesza/GIT/bibtui/target/debug/deps/bibtui-f4e0736a76aa1d74)
+
+running 18 tests
+test app::tests::review_attachment_undo_must_not_overwrite_new_file ... ok
+test app::tests::review_blank_lines_inside_fields_must_survive_save ... ok
+test app::tests::review_completion_must_return_a_prefix_of_every_candidate ... ok
+test app::tests::review_delete_save_undo_save_must_restore_entry ... ok
+test app::tests::review_documented_multi_field_search_must_match ... ok
+test app::tests::review_edit_after_undo_saved_state_must_be_dirty ... ok
+test app::tests::review_failed_wq_must_stay_open ... ok
+test app::tests::review_filter_must_remain_valid_after_delete ... ok
+test app::tests::review_key_change_save_undo_save_must_restore_key ... ok
+test app::tests::review_key_regeneration_must_update_crossref ... ok
+test app::tests::review_key_release_must_not_perform_actions ... ok
+test app::tests::review_key_rename_must_preserve_raw_field_expressions ... ok
+test app::tests::review_partial_attachment_failure_must_keep_paths_consistent ... ok
+test app::tests::review_pdf_doi_scan_must_not_panic_on_unicode ... ok
+test app::tests::review_pdf_lowercase_offsets_must_not_panic ... ok
+test app::tests::review_save_filename_must_match_final_citekey ... ok
+test app::tests::review_sort_comparator_must_be_transitive ... ok
+test app::tests::review_temp_path_must_not_clobber_existing_file ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 1555 filtered out; finished in 0.18s
