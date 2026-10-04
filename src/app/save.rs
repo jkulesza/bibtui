@@ -5,7 +5,9 @@ use super::*;
 
 #[derive(Debug, thiserror::Error)]
 pub(super) enum SaveError {
-    #[error("Save refused: bibliography changed outside bibtui; reload it before saving")]
+    #[error(
+        "Save refused: bibliography changed outside bibtui; reload it, or use :w! to overwrite (the external version is kept in .bib.bak)"
+    )]
     ExternalChange,
     #[error("Save failed: {0}")]
     Plan(String),
@@ -26,7 +28,6 @@ struct SaveState {
     detail_key: Option<String>,
     dirty: bool,
     view_dirty: bool,
-    search_cache_dirty: bool,
 }
 
 impl SaveState {
@@ -40,9 +41,23 @@ impl SaveState {
             detail_key: app.detail_entry_key.clone(),
             dirty: app.dirty,
             view_dirty: app.view_dirty,
-            search_cache_dirty: app.search_cache_dirty,
         }
     }
+    /// Install `self` into `app` and return the state it replaces, moving
+    /// rather than cloning the database and undo stack.
+    fn swap_into(self, app: &mut App) -> Self {
+        Self {
+            database: std::mem::replace(&mut app.database, self.database),
+            undo: std::mem::replace(&mut app.undo_stack, self.undo),
+            generation: std::mem::replace(&mut app.save_generation, self.generation),
+            deleted: std::mem::replace(&mut app.deleted_raw_indices, self.deleted),
+            sorted: std::mem::replace(&mut app.sorted_keys, self.sorted),
+            detail_key: std::mem::replace(&mut app.detail_entry_key, self.detail_key),
+            dirty: std::mem::replace(&mut app.dirty, self.dirty),
+            view_dirty: std::mem::replace(&mut app.view_dirty, self.view_dirty),
+        }
+    }
+
     fn restore(self, app: &mut App) {
         app.database = self.database;
         app.undo_stack = self.undo;
@@ -52,7 +67,6 @@ impl SaveState {
         app.detail_entry_key = self.detail_key;
         app.dirty = self.dirty;
         app.view_dirty = self.view_dirty;
-        app.search_cache_dirty = self.search_cache_dirty;
     }
 }
 
@@ -62,6 +76,12 @@ pub(super) struct SavePlan {
     staged: SaveState,
     output: String,
     renames: Vec<PlannedRename>,
+    /// Attachments that need renaming but cannot be (missing from disk).
+    skipped: Vec<String>,
+    /// File contents the plan expects on disk until it is persisted.
+    baseline: Option<Vec<u8>>,
+    /// The plan deliberately overwrites changes made outside bibtui (`:w!`).
+    overrides_external: bool,
 }
 
 impl App {
@@ -130,9 +150,12 @@ impl App {
             self.database.jabref_meta.file_directory.as_deref(),
         );
         let mut files = parse_file_field(&old_file_value);
-        let plans = plan_filename_renames(&entry.citation_key, &files, &file_dir);
+        let (plans, skipped) = plan_filename_renames(&entry.citation_key, &files, &file_dir);
         let mut renames = Vec::new();
-        let mut errors = Vec::new();
+        let mut errors: Vec<String> = skipped
+            .into_iter()
+            .map(|note| format!("not renamed: {note}"))
+            .collect();
         for plan in plans {
             match self.save_io.rename_attachment(&plan.old_abs, &plan.new_abs) {
                 Ok(()) => {
@@ -251,28 +274,18 @@ impl App {
                 Some(v) => v,
                 None => continue,
             };
-            let citekey = &entry.citation_key;
             let parsed = parse_file_field(file_val);
-            if parsed.is_empty() {
-                continue;
-            }
-            let multi = parsed.len() > 1;
-            for (i, pf) in parsed.iter().enumerate() {
+            // Share planning with the actual sync so the preview omits the
+            // same remote and missing attachments.
+            let (plans, _) = plan_filename_renames(&entry.citation_key, &parsed, &file_dir);
+            for plan in plans {
+                let pf = &parsed[plan.index];
                 let old_rel = PathBuf::from(&pf.path);
-                let ext = old_rel
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .unwrap_or("pdf")
-                    .to_string();
-                let safe_stem = crate::util::import::sanitize_filename_stem(citekey);
-                let new_filename = if multi {
-                    format!("{}_{}.{}", safe_stem, i + 1, ext)
-                } else {
-                    format!("{}.{}", safe_stem, ext)
-                };
-                if old_rel.file_name().and_then(|n| n.to_str()) == Some(&new_filename) {
-                    continue; // Already correctly named.
-                }
+                let new_filename = plan
+                    .new_abs
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
                 let old_display = old_rel
                     .file_name()
                     .and_then(|n| n.to_str())
@@ -311,7 +324,14 @@ impl App {
     /// Preview and execute the same immutable plan based on final field values
     /// and citation keys. No files or live document state change during planning.
     pub(super) fn request_save(&mut self, and_quit: bool) {
-        let plan = match self.prepare_save_plan() {
+        self.request_save_with(and_quit, false);
+    }
+
+    /// `force` (`:w!`) accepts the current on-disk file as the baseline, so a
+    /// bibliography changed outside bibtui is overwritten. The external version
+    /// is always backed up to `.bib.bak` first.
+    pub(super) fn request_save_with(&mut self, and_quit: bool, force: bool) {
+        let plan = match self.prepare_save_plan(force) {
             Ok(plan) => plan,
             Err(error) => {
                 self.status_message = Some(error.to_string());
@@ -350,10 +370,24 @@ impl App {
             .pending_save
             .take()
             .map(Ok)
-            .unwrap_or_else(|| self.prepare_save_plan());
-        match plan.and_then(|plan| self.execute_save_plan(plan)) {
+            .unwrap_or_else(|| self.prepare_save_plan(false));
+        let mut skipped = Vec::new();
+        let result = plan.and_then(|plan| {
+            skipped = plan.skipped.clone();
+            self.execute_save_plan(plan)
+        });
+        match result {
             Ok(()) => {
-                self.status_message = Some(format!("Saved to {}", self.bib_path.display()));
+                let mut message = format!("Saved to {}", self.bib_path.display());
+                if !skipped.is_empty() {
+                    message.push_str(&format!(
+                        "; {} attachment{} not renamed: {}",
+                        skipped.len(),
+                        if skipped.len() == 1 { "" } else { "s" },
+                        skipped.join("; ")
+                    ));
+                }
+                self.status_message = Some(message);
                 true
             }
             Err(error) => {
@@ -364,19 +398,30 @@ impl App {
         }
     }
 
-    fn verify_saved_contents(&self) -> std::result::Result<(), SaveError> {
+    fn verify_disk_contents(
+        &self,
+        expected: &Option<Vec<u8>>,
+    ) -> std::result::Result<(), SaveError> {
         let current = self
             .save_io
             .read(&self.bib_path)
             .map_err(SaveError::Write)?;
-        if current != self.saved_contents {
+        if current != *expected {
             return Err(SaveError::ExternalChange);
         }
         Ok(())
     }
 
-    fn prepare_save_plan(&mut self) -> std::result::Result<SavePlan, SaveError> {
-        self.verify_saved_contents()?;
+    fn prepare_save_plan(&mut self, force: bool) -> std::result::Result<SavePlan, SaveError> {
+        let baseline = if force {
+            self.save_io
+                .read(&self.bib_path)
+                .map_err(SaveError::Write)?
+        } else {
+            self.verify_disk_contents(&self.saved_contents)?;
+            self.saved_contents.clone()
+        };
+        let overrides_external = baseline != self.saved_contents;
         let before = SaveState::capture(self);
         self.apply_save_actions();
         if self.config.save.save_action_regenerate_citekeys
@@ -389,6 +434,7 @@ impl App {
             self.database.jabref_meta.file_directory.as_deref(),
         );
         let mut renames = Vec::new();
+        let mut skipped = Vec::new();
         let mut undo = Vec::new();
         if self.config.save.sync_filenames {
             for (key, entry) in &mut self.database.entries {
@@ -396,7 +442,9 @@ impl App {
                     continue;
                 };
                 let mut files = parse_file_field(&old_value);
-                let plans = plan_filename_renames(&entry.citation_key, &files, &file_dir);
+                let (plans, entry_skipped) =
+                    plan_filename_renames(&entry.citation_key, &files, &file_dir);
+                skipped.extend(entry_skipped);
                 if plans.is_empty() {
                     continue;
                 }
@@ -426,14 +474,20 @@ impl App {
         self.sort_entries_for_save();
         crate::bib::writer::normalize_separators(&mut self.database.raw_file);
         let output = write_bib_file(&self.database.raw_file);
+        // Two database copies per save: the pre-save snapshot (restored into
+        // the app) and `original` for detecting changes during the preview.
+        let original = before.database.clone();
+        let staged = before.swap_into(self);
         let plan = SavePlan {
-            original: before.database.clone(),
+            original,
             path: self.bib_path.clone(),
-            staged: SaveState::capture(self),
+            staged,
             output,
             renames,
+            skipped,
+            baseline,
+            overrides_external,
         };
-        before.restore(self);
         self.validate_save_renames(&plan)?;
         Ok(plan)
     }
@@ -472,9 +526,11 @@ impl App {
                     source.display()
                 )));
             }
-            if !targets.insert(rename.new_abs.clone())
-                || std::fs::symlink_metadata(&rename.new_abs).is_ok()
-            {
+            // An existing target is acceptable only when it is the source
+            // itself (a case-only rename on a case-insensitive filesystem).
+            let occupied = std::fs::symlink_metadata(&rename.new_abs).is_ok()
+                && !crate::util::persistence::same_file(&rename.old_abs, &rename.new_abs);
+            if !targets.insert(rename.new_abs.clone()) || occupied {
                 return Err(SaveError::Plan(format!(
                     "attachment target {} already exists or is used twice",
                     rename.new_abs.display()
@@ -490,15 +546,18 @@ impl App {
                 "library changed during the preview; save again to review a new plan".into(),
             ));
         }
-        self.verify_saved_contents()?;
+        self.verify_disk_contents(&plan.baseline)?;
         self.validate_save_renames(&plan)?;
         // Output is fully serialized before either backup or attachment mutation.
-        if self.config.general.backup_on_save && self.saved_contents.is_some() {
+        // An overwritten external version is always backed up.
+        if (self.config.general.backup_on_save || plan.overrides_external)
+            && plan.baseline.is_some()
+        {
             self.save_io
                 .backup(&self.bib_path, &self.bib_path.with_extension("bib.bak"))
                 .map_err(SaveError::Backup)?;
         }
-        self.verify_saved_contents()?;
+        self.verify_disk_contents(&plan.baseline)?;
         let mut completed = Vec::new();
         let result = (|| {
             for rename in &plan.renames {
@@ -507,7 +566,7 @@ impl App {
                     .map_err(SaveError::Write)?;
                 completed.push(rename);
             }
-            self.verify_saved_contents()?;
+            self.verify_disk_contents(&plan.baseline)?;
             self.save_io
                 .persist(&self.bib_path, plan.output.as_bytes())
                 .map_err(SaveError::Write)
@@ -539,7 +598,6 @@ impl App {
             });
         }
         plan.staged.restore(self);
-        self.search_cache_dirty = true;
         self.refresh_view();
         self.saved_contents = Some(plan.output.into_bytes());
         self.save_generation = Some(self.undo_stack.len());
@@ -1171,14 +1229,19 @@ struct PlannedRename {
 /// filesystem changes are made; callers perform the renames (checking for
 /// target conflicts atomically when creating the destination) and keep
 /// their own undo/status handling.
+///
+/// Remote links (`https://…`) and attachments missing from disk are never
+/// renamed; they are returned as human-readable notes so that one broken link
+/// cannot block a save.
 fn plan_filename_renames(
     citekey: &str,
     parsed: &[crate::util::open::ParsedFile],
     file_dir: &std::path::Path,
-) -> Vec<PlannedRename> {
+) -> (Vec<PlannedRename>, Vec<String>) {
     let multi = parsed.len() > 1;
     let safe_stem = crate::util::import::sanitize_filename_stem(citekey);
     let mut plans = Vec::new();
+    let mut skipped = Vec::new();
 
     for (i, pf) in parsed.iter().enumerate() {
         let old_rel = PathBuf::from(&pf.path);
@@ -1198,6 +1261,9 @@ fn plan_filename_renames(
         if old_rel.file_name().and_then(|n| n.to_str()) == Some(&new_filename) {
             continue;
         }
+        if pf.path.contains("://") {
+            continue; // Remote link, not a local file.
+        }
 
         // Resolve to absolute paths.
         let old_abs = if old_rel.is_absolute() {
@@ -1205,6 +1271,10 @@ fn plan_filename_renames(
         } else {
             file_dir.join(&old_rel)
         };
+        if !old_abs.exists() {
+            skipped.push(format!("{} (file not found)", old_abs.display()));
+            continue;
+        }
         let new_abs = old_abs
             .parent()
             .map(|p| p.join(&new_filename))
@@ -1231,5 +1301,5 @@ fn plan_filename_renames(
         });
     }
 
-    plans
+    (plans, skipped)
 }

@@ -87,6 +87,7 @@ fn render_entry_list_help(f: &mut Frame, area: Rect, theme: &Theme) {
             "Commands  ( : )",
             &[
                 (":w", "save"),
+                (":w!", "save over external changes"),
                 (":q", "quit"),
                 (":q!", "force quit"),
                 (":sort <field>", "sort by field; :sort none = file order"),

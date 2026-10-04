@@ -1,5 +1,23 @@
 # Changelog
 
+### 0.62.0
+
+- **Safer saving**: saves write an exclusive temporary file next to the library and rename it into place, keep the existing file's permissions, follow symlinks without replacing them, and leave in-memory state untouched when a write fails so the save can be retried. A failed `:w`/`:wq` keeps bibtui open
+- **External changes detected**: if the `.bib` file changed on disk since it was loaded or last saved, `:w` is refused instead of overwriting it. New `:w!` / `:wq!` overwrite deliberately, first copying the external version to `.bib.bak` even when backups are disabled
+- **Attachment renames on save follow the final citation keys**: the rename preview is built from the fully normalized, rekeyed library and confirming executes exactly that plan. Renames never overwrite an existing file (atomic no-replace rename on macOS/Linux, with fallbacks for filesystems without hard links), case-only renames work on case-insensitive filesystems, and completed renames are reversed if the save fails
+- **Missing or remote attachments no longer block saving**: attachments missing from disk or stored as `https://` links are skipped and listed in the status line instead of failing the whole save
+- **Undo fixes**: editing after undoing past a save now marks the library unsaved; undoing a deletion or key change after a save is persisted correctly; keys regenerated during save are one undo step; partial attachment-undo failures are all reported
+- **Key changes update `crossref`** fields that reference the old key, in the same undo step. Rekeyed entries keep `@String` references and `#` concatenation in unchanged fields
+- **Blank lines inside entries, comments, and `@String`/`@Preamble` blocks are preserved** on save; only blank lines between items are normalized
+- **Search**: space-separated terms each take their own qualifier (`author:smith year:2020`), `"quoted phrases"` match exactly, and search combines with the selected group. Libraries over 500 entries search in a background thread with cached entry text; current results stay visible while searching
+- **Sorting** is a consistent order: numeric for `year`, `volume`, `number`, and `pages`, text for everything else
+- **Imports**: one HTTP client with connect/read/request timeouts and a metadata size cap, using the OS trust store via native TLS (rustls on musl). PDF downloads stream to a temporary file with a configurable size limit (`import.max_pdf_size_mb`, default 100) and a separate 10-minute limit; re-importing reuses an identical file or picks a `_2` name instead of failing. Imported attachment paths escape `:` and `;` correctly
+- **Unicode crash fixes** in PDF and publisher-page DOI scanning and in path tab completion
+- **Input**: key-release events are ignored and held-key repeats only apply to navigation and typing, so terminals that report releases no longer double-fire actions
+- **Groups** with the same name in different subtrees filter independently
+- **Performance**: bulk citation-key regeneration ~50× faster and frame rendering ~4.6× faster on a 20,000-entry library; saves copy the database fewer times
+- **Quality**: CI tests on Linux, macOS, Windows, and the minimum Rust version (1.88), enforces rustfmt, Clippy, and coverage floors; formatting commits are listed in `.git-blame-ignore-revs`
+
 ### 0.61.9
 
 - **Fix citekey help regex example**: the Settings citekey template reference showed `[auth][year:regex("^..",...)]`, where `...` was a placeholder rather than valid syntax, so typing it literally silently did nothing. It now shows the working `[auth][year:regex("^..","")]` → `Smith24`, and a test asserts the documented output

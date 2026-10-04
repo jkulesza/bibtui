@@ -236,6 +236,7 @@ field_groups:
 #   detail:
 #     "ctrl-r": "RegenCitekey"  # regenerate citekey from detail view
 
-# PDF download limit; files already at the destination are never overwritten.
+# PDF download size limit in MiB. Existing files are never overwritten: an
+# identical earlier download is reused, otherwise the new file gets a _2, _3, ... suffix.
 import:
   max_pdf_size_mb: 100

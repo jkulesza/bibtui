@@ -992,6 +992,7 @@ fn rendering_builds_only_viewport_rows_and_tracks_global_navigation() {
         assert_eq!(app.entry_list_state.table_state.offset(), count - 7);
         app.search_bar_state.query = "key:missing".into();
         app.update_search();
+        finish_review_search(&mut app);
         terminal.draw(|frame| app.render(frame)).unwrap();
         assert_eq!(app.entry_list_state.rendered_rows, 0);
         assert_eq!(app.selected_entry_key(), None);
@@ -1316,4 +1317,145 @@ fn grouped_attachment_undo_retains_errors_after_other_moves_succeed() {
         "unrelated"
     );
     assert!(app.dirty);
+}
+
+fn run_command(app: &mut App, command: &str) {
+    app.command_palette_state.input = command.into();
+    app.execute_command();
+}
+
+#[test]
+fn missing_attachment_is_reported_without_blocking_save() {
+    let (mut app, _dir) = review_app("@Misc{A, title={T}, file={:missing.pdf:PDF}}\n");
+    app.config.save.sync_filenames = true;
+    review_edit(&mut app, "A", "title", "Changed");
+    assert!(app.save(), "{:?}", app.status_message);
+    let status = app.status_message.clone().unwrap();
+    assert!(status.contains("1 attachment not renamed"), "{status}");
+    assert!(status.contains("missing.pdf (file not found)"), "{status}");
+    assert_eq!(app.database.entries["A"].fields["file"], ":missing.pdf:PDF");
+    assert!(!app.dirty);
+}
+
+#[test]
+fn remote_attachment_links_are_left_alone_on_save() {
+    let (mut app, _dir) =
+        review_app("@Misc{A, title={T}, file={Online:https\\://example.com/x.pdf:URL}}\n");
+    app.config.save.sync_filenames = true;
+    review_edit(&mut app, "A", "title", "Changed");
+    assert!(app.save(), "{:?}", app.status_message);
+    assert_eq!(
+        app.database.entries["A"].fields["file"],
+        "Online:https\\://example.com/x.pdf:URL"
+    );
+    assert!(app.compute_sync_renames(true).is_empty());
+}
+
+#[test]
+fn case_only_attachment_rename_succeeds_on_save() {
+    let (mut app, dir) = review_app("@Misc{Smith2020, title={T}, file={:smith2020.pdf:PDF}}\n");
+    std::fs::write(dir.path().join("smith2020.pdf"), b"%PDF").unwrap();
+    app.config.save.sync_filenames = true;
+    review_edit(&mut app, "Smith2020", "title", "Changed");
+    assert!(app.save(), "{:?}", app.status_message);
+    let mut names: Vec<_> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .filter(|n| n.ends_with(".pdf"))
+        .collect();
+    names.sort();
+    assert_eq!(names, ["Smith2020.pdf"]);
+    assert_eq!(
+        app.database.entries["Smith2020"].fields["file"],
+        ":Smith2020.pdf:PDF"
+    );
+}
+
+#[test]
+fn manual_sync_reports_missing_attachment_as_not_renamed() {
+    let (mut app, _dir) = review_app("@Misc{A, title={T}, file={:missing.pdf:PDF}}\n");
+    app.detail_entry_key = Some("A".into());
+    app.sync_entry_filename();
+    let status = app.status_message.clone().unwrap();
+    assert!(status.contains("not renamed"), "{status}");
+    assert!(app.undo_stack.is_empty());
+}
+
+#[test]
+fn force_write_overwrites_external_change_and_backs_it_up() {
+    let (mut app, _dir) = review_app("@Misc{A, title={Original}}\n");
+    assert!(!app.config.general.backup_on_save);
+    std::fs::write(&app.bib_path, "@Misc{External, title={Theirs}}\n").unwrap();
+    review_edit(&mut app, "A", "title", "Mine");
+
+    run_command(&mut app, "w");
+    assert!(app.dirty);
+    let status = app.status_message.clone().unwrap();
+    assert!(status.contains(":w!"), "{status}");
+
+    run_command(&mut app, "w!");
+    assert!(!app.dirty, "{:?}", app.status_message);
+    let saved = std::fs::read_to_string(&app.bib_path).unwrap();
+    assert!(saved.contains("Mine") && !saved.contains("Theirs"));
+    // The external version is kept even though backups are disabled.
+    let backup = std::fs::read_to_string(app.bib_path.with_extension("bib.bak")).unwrap();
+    assert!(backup.contains("Theirs"));
+
+    // The forced save becomes the new baseline for ordinary saves.
+    review_edit(&mut app, "A", "title", "Again");
+    run_command(&mut app, "w");
+    assert!(!app.dirty, "{:?}", app.status_message);
+}
+
+#[test]
+fn force_write_and_quit_exits_after_saving() {
+    let (mut app, _dir) = review_app("@Misc{A, title={Original}}\n");
+    std::fs::write(&app.bib_path, "@Misc{External, title={Theirs}}\n").unwrap();
+    review_edit(&mut app, "A", "title", "Mine");
+    run_command(&mut app, "wq");
+    assert!(!app.should_quit);
+    run_command(&mut app, "wq!");
+    assert!(app.should_quit, "{:?}", app.status_message);
+}
+
+#[test]
+fn background_search_keeps_previous_results_until_new_ones_arrive() {
+    let input: String = (0..1_000)
+        .map(|i| format!("@Misc{{Key{i:05}, title={{Row {i:05}}}}}\n"))
+        .collect();
+    let (mut app, _dir) = review_app(&input);
+    app.search_bar_state.query = "Key0001".into();
+    app.update_search();
+    finish_review_search(&mut app);
+    let before = app.visible_entry_count();
+    assert!(before > 0);
+    // An edit re-runs the search in the background; the list must not blank.
+    review_edit(&mut app, "Key00010", "title", "Edited");
+    app.refresh_view();
+    assert!(app.search_bar_state.searching);
+    assert_eq!(app.visible_entry_count(), before);
+    finish_review_search(&mut app);
+    assert_eq!(app.visible_entry_count(), before);
+}
+
+#[test]
+fn background_search_sees_edits_made_without_the_undo_stack() {
+    let input: String = (0..1_000)
+        .map(|i| format!("@Misc{{Key{i:05}, title={{Row {i:05}}}}}\n"))
+        .collect();
+    let (mut app, _dir) = review_app(&input);
+    app.search_bar_state.query = "title:zebra".into();
+    app.update_search();
+    finish_review_search(&mut app);
+    assert_eq!(app.visible_entry_count(), 0);
+    // Mutate directly (no push_undo) and refresh: the cache must revalidate.
+    app.database
+        .entries
+        .get_mut("Key00500")
+        .unwrap()
+        .fields
+        .insert("title".into(), "Zebra".into());
+    app.refresh_view();
+    finish_review_search(&mut app);
+    assert_eq!(app.selected_entry_key().as_deref(), Some("Key00500"));
 }

@@ -99,7 +99,9 @@ pub struct App {
     pub search_engine: SearchEngine,
     pub filtered_indices: Option<Vec<usize>>,
     view_dirty: bool,
-    search_cache_dirty: bool,
+    /// Set by [`App::update_search`]: the next refresh only changes the
+    /// query, so the worker may reuse its document snapshot unvalidated.
+    query_only_refresh: bool,
     search_worker: crate::search::worker::SearchWorker,
     pending_search_selection: Option<String>,
     pending_search_group: Option<std::collections::HashSet<String>>,
@@ -265,7 +267,7 @@ impl App {
             search_engine: SearchEngine::new(),
             filtered_indices: None,
             view_dirty: false,
-            search_cache_dirty: true,
+            query_only_refresh: false,
             search_worker: Default::default(),
             pending_search_selection: None,
             pending_search_group: None,
@@ -339,7 +341,7 @@ impl App {
             search_engine: SearchEngine::new(),
             filtered_indices: None,
             view_dirty: false,
-            search_cache_dirty: true,
+            query_only_refresh: false,
             search_worker: Default::default(),
             pending_search_selection: None,
             pending_search_group: None,
@@ -1247,6 +1249,7 @@ impl App {
     // ── Search ──
 
     fn update_search(&mut self) {
+        self.query_only_refresh = true;
         self.refresh_view();
         self.pending_search_selection = None;
         self.entry_list_state.select(0);
@@ -1259,6 +1262,19 @@ impl App {
             .selected_entry_key()
             .or_else(|| self.pending_search_selection.clone());
         let old_position = self.entry_list_state.selected();
+        // Any refresh other than a pure query change (including one with a
+        // mutation still pending) revalidates cached search documents, so
+        // cache correctness never depends on how an entry was modified.
+        let documents_may_have_changed =
+            self.view_dirty || !std::mem::take(&mut self.query_only_refresh);
+        // Keep showing the current results while a background search runs,
+        // instead of flashing an empty list.
+        let previous_visible: Option<Vec<String>> = self.filtered_indices.as_ref().map(|indices| {
+            indices
+                .iter()
+                .filter_map(|&index| self.sorted_keys.get(index).cloned())
+                .collect()
+        });
         self.sorted_keys = sort_entries(&self.database.entries, &self.config);
         let entries: Vec<&Entry> = self
             .sorted_keys
@@ -1284,21 +1300,33 @@ impl App {
         self.filtered_indices = if self.search_bar_state.query.is_empty() {
             group_indices
         } else if entries.len() > crate::search::worker::BACKGROUND_THRESHOLD {
-            self.pending_search_group = group_indices.map(|indices| {
+            self.pending_search_group = group_indices.as_ref().map(|indices| {
                 indices
-                    .into_iter()
-                    .map(|index| entries[index].citation_key.clone())
+                    .iter()
+                    .map(|&index| entries[index].citation_key.clone())
                     .collect()
             });
             self.pending_search_selection = selected.clone();
             self.search_worker.submit(
                 &entries,
                 &self.search_bar_state.query,
-                self.search_cache_dirty,
+                documents_may_have_changed,
             );
-            self.search_cache_dirty = false;
             self.search_bar_state.searching = true;
-            Some(Vec::new())
+            Some(match previous_visible {
+                Some(keys) => {
+                    let positions: std::collections::HashMap<&str, usize> = self
+                        .sorted_keys
+                        .iter()
+                        .enumerate()
+                        .map(|(index, key)| (key.as_str(), index))
+                        .collect();
+                    keys.iter()
+                        .filter_map(|key| positions.get(key.as_str()).copied())
+                        .collect()
+                }
+                None => group_indices.unwrap_or_else(|| (0..entries.len()).collect()),
+            })
         } else {
             let allowed = group_indices.map(|indices| {
                 indices
@@ -1887,6 +1915,7 @@ impl App {
 
         match cmd.as_str() {
             "w" | "write" | "save" => self.request_save(false),
+            "w!" | "write!" => self.request_save_with(false, true),
             "q" | "quit" => {
                 if self.dirty {
                     self.dialog_state = Some(DialogState::confirm(
@@ -1904,6 +1933,9 @@ impl App {
             }
             "wq" => {
                 self.request_save(true);
+            }
+            "wq!" => {
+                self.request_save_with(true, true);
             }
             _ if cmd.starts_with("sort ") || cmd == "sort" => {
                 let field = cmd.trim_start_matches("sort").trim().to_string();
@@ -2273,7 +2305,6 @@ impl App {
             self.save_generation = self.save_generation.and_then(|g| g.checked_sub(1));
         }
         self.view_dirty = true;
-        self.search_cache_dirty = true;
         self.undo_stack.push(item);
         self.dirty = self.save_generation != Some(self.undo_stack.len());
     }
@@ -2289,7 +2320,6 @@ impl App {
             _ => 1,
         };
         let succeeded = self.undo_apply(item);
-        self.search_cache_dirty = true;
         self.refresh_view();
         if !succeeded {
             self.save_generation = None;

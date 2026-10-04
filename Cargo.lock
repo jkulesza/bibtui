@@ -116,6 +116,7 @@ dependencies = [
  "dirs",
  "indexmap 2.14.0",
  "isbn2",
+ "libc",
  "nucleo-matcher",
  "pretty_assertions",
  "ratatui",

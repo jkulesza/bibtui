@@ -7,6 +7,10 @@ use super::ImportError;
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 pub const OPTIONAL_TIMEOUT: Duration = Duration::from_secs(5);
 const IMPORT_TIMEOUT: Duration = Duration::from_secs(90);
+/// Overall limit for one PDF download. Stalls are still caught by the 10 s
+/// read timeout; this only bounds slow-but-progressing transfers, so it is
+/// sized for the default 100 MiB cap at roughly 200 KB/s.
+pub const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const METADATA_LIMIT: u64 = 4 * 1024 * 1024;
 
 pub struct HttpResponse {
@@ -40,6 +44,13 @@ impl HttpResponse {
 
 pub trait HttpTransport: Send + Sync {
     fn get(&self, url: &str, budget: Duration) -> Result<HttpResponse, ImportError>;
+
+    /// Fetch a large file body. Unlike metadata requests this is not limited
+    /// by the per-request or whole-import budgets, only by
+    /// [`DOWNLOAD_TIMEOUT`] and the connect/read timeouts.
+    fn download(&self, url: &str) -> Result<HttpResponse, ImportError> {
+        self.get(url, REQUEST_TIMEOUT)
+    }
 }
 
 pub struct HttpClient {
@@ -82,6 +93,16 @@ impl HttpTransport for HttpClient {
         if timeout.is_zero() {
             return Err(ImportError::Network("Import time budget exhausted".into()));
         }
+        self.request(url, timeout)
+    }
+
+    fn download(&self, url: &str) -> Result<HttpResponse, ImportError> {
+        self.request(url, DOWNLOAD_TIMEOUT)
+    }
+}
+
+impl HttpClient {
+    fn request(&self, url: &str, timeout: Duration) -> Result<HttpResponse, ImportError> {
         let response = self
             .agent
             .get(url)
@@ -142,6 +163,28 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn downloads_are_not_limited_by_the_metadata_import_budget() {
+        use std::io::Write;
+        use std::net::TcpListener;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0; 4096];
+            let _ = stream.read(&mut request).unwrap();
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\n%PDF")
+                .unwrap();
+        });
+        let mut client = HttpClient::new().unwrap();
+        client.deadline = Instant::now();
+        let url = format!("http://{address}/file.pdf");
+        assert!(client.get(&url, REQUEST_TIMEOUT).is_err());
+        assert_eq!(client.download(&url).unwrap().text().unwrap(), "%PDF");
+        server.join().unwrap();
+    }
+
+    #[test]
     fn metadata_reads_are_bounded_with_or_without_content_length() {
         for content_length in [None, Some(METADATA_LIMIT + 1)] {
             let response = HttpResponse {
@@ -166,6 +209,9 @@ pub(super) mod tests {
                     std::thread::sleep(Duration::from_millis(5));
                     continue;
                 };
+                // Accepted sockets inherit the listener's non-blocking mode on
+                // macOS/BSD; the request may not have arrived yet.
+                stream.set_nonblocking(false).unwrap();
                 stream
                     .set_read_timeout(Some(Duration::from_secs(1)))
                     .unwrap();

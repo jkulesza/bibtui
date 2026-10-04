@@ -78,10 +78,7 @@ pub fn download_pdf_with(
     http: &dyn http::HttpTransport,
     max_bytes: u64,
 ) -> Result<PathBuf, ImportError> {
-    let filename = doi_to_filename(doi);
-    let dest = dest_dir.join(&filename);
-
-    let response = http.get(pdf_url, http::REQUEST_TIMEOUT)?;
+    let response = http.download(pdf_url)?;
     if max_bytes < 4
         || response
             .content_length
@@ -102,8 +99,7 @@ pub fn download_pdf_with(
             "Downloaded content is not a PDF (missing %PDF header)".into(),
         ));
     }
-    let mut temporary = tempfile::Builder::new()
-        .prefix(".bibtui-download-")
+    let mut temporary = crate::util::persistence::new_file_builder(".bibtui-download-")
         .tempfile_in(dest_dir)
         .map_err(|error| ImportError::Parse(error.to_string()))?;
     temporary
@@ -121,19 +117,51 @@ pub fn download_pdf_with(
         .flush()
         .and_then(|_| temporary.as_file().sync_all())
         .map_err(|error| ImportError::Parse(error.to_string()))?;
-    temporary.persist_noclobber(&dest).map_err(|error| {
-        ImportError::Parse(format!(
-            "Cannot create {} without overwriting: {}",
-            dest.display(),
-            error.error
-        ))
-    })?;
-
-    Ok(dest)
+    // Re-importing the same DOI reuses an identical earlier download; a
+    // different existing file is never overwritten, so pick `<doi>_2.pdf`, …
+    let stem = sanitize_filename_stem(doi);
+    for n in 1..=1000 {
+        let dest = if n == 1 {
+            dest_dir.join(doi_to_filename(doi))
+        } else {
+            dest_dir.join(format!("{stem}_{n}.pdf"))
+        };
+        if dest.exists() {
+            if files_equal(temporary.path(), &dest) {
+                return Ok(dest);
+            }
+            continue;
+        }
+        match temporary.persist_noclobber(&dest) {
+            Ok(_) => return Ok(dest),
+            Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => {
+                temporary = error.file;
+            }
+            Err(error) => {
+                return Err(ImportError::Parse(format!(
+                    "Cannot create {}: {}",
+                    dest.display(),
+                    error.error
+                )))
+            }
+        }
+    }
+    Err(ImportError::Parse(format!(
+        "No free filename for {stem}.pdf in {}",
+        dest_dir.display()
+    )))
 }
 
 fn doi_to_filename(doi: &str) -> String {
     format!("{}.pdf", sanitize_filename_stem(doi))
+}
+
+fn files_equal(a: &Path, b: &Path) -> bool {
+    let same_length = match (std::fs::metadata(a), std::fs::metadata(b)) {
+        (Ok(a), Ok(b)) => a.len() == b.len(),
+        _ => false,
+    };
+    same_length && matches!((std::fs::read(a), std::fs::read(b)), (Ok(a), Ok(b)) if a == b)
 }
 
 /// Sanitize a string for use as a filesystem filename stem.
@@ -333,9 +361,15 @@ mod tests {
         }
         let path = download(Ok("%PDFvalid"), 9).unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), b"%PDFvalid");
-        assert!(download(Ok("%PDFother"), 100).is_err());
-        assert_eq!(std::fs::read(&path).unwrap(), b"%PDFvalid");
+        // Re-importing identical content reuses the existing file.
+        assert_eq!(download(Ok("%PDFvalid"), 100).unwrap(), path);
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+        // Different content gets a new name; the original is untouched.
+        let second = download(Ok("%PDFother"), 100).unwrap();
+        assert_eq!(second.file_name().unwrap(), "10.1234_test_2.pdf");
+        assert_eq!(std::fs::read(&second).unwrap(), b"%PDFother");
+        assert_eq!(std::fs::read(&path).unwrap(), b"%PDFvalid");
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 2);
     }
 
     #[test]

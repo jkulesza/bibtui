@@ -2420,10 +2420,12 @@ fn test_request_sync_filenames_no_file_fields_sets_status() {
 #[test]
 fn test_request_sync_filenames_pending_file_shows_dialog() {
     // Build a bib with an entry whose file field does NOT match the cite key.
-    let mut tmp = NamedTempFile::new().unwrap();
-    write!(tmp, "@Article{{Smith2020,\n  author={{Smith, John}},\n  title={{T}},\n  year={{2020}},\n  file={{:wrong_name.pdf:PDF}},\n}}\n").unwrap();
-    tmp.flush().unwrap();
-    let mut app = App::new(tmp.path().to_path_buf(), default_config()).unwrap();
+    // The attachment must exist: missing files are never offered for rename.
+    let dir = tempfile::tempdir().unwrap();
+    let bib = dir.path().join("lib.bib");
+    std::fs::write(&bib, "@Article{Smith2020,\n  author={Smith, John},\n  title={T},\n  year={2020},\n  file={:wrong_name.pdf:PDF},\n}\n").unwrap();
+    std::fs::write(dir.path().join("wrong_name.pdf"), b"%PDF").unwrap();
+    let mut app = App::new(bib, default_config()).unwrap();
     app.handle_action(Action::SyncFilenames);
     assert_eq!(app.mode, InputMode::Dialog, "should enter Dialog mode");
     assert!(
@@ -2431,7 +2433,7 @@ fn test_request_sync_filenames_pending_file_shows_dialog() {
         "pending action should be SyncFilenamesOnly"
     );
     assert!(app.dialog_state.is_some(), "dialog state should be set");
-    let _tmp = tmp;
+    drop(dir);
 }
 
 // ── FocusGroups reveals panel ────────────────────────────────────────────

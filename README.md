@@ -89,6 +89,10 @@ bibtui --config ~/dotfiles/bibtui.yaml references.bib
 
 ## Keyboard Reference
 
+Key release events are ignored. Holding a key repeats navigation and text
+entry/deletion only; repeats never complete multi-key commands (`dd`, `gg`, …) or
+repeat deletions, confirmations, or custom bindings.
+
 ### Entry List (Normal mode)
 
 | Key | Action |
@@ -131,6 +135,16 @@ bibtui --config ~/dotfiles/bibtui.yaml references.bib
 Search syntax:
 - Plain text — fuzzy match across all fields
 - `field:query` — restrict to a specific field, e.g. `author:smith`, `year:2024`, `title:neural`
+- Space-separated terms must all match, each with its own optional qualifier:
+  `author:smith year:2020`
+- `"double quotes"` match a contiguous phrase: `title:"neural methods"` (an unclosed
+  quote takes the rest of the input, so typing works incrementally)
+- Unknown qualifiers search custom fields; `key`/`citekey`/`citation_key` and
+  `type`/`entrytype` are aliases; URLs and DOIs containing colons are literal text
+
+Search combines with the selected group (both filters apply). In libraries of more
+than 500 entries, searches run in the background: the search bar shows
+`searching…` and the current results stay visible until the new ones arrive.
 
 ### Entry Detail view
 
@@ -262,7 +276,9 @@ Open with `:` from the entry list.
 | Command | Description |
 |---------|-------------|
 | `:w` / `:write` / `:save` | Save the file |
+| `:w!` / `:write!` | Save even if the file changed outside bibtui (external version kept in `.bib.bak`) |
 | `:wq` | Save and quit |
+| `:wq!` | Force-save and quit |
 | `:q` | Quit (confirmation dialog if unsaved changes) |
 | `:q!` | Force quit without saving |
 | `:sort <field>` | Sort by field (repeat to toggle direction) |
@@ -276,30 +292,43 @@ Open with `:` from the entry list.
 
 Example: `:sort year`, `:sort author`, `:sort title`, `:sort citation_key`, `:sort none`
 
+`year`, `volume`, `number`, and `pages` (leading page number) sort numerically; all
+other fields sort as text, even when some values contain only digits.
+
 Sorting keeps an active group filter in place — `:sort` re-applies the filter to the
 newly sorted list instead of falling back to all entries. If the sort field isn't one
 of the configured columns, its values are shown in a temporary column on the right so
 the sort is visually confirmable; the column disappears again once the sort changes to
 a visible field or is cleared.
 
+#### Saving
+
 When `save.sync_filenames` is enabled, saving with `:w` or `:wq` shows a scrollable
 preview of any file renames that will be performed, with `[y]es` / `[n]o` to proceed
-or cancel. The preview uses the final normalized fields and generated keys; the
-same plan is executed on confirmation. Attachment moves are reversed if saving
-fails, and shared attachments or occupied destinations are reported before moving
-files. A failed save keeps the application open and marks the library unsaved,
-including when using `:wq`; correct the error and retry. Undo remains available across
-saves: restored entries and citation keys are persisted on the next save. Automatic
-key changes made during save form one undo step before earlier edits. Key changes
-also update exact internal `crossref` targets in that step. External documents
-that cite the old keys must be updated separately; disable
-`save_action_regenerate_citekeys` to retain existing keys on save. Saves use an
-exclusive temporary file in the destination directory, preserve existing file
-permissions, and follow existing symlinks without replacing the link. Failed writes
-retain the previous raw document and pending edits for retry. If the bibliography
-has changed outside bibtui, saving is refused before replacing it or its backup;
-export pending work and reopen the changed file. This check does not lock out
-other processes writing simultaneously.
+or cancel. The preview is built from the final normalized fields and generated keys,
+and confirming executes exactly that plan. Attachments that are missing from disk or
+are remote links (`https://…`) are never renamed; the save completes and the status
+line lists them. Case-only renames (`smith2020.pdf` → `Smith2020.pdf`) work on
+case-insensitive filesystems. A rename never overwrites an existing file, and
+shared attachments or occupied destinations are reported before any file is moved.
+If saving fails, completed attachment moves are reversed.
+
+A failed save keeps the application open and the library marked unsaved, including
+with `:wq`; correct the error and retry. Saves write an exclusive temporary file in
+the destination directory, keep the existing file's permissions (new files get
+normal permissions for your umask), and follow symlinks without replacing the link.
+
+If the bibliography changed outside bibtui since it was loaded or last saved, `:w`
+is refused and neither the file nor its backup is touched. Reload the file, or use
+`:w!` to overwrite it; the external version is first copied to `.bib.bak` even when
+`backup_on_save` is off. This is a check, not a lock against another program writing
+at the same moment.
+
+Undo works across saves: restored entries and citation keys are written on the next
+save. Citation keys regenerated during save form a single undo step, and key changes
+also update matching `crossref` fields (exact, case-sensitive matches) in that step.
+Documents outside the library that cite old keys must be updated separately; disable
+`save_action_regenerate_citekeys` to keep existing keys on save.
 
 ### Group tree
 
@@ -311,6 +340,8 @@ other processes writing simultaneously.
 
 The group sidebar can be hidden with `Tab` and revealed again with `Tab` or `h` / `←`.
 The `display.show_groups` config option controls whether it is visible on startup.
+Groups are tracked by their position in the tree, so two groups with the same name
+in different subtrees filter independently.
 
 ## Configuration
 
@@ -426,7 +457,21 @@ After metadata is fetched, the pipeline:
 - Corrects the `publisher` field when Crossref reports a distributor instead of the society publisher (e.g. ANS journals distributed by Taylor & Francis are corrected to "American Nuclear Society", identified by DOI prefix `10.13182/`, ISSN, or journal name).
 - Queries [Unpaywall](https://unpaywall.org/) for a legal open-access PDF URL and, if found, prepends it to the download candidate list.
 
-PDF candidates are tried in order (Unpaywall OA → publisher PDF → ANS direct → T&F PDF) until one succeeds. The `file` field is written as a relative path from the JabRef `fileDirectory` when that metadata is present.
+PDF candidates are tried in order (Unpaywall OA → publisher PDF → ANS direct → T&F PDF) until one succeeds. The `file` field is written as a relative path from the JabRef `fileDirectory` when that metadata is present, with `:` and `;` escaped as JabRef expects (including Windows drive letters).
+
+Network limits: metadata requests have a 5-second connect, 10-second read, and
+30-second total timeout, the whole metadata phase of an import is limited to 90
+seconds, and metadata responses are capped at 4 MiB. The optional Unpaywall lookup
+has 5 seconds and is skipped for local PDFs. PDF downloads are not subject to those
+budgets: they stop only if the connection stalls for 10 seconds, exceed 10 minutes,
+or exceed `import.max_pdf_size_mb` (default 100).
+
+Downloads are streamed to a temporary file, checked for the `%PDF` signature, and
+then given their final name. Re-importing a DOI reuses an identical earlier download;
+if a different file already has that name, the new one is saved as `<doi>_2.pdf`
+(and so on), so existing files are never overwritten. A failed download keeps the
+imported metadata and reports the error. For local PDFs, DOI detection reads only the
+first 200 KB and last 50 KB of the file.
 
 ## Running Tests
 
@@ -445,6 +490,13 @@ an existing report without rerunning tests. See the
 items, measured coverage, before/after performance, reproducible probes, and
 remaining platform-validation limits.
 
+The suite drives real keyboard and paste events through edit/save/undo workflows,
+uses temporary directories for config and library fixtures, and makes no requests
+to public services. Format with `cargo fmt --all` (CI runs
+`cargo fmt --all -- --check`). Repository-wide formatting commits are listed in
+`.git-blame-ignore-revs`; enable it locally with
+`git config blame.ignoreRevsFile .git-blame-ignore-revs`.
+
 Coverage analysis runs automatically in CI via `cargo-llvm-cov`. To run locally:
 
 ```sh
@@ -454,68 +506,3 @@ cargo llvm-cov --workspace --summary-only
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md) for the full release history.
-
-Sorting uses numeric order for `year`, `volume`, `number`, and the leading page
-number; other fields use lexical order, even when some values contain only digits.
-Sort keys are computed once per entry.
-
-Search terms separated by spaces must all match. Qualifiers such as
-`author:smith year:2020` restrict individual terms; unqualified terms search all
-fields. Double quotes match a contiguous phrase (`title:"neural methods"`); an
-unclosed quote consumes the remaining input. Empty qualified terms match nothing;
-empty quotes are ignored. Unknown qualifiers search custom fields (missing fields
-do not match). URLs and DOI strings containing colons remain literal terms;
-`key`, `citekey`, and `citation_key` are aliases, as are `type` and `entrytype`.
-
-PDF and publisher-page DOI scanning and path completion preserve UTF-8 character boundaries,
-including when Unicode case folding changes a character’s byte length.
-
-Keyboard release events are ignored. Held-key repeats support navigation and
-text entry/deletion; they do not complete command sequences or repeat library
-deletions, confirmations, or other one-shot actions, including custom bindings.
-
-Search and the selected group are applied together. Edits, imports, duplication,
-key changes, saves, and undo refresh both filters and keep the selected entry when
-it remains visible. Identically named groups retain their distinct tree paths.
-
-Bulk citation-key regeneration rebuilds the entry map once, retains file order,
-and assigns the first available numeric suffix deterministically on collisions.
-
-Imports share one HTTP client with 5-second connection, 10-second read/write,
-30-second request, and 90-second overall budgets. Metadata is limited to 4 MiB.
-Optional open-access lookup has a 5-second budget and is skipped for local PDFs.
-
-PDF downloads stream into an owned temporary file, validate the `%PDF` signature,
-and create the final file without overwriting an existing attachment. The default
-limit is 100 MiB; configure `import.max_pdf_size_mb` in YAML. A failed PDF download
-keeps the imported metadata and reports the error. Local PDF DOI extraction reads
-only the first 200 KB and last 50 KB.
-
-Entry-list rendering constructs cells and checks attachment paths only for the
-visible rows, while selection and scrolling use the full filtered result count.
-
-Searches above 500 entries run in a cancellable background worker. The search bar
-shows progress; newer queries and document changes invalidate older results.
-Search text is cached per entry, including complete abstracts and custom fields,
-and unchanged snapshots are shared across queries. Pasting runs one query update.
-The cache stores one extra copy of searchable text plus field offsets.
-
-Regression tests exercise real keyboard and paste events through edit/save/undo,
-new-library creation, attachment failure/retry, and settings import/export. Config
-search tests use isolated roots, and JabRef round-trip checks use tracked fixtures;
-the default test suite makes no requests to public services.
-
-Field-qualified synchronous searches borrow the requested values directly, so
-large unrelated fields do not add copying overhead.
-
-Source formatting is standardized with `cargo fmt --all`; check it with
-`cargo fmt --all -- --check` before submitting changes.
-
-Undo also preserves both entries when a deleted citation key was temporarily
-reused by another entry and saved before the deletion was undone.
-
-Imported attachment paths escape JabRef separators, including Windows drive
-colons and semicolons in filenames.
-
-Grouped undo retains every attachment recovery error even when other reversals
-in the same operation succeed.
