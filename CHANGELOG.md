@@ -1,5 +1,9 @@
 # Changelog
 
+### 0.64.1
+
+- **Windows CI**: JabRef round-trip test fixtures are checked out byte for byte on every platform (`.gitattributes` disables line-ending conversion for them), so the byte-exact JabRef compatibility tests no longer fail on Windows runners
+
 ### 0.64.0
 
 - **Rename groups from the group pane**: select a group and press `e` to edit its name in place (prompt pre-filled with the current name). Renaming a static group also renames it in the `groups` field of every member entry, replacing only the name so each field keeps its separators and spacing; renaming a keyword group changes only its name. The rename is one undoable step and keeps JabRef-only group details (color, icon, description)
