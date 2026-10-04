@@ -919,6 +919,11 @@ impl App {
                 self.show_groups = true;
                 self.focus = Focus::Groups;
             }
+            Action::RenameGroup => {
+                if self.focus == Focus::Groups && self.show_groups {
+                    self.start_rename_group();
+                }
+            }
             Action::FocusList => {
                 self.focus = Focus::List;
             }
@@ -2228,6 +2233,7 @@ impl App {
                 // Message popup dismissed — nothing to do; mode already reset above.
             }
             Some(PendingAction::AddGroup { .. })
+            | Some(PendingAction::RenameGroup { .. })
             | Some(PendingAction::EditSetting { .. })
             | Some(PendingAction::ExportSettings)
             | Some(PendingAction::ImportSettings)
@@ -2831,3 +2837,6 @@ mod review_tests;
 
 #[cfg(test)]
 mod library_tests;
+
+#[cfg(test)]
+mod group_tests;

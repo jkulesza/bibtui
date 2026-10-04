@@ -51,6 +51,8 @@ pub enum Action {
     YankCitekey,
     ToggleGroups,
     FocusGroups,
+    /// Rename the group selected in the group pane (`e`).
+    RenameGroup,
     FocusList,
     ShowCitationPreview,
     EnterCommand,
@@ -224,6 +226,9 @@ pub(super) enum PendingAction {
         parent_path: Vec<usize>,
     },
     DeleteGroup {
+        path: Vec<usize>,
+    },
+    RenameGroup {
         path: Vec<usize>,
     },
     AssignGroups {

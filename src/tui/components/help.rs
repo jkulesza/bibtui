@@ -97,6 +97,17 @@ fn render_entry_list_help(f: &mut Frame, area: Rect, theme: &Theme) {
             ],
         ),
         (
+            "Groups  ( h: focus group pane )",
+            &[
+                ("j / k", "move selection"),
+                ("Enter / Space", "filter by group / clear"),
+                ("a / d d", "add subgroup / delete group"),
+                ("e", "rename (updates entries)"),
+                ("Tab / l", "hide pane / back to list"),
+                ("Tab in detail", "assign entry to groups"),
+            ],
+        ),
+        (
             "Quality",
             &[
                 ("C", "regenerate all cite keys"),
@@ -317,6 +328,34 @@ mod tests {
         // Spot-check a few key bindings
         assert!(rendered.contains(":w"), "missing :w command");
         assert!(rendered.contains("j / k"), "missing j/k navigation");
+    }
+
+    #[test]
+    fn test_entry_list_help_lists_group_pane_keys() {
+        let mut term = make_terminal(120, 40);
+        let state = HelpState {
+            context: HelpContext::EntryList,
+        };
+        let theme = default_theme();
+        term.draw(|f| render_help(f, f.area(), &state, &theme))
+            .unwrap();
+        let rendered: String = term
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol())
+            .collect();
+        for text in [
+            "Groups  ( h: focus group pane )",
+            "filter by group / clear",
+            "add subgroup / delete group",
+            "rename (updates entries)",
+            "assign entry to groups",
+            "Citation Preview",
+        ] {
+            assert!(rendered.contains(text), "missing {text:?}");
+        }
     }
 
     #[test]

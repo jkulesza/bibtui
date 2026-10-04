@@ -48,6 +48,114 @@ impl App {
         self.mode = InputMode::Dialog;
     }
 
+    /// Prompt for a new name for the selected group, pre-filled with the
+    /// current one (`e` in the group pane).
+    pub(super) fn start_rename_group(&mut self) {
+        let Some(item) = self.group_tree_state.selected_item().cloned() else {
+            return;
+        };
+        if item.depth == 0 {
+            self.status_message = Some("The All Entries group cannot be renamed".into());
+            return;
+        }
+        self.field_editor_state = Some(FieldEditorState::new("Group name", &item.name));
+        self.pending_action = Some(PendingAction::RenameGroup { path: item.path });
+        self.mode = InputMode::Editing;
+    }
+
+    /// Rename the group at `path`. A static group's members carry its name in
+    /// their `groups` field (that is how JabRef stores membership), so every
+    /// member is updated in the same undoable step.
+    pub(super) fn finish_rename_group(&mut self, path: &[usize], new_name: String) {
+        let Some(node) = find_group_node_by_path(&self.database.groups.root, path) else {
+            return;
+        };
+        let old_name = node.group.name.clone();
+        let is_static = matches!(node.group.group_type, GroupType::Static);
+        if path.is_empty() || matches!(node.group.group_type, GroupType::AllEntries) {
+            self.status_message = Some("The All Entries group cannot be renamed".into());
+            return;
+        }
+        if new_name == old_name {
+            return;
+        }
+        let refuse = |reason: String| Some(format!("Group not renamed: {reason}"));
+        let mut names = Vec::new();
+        collect_group_names(&self.database.groups.root, &mut names);
+        let problem = if new_name.is_empty() {
+            refuse("the name cannot be empty".into())
+        } else if let Some(problem) = invalid_group_name(&new_name) {
+            refuse(problem)
+        } else if names.contains(&new_name) {
+            refuse(format!("another group is already named '{new_name}'"))
+        } else if is_static
+            && count_static_groups_named(&self.database.groups.root, &old_name) > 1
+            && self
+                .database
+                .entries
+                .values()
+                .any(|e| e.group_memberships.contains(&old_name))
+        {
+            // Entries name their static groups, so with two static groups
+            // called `old_name` there is no telling which one they belong to.
+            refuse(format!(
+                "another static group is also named '{old_name}', so its entries can't be told apart; delete one of them with dd (keeping memberships) or rename it in JabRef first"
+            ))
+        } else {
+            None
+        };
+        if let Some(message) = problem {
+            self.status_message = Some(message);
+            return;
+        }
+
+        let mut undo = vec![UndoItem::GroupTreeChanged {
+            old_tree: self.database.groups.clone(),
+            active_path: self.group_tree_state.active_path.clone(),
+        }];
+        if let Some(node) = find_group_node_mut(&mut self.database.groups.root, path) {
+            node.group.name = new_name.clone();
+        }
+        let mut updated = 0;
+        if is_static {
+            for (key, entry) in self.database.entries.iter_mut() {
+                if !entry.group_memberships.contains(&old_name) {
+                    continue;
+                }
+                undo.push(UndoItem::GroupMembershipChanged {
+                    entry_key: key.clone(),
+                    old_memberships: entry.group_memberships.clone(),
+                    old_groups_field: entry.fields.get("groups").cloned(),
+                });
+                for membership in &mut entry.group_memberships {
+                    if *membership == old_name {
+                        *membership = new_name.clone();
+                    }
+                }
+                if let Some(field) = entry.fields.get_mut("groups") {
+                    *field = rename_in_groups_field(field, &old_name, &new_name);
+                }
+                entry.dirty = true;
+                updated += 1;
+            }
+        }
+        self.sync_groups_to_raw();
+        self.group_tree_state.refresh(&self.database.groups);
+        self.push_undo(UndoItem::Batch(undo));
+        self.refresh_view();
+        self.status_message = Some(if is_static {
+            format!(
+                "Renamed group '{}' to '{}' in {} entr{} (u to undo)",
+                old_name,
+                new_name,
+                updated,
+                if updated == 1 { "y" } else { "ies" }
+            )
+        } else {
+            format!("Renamed group '{old_name}' to '{new_name}' (u to undo)")
+        });
+    }
+
     pub(super) fn start_edit_groups(&mut self) {
         let entry_key = match self.detail_entry_key.clone() {
             Some(k) => k,
@@ -225,7 +333,9 @@ impl App {
 
     pub(super) fn sync_groups_to_raw(&mut self) {
         let serialized = serialize_group_tree(&self.database.groups);
-        let new_raw = format!("@Comment{{jabref-meta: grouping:\n{};}}", serialized);
+        // JabRef's layout: each group line ends with `;`, and the closing
+        // brace is on its own line.
+        let new_raw = format!("@Comment{{jabref-meta: grouping:\n{}\n}}", serialized);
         for item in &mut self.database.raw_file.items {
             if let RawItem::Comment { raw_text } = item {
                 if raw_text.contains("jabref-meta: grouping:") {
@@ -313,6 +423,53 @@ pub(super) fn find_group_node_mut<'a>(
     node.children
         .get_mut(idx)
         .and_then(|child| find_group_node_mut(child, &path[1..]))
+}
+
+/// Why `name` cannot be used as a group name, if it cannot.
+///
+/// JabRef separates the names in an entry's `groups` field with commas, and
+/// `;` and `\` are separators and escapes in its `grouping` metadata.
+pub(super) fn invalid_group_name(name: &str) -> Option<String> {
+    let bad: Vec<String> = [',', ';', '\\']
+        .iter()
+        .filter(|c| name.contains(**c))
+        .map(|c| format!("'{c}'"))
+        .collect();
+    (!bad.is_empty()).then(|| {
+        format!(
+            "group names cannot contain {} (JabRef uses them as separators)",
+            bad.join(" or ")
+        )
+    })
+}
+
+/// Replace `old` with `new` in a `groups` field, keeping the field's own
+/// separators and spacing (e.g. `A, Old,B` → `A, New,B`).
+pub(super) fn rename_in_groups_field(field: &str, old: &str, new: &str) -> String {
+    field
+        .split(',')
+        .map(|part| {
+            if part.trim() == old {
+                let start = part.len() - part.trim_start().len();
+                let end = part.trim_end().len();
+                format!("{}{}{}", &part[..start], new, &part[end..])
+            } else {
+                part.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// Number of static groups in the tree called `name`.
+fn count_static_groups_named(node: &GroupNode, name: &str) -> usize {
+    let own =
+        usize::from(matches!(node.group.group_type, GroupType::Static) && node.group.name == name);
+    own + node
+        .children
+        .iter()
+        .map(|child| count_static_groups_named(child, name))
+        .sum::<usize>()
 }
 
 pub(super) fn collect_group_names(node: &GroupNode, names: &mut Vec<String>) {

@@ -343,8 +343,26 @@ Documents outside the library that cite old keys must be updated separately; dis
 | Key | Action |
 |-----|--------|
 | `j` / `k` | Move selection |
-| `Enter` / `Space` | Apply selected group filter |
+| `Enter` / `Space` | Apply selected group filter (again to clear it) |
+| `a` | Add a static group under the selected group |
+| `e` | Rename the selected group (prompt pre-filled with its name) |
+| `dd` | Delete the selected group (optionally removing it from its entries) |
+| `u` | Undo |
 | `h` / `l` | Switch focus between groups and entry list |
+
+In the entry detail view, `Tab` opens a checklist to assign the entry to groups.
+`?` lists these keys in a Groups section.
+
+Renaming a static group also renames it in the `groups` field of every member
+entry, because that is how JabRef records membership; only the name is replaced,
+so each field keeps its separators and spacing. Renaming a keyword group changes
+only its name. The rename is one undoable step, and JabRef-only group details
+(color, icon, description) are kept. Names cannot contain `,` (JabRef's
+separator in the `groups` field) or `;` and `\` (separators in its group
+metadata), and cannot repeat another group's name. If two static groups share a
+name and entries are assigned to it, there is no telling which group those entries
+belong to, so bibtui refuses to rename either one; delete one of them with `dd`
+(answering "no" to removing its memberships) or rename it in JabRef first.
 
 The group sidebar can be hidden with `Tab` and revealed again with `Tab` or `h` / `←`.
 The `display.show_groups` config option controls whether it is visible on startup.

@@ -121,9 +121,12 @@ pub fn parse_jabref_comment(raw_text: &str, meta: &mut JabRefMeta) {
             "fileDirectory" => meta.file_directory = Some(value.to_string()),
             "protectedFlag" => meta.protected_flag = Some(value.to_string()),
             "grouping" => {
-                // Multi-line group definitions — store the full raw content
+                // Multi-line group definitions: every line ends with its own
+                // `;`, so keep the last one (stripping it above would cut the
+                // last group's terminator).
+                let raw = meta_content[colon_pos + 1..].trim();
                 meta.unknown_meta
-                    .insert("grouping".to_string(), value.to_string());
+                    .insert("grouping".to_string(), grouping_value(raw).to_string());
             }
             "groupsversion" => {
                 meta.groups_version = Some(value.to_string());
@@ -147,6 +150,19 @@ pub fn parse_jabref_comment(raw_text: &str, meta: &mut JabRefMeta) {
                 meta.unknown_meta.insert(key.to_string(), value.to_string());
             }
         }
+    }
+}
+
+/// The grouping lines of a `grouping` metadata value. Files written by
+/// older bibtui versions ended the block with an extra `;` (`…\;;;}`); drop
+/// it so the last line ends exactly like the others.
+fn grouping_value(raw: &str) -> &str {
+    let run = raw.len() - raw.trim_end_matches(';').len();
+    let escaped = raw[..raw.len() - run].ends_with('\\');
+    if run.saturating_sub(usize::from(escaped)) >= 2 {
+        &raw[..raw.len() - 1]
+    } else {
+        raw
     }
 }
 
@@ -815,5 +831,33 @@ mod tests {
         let node = parse_group_line("UnknownGroupType:MyGroup\\;2\\;1\\;\\;\\;\\;;");
         assert_eq!(node.group.name, "MyGroup");
         assert_eq!(node.group.group_type, GroupType::Static);
+    }
+
+    #[test]
+    fn grouping_reads_jabref_and_older_bibtui_layouts_identically() {
+        let jabref = "@Comment{jabref-meta: grouping:\n0 AllEntriesGroup:;\n1 StaticGroup:A\\;0\\;1\\;\\;\\;\\;;\n}";
+        let old_bibtui = "@Comment{jabref-meta: grouping:\n0 AllEntriesGroup:;\n1 StaticGroup:A\\;0\\;1\\;\\;\\;\\;;;}";
+        let root_only = [
+            "@Comment{jabref-meta: grouping:\n0 AllEntriesGroup:;\n}",
+            "@Comment{jabref-meta: grouping:\n0 AllEntriesGroup:;;}",
+        ];
+        let mut trees = Vec::new();
+        for raw in [jabref, old_bibtui] {
+            let mut meta = JabRefMeta::default();
+            parse_jabref_comment(raw, &mut meta);
+            assert_eq!(
+                meta.unknown_meta["grouping"],
+                "0 AllEntriesGroup:;\n1 StaticGroup:A\\;0\\;1\\;\\;\\;\\;;"
+            );
+            let tree = build_group_tree(&meta);
+            assert_eq!(serialize_group_tree(&tree), meta.unknown_meta["grouping"]);
+            trees.push(tree);
+        }
+        assert_eq!(trees[0], trees[1]);
+        for raw in root_only {
+            let mut meta = JabRefMeta::default();
+            parse_jabref_comment(raw, &mut meta);
+            assert_eq!(meta.unknown_meta["grouping"], "0 AllEntriesGroup:;");
+        }
     }
 }

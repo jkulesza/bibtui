@@ -1,5 +1,12 @@
 # Changelog
 
+### 0.64.0
+
+- **Rename groups from the group pane**: select a group and press `e` to edit its name in place (prompt pre-filled with the current name). Renaming a static group also renames it in the `groups` field of every member entry, replacing only the name so each field keeps its separators and spacing; renaming a keyword group changes only its name. The rename is one undoable step and keeps JabRef-only group details (color, icon, description)
+- **Safe group names**: names containing `,`, `;`, or `\` (JabRef separators) are refused when adding or renaming, as are names another group already uses. Renaming is refused when another static group shares the name and entries are assigned to it, since those entries cannot be attributed to either group
+- **Help**: `?` lists the group-pane keys in a new Groups section
+- **Fix**: the group tree is written back in JabRef's exact layout (closing brace on its own line), so group edits no longer change the block differently from JabRef and undo restores the file byte for byte; files written by older versions are still read correctly
+
 ### 0.63.0
 
 - **Library settings stored in the `.bib` file**: settings in a library now take precedence over the YAML config (built-in defaults < YAML < library), so a library behaves the same on every machine. JabRef-shared capabilities use JabRef's own metadata keys: citation-key templates as `keypattern_<type>`, entry order on save as `saveOrderConfig`, and save actions JabRef also has as `saveActions` (so JabRef applies them too). Everything else is stored as `@Comment{jabref-meta: bibtui.<setting>:<json>;}`, which JabRef keeps when it saves; verified with JabRef 5.15, which rewrites bibtui-written settings byte for byte

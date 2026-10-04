@@ -66,6 +66,7 @@ fn map_normal_key(key: KeyEvent, last_key: Option<char>) -> Option<Action> {
         KeyCode::Char('/') => Some(Action::EnterSearch),
         KeyCode::Enter => Some(Action::OpenDetail),
         KeyCode::Char('a') => Some(Action::AddEntry),
+        KeyCode::Char('e') => Some(Action::RenameGroup),
         KeyCode::Char('d') => {
             if last_key == Some('d') {
                 Some(Action::DeleteEntry)
@@ -519,6 +520,7 @@ pub fn action_from_name(name: &str) -> Option<Action> {
         "YankCitekey" => Some(Action::YankCitekey),
         "ToggleGroups" => Some(Action::ToggleGroups),
         "FocusGroups" => Some(Action::FocusGroups),
+        "RenameGroup" => Some(Action::RenameGroup),
         "FocusList" => Some(Action::FocusList),
         "ShowCitationPreview" => Some(Action::ShowCitationPreview),
         "EnterCommand" => Some(Action::EnterCommand),

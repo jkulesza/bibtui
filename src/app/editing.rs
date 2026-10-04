@@ -81,6 +81,7 @@ impl App {
                 self.confirm_edit_file_attachment(entry_key, index)
             }
             Some(PendingAction::AddGroup { parent_path }) => self.confirm_add_group(parent_path),
+            Some(PendingAction::RenameGroup { path }) => self.confirm_rename_group(path),
             _ => self.confirm_field_edit(),
         }
         if self.view_dirty {
@@ -436,9 +437,26 @@ impl App {
             .unwrap_or_default();
         self.field_editor_state = None;
         self.mode = InputMode::Normal;
-        if !name.is_empty() {
-            self.finish_add_group(name, parent_path);
+        if name.is_empty() {
+            return;
         }
+        if let Some(problem) = super::groups::invalid_group_name(&name) {
+            self.status_message = Some(format!("Group not added: {problem}"));
+            return;
+        }
+        self.finish_add_group(name, parent_path);
+    }
+
+    fn confirm_rename_group(&mut self, path: Vec<usize>) {
+        let name = self
+            .field_editor_state
+            .as_ref()
+            .map(|e| e.value.trim().to_string())
+            .unwrap_or_default();
+        self.field_editor_state = None;
+        self.mode = InputMode::Normal;
+        self.focus = Focus::Groups;
+        self.finish_rename_group(&path, name);
     }
 
     /// The ordinary field-editor path: either advance the two-phase new-field
