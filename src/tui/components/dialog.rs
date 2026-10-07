@@ -1,4 +1,5 @@
 use ratatui::layout::Rect;
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{
     Block, Borders, Clear, List, ListItem, ListState, Padding, Paragraph, Wrap,
@@ -16,6 +17,9 @@ pub enum DialogKind {
     TypePicker {
         title: String,
         options: Vec<String>,
+        /// Per-option key that selects and confirms it (parallel to
+        /// `options`; empty when the picker has no hotkeys).
+        hotkeys: Vec<char>,
     },
     GroupAssign {
         groups: Vec<(String, bool)>,
@@ -66,14 +70,28 @@ impl DialogState {
     }
 
     pub fn type_picker_titled(title: &str, options: Vec<String>) -> Self {
+        Self::type_picker_with_hotkeys(title, options, Vec::new())
+    }
+
+    /// Picker whose options can also be chosen by pressing `hotkeys[i]`.
+    pub fn type_picker_with_hotkeys(title: &str, options: Vec<String>, hotkeys: Vec<char>) -> Self {
         let mut state = ListState::default();
         state.select(Some(0));
         DialogState {
             kind: DialogKind::TypePicker {
                 title: title.to_string(),
                 options,
+                hotkeys,
             },
             list_state: state,
+        }
+    }
+
+    /// Index of the picker option bound to hotkey `c`, if any.
+    pub fn hotkey_index(&self, c: char) -> Option<usize> {
+        match &self.kind {
+            DialogKind::TypePicker { hotkeys, .. } => hotkeys.iter().position(|&k| k == c),
+            _ => None,
         }
     }
 
@@ -180,6 +198,29 @@ impl DialogState {
     }
 }
 
+/// `"  {text}"` with the first case-insensitive occurrence of `key` styled;
+/// when `text` lacks it, the key is shown as a `[k] ` prefix instead.
+fn hotkey_line(text: &str, key: char, style: Style) -> Line<'static> {
+    let pos = text
+        .char_indices()
+        .find(|(_, c)| c.to_lowercase().eq(key.to_lowercase()));
+    match pos {
+        Some((byte, c)) => {
+            let end = byte + c.len_utf8();
+            Line::from(vec![
+                Span::raw(format!("  {}", &text[..byte])),
+                Span::styled(text[byte..end].to_string(), style),
+                Span::raw(text[end..].to_string()),
+            ])
+        }
+        None => Line::from(vec![
+            Span::raw("  ["),
+            Span::styled(key.to_string(), style),
+            Span::raw(format!("] {}", text)),
+        ]),
+    }
+}
+
 /// Estimate the number of lines a text will occupy when word-wrapped to `width` columns.
 fn word_wrap_line_count(text: &str, width: usize) -> usize {
     if width == 0 || text.is_empty() {
@@ -248,7 +289,7 @@ fn dialog_width(kind: &DialogKind, area_width: u16) -> u16 {
             // plus 2 columns of breathing room.
             title_width(title).max(message.chars().count() + 4)
         }
-        DialogKind::TypePicker { title, options } => {
+        DialogKind::TypePicker { title, options, .. } => {
             // Rows render as "  {option}": 2 indent + 2 borders + 2 spare.
             let widest = options.iter().map(|o| o.chars().count()).max().unwrap_or(0);
             title_width(title).max(widest + 6)
@@ -344,17 +385,37 @@ pub fn render_dialog(f: &mut Frame, area: Rect, state: &mut DialogState, theme: 
             let para = Paragraph::new(lines).wrap(Wrap { trim: true });
             f.render_widget(para, inner);
         }
-        DialogKind::TypePicker { title, options } => {
-            let block = Block::default()
+        DialogKind::TypePicker {
+            title,
+            options,
+            hotkeys,
+        } => {
+            let mut block = Block::default()
                 .borders(Borders::ALL)
                 .border_style(theme.border)
                 .title(format!(" {} ", title));
+            if !hotkeys.is_empty() {
+                let keys: String = hotkeys.iter().collect();
+                block = block.title_bottom(Line::from(Span::styled(
+                    format!(" [{}] or ↑↓ Enter ", keys),
+                    theme.label,
+                )));
+            }
 
             // Rows are "  {option}"; anything past the inner width is elided.
             let budget = (dialog_area.width as usize).saturating_sub(4);
+            let hotkey_style = theme.search_match.add_modifier(Modifier::UNDERLINED);
             let items: Vec<ListItem> = options
                 .iter()
-                .map(|opt| ListItem::new(Line::from(format!("  {}", truncate_to(opt, budget)))))
+                .enumerate()
+                .map(|(i, opt)| {
+                    let text = truncate_to(opt, budget);
+                    let line = match hotkeys.get(i) {
+                        Some(&k) => hotkey_line(&text, k, hotkey_style),
+                        None => Line::from(format!("  {}", text)),
+                    };
+                    ListItem::new(line)
+                })
                 .collect();
 
             let list = List::new(items)
@@ -493,6 +554,37 @@ pub fn render_dialog(f: &mut Frame, area: Rect, state: &mut DialogState, theme: 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn line_text(line: &Line) -> String {
+        line.spans.iter().map(|s| s.content.as_ref()).collect()
+    }
+
+    #[test]
+    fn test_hotkey_line_styles_first_matching_char() {
+        let style = Style::default().add_modifier(Modifier::UNDERLINED);
+        let line = hotkey_line("BibTeX entry", 'b', style);
+        assert_eq!(line_text(&line), "  BibTeX entry");
+        assert_eq!(line.spans[1].content, "B");
+        assert_eq!(line.spans[1].style, style);
+    }
+
+    #[test]
+    fn test_hotkey_line_prefixes_when_char_absent() {
+        let line = hotkey_line("Citation key", 'z', Style::default());
+        assert_eq!(line_text(&line), "  [z] Citation key");
+    }
+
+    #[test]
+    fn test_hotkey_index() {
+        let d = DialogState::type_picker_with_hotkeys(
+            "Pick",
+            vec!["One".into(), "Two".into()],
+            vec!['o', 't'],
+        );
+        assert_eq!(d.hotkey_index('t'), Some(1));
+        assert_eq!(d.hotkey_index('x'), None);
+        assert_eq!(DialogState::confirm("T", "M").hotkey_index('y'), None);
+    }
 
     #[test]
     fn test_confirm_option_count() {

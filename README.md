@@ -16,7 +16,7 @@ A terminal UI BibTeX manager written in Rust. Designed as a lightweight, keyboar
 - Entry CRUD: add, edit, duplicate, delete with undo (`u`); editing after undo correctly retains unsaved-change protection
 - JabRef-compatible citation key patterns with three-level precedence (`.bib` metadata, YAML config, defaults)
 - Per-library settings stored in the `.bib` file override the YAML config; JabRef-shared capabilities (key patterns, save order, save actions) use JabRef's own metadata keys, and everything else is kept as `bibtui.*` metadata that JabRef preserves
-- Clipboard yank (`yy`) in configurable format: citation key, raw BibTeX, or formatted citation
+- Clipboard yank (`yy`) in configurable format: formatted citation, raw BibTeX, the attached file(s) themselves (paste them into an email as attachments), or citation key. The picker lists the choices you use most first and accepts `f` / `b` / `a` / `c` as shortcuts
 - Per-entry status indicators: `●` unsaved change, `⎘` file attachment, `⎋` DOI/URL
 - Open attached files (`o`) or DOI/URL links (`w`) with OS default applications
 - Citation preview popup (`Space`) with DOI/URL link, formatted in IEEEtranN style
@@ -107,7 +107,7 @@ repeat deletions, confirmations, or custom bindings.
 | `a` | Add new entry |
 | `dd` | Delete selected entry |
 | `D` | Duplicate selected entry |
-| `yy` | Yank to clipboard (see `general.yank_format`) |
+| `yy` | Yank to clipboard (see `general.yank_format`). In the picker, `f` formatted citation, `b` BibTeX entry, `a` associated file(s), `c` citation key |
 | `/` | Start fuzzy search |
 | `h` / `←` | Focus group sidebar (reveals it if hidden) |
 | `l` / `→` | Focus entry list |
@@ -425,11 +425,15 @@ Notes:
 general:
   bib_file: ~/documents/references.bib   # default file when none given on CLI
   backup_on_save: true                    # write .bib.bak before every save
-  yank_format: prompt                     # citation_key | bibtex | formatted | prompt
+  yank_format: prompt                     # citation_key | bibtex | formatted | file | prompt
                                           #   citation_key — bare key (e.g. Smith2020)
                                           #   bibtex       — raw @Article{...} block
                                           #   formatted    — IEEEtranN citation string
-                                          #   prompt       — picker dialog each time
+                                          #   file         — the attached file(s), pasteable
+                                          #                  as email attachments
+                                          #   prompt       — picker dialog each time, most-used
+                                          #                  choice first (counts kept in
+                                          #                  <state dir>/bibtui/usage.yaml)
 
 display:
   show_groups: true                       # show group sidebar on startup

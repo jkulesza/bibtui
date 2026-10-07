@@ -66,6 +66,9 @@ pub enum Action {
     DialogCancel,
     DialogToggle,
     DialogYank,
+    /// Unbound plain character typed in a dialog; picks the picker option
+    /// bound to it, if any.
+    DialogHotkey(char),
     ShowHelp,
     TitlecaseField,
     ToggleBraces,
@@ -245,6 +248,8 @@ pub(super) enum PendingAction {
     },
     YankPrompt {
         entry_key: String,
+        /// Choices in the order shown in the picker.
+        choices: Vec<super::yank::YankChoice>,
     },
     Save,
     SaveAndQuit,

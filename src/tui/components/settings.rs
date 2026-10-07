@@ -169,15 +169,15 @@ impl SettingsState {
             SettingItem {
                 id: "general.yank_format".into(),
                 label: "yank_format".into(),
-                description: "What 'yy' copies: citation_key | bibtex | formatted | prompt (prompt opens a picker each time).".into(),
+                description: "What 'yy' copies: citation_key | bibtex | formatted | file | prompt (prompt opens a picker each time, most-used first).".into(),
                 value: {
-                    const OPTS: &[&str] = &["citation_key", "bibtex", "formatted", "prompt"];
-                    let idx = OPTS.iter().position(|&o| o == config.general.yank_format.as_str()).unwrap_or(3);
+                    const OPTS: &[&str] = &["citation_key", "bibtex", "formatted", "file", "prompt"];
+                    let idx = OPTS.iter().position(|&o| o == config.general.yank_format.as_str()).unwrap_or(OPTS.len() - 1);
                     SettingValue::Choice { options: OPTS, index: idx }
                 },
                 default: {
-                    const OPTS: &[&str] = &["citation_key", "bibtex", "formatted", "prompt"];
-                    let idx = OPTS.iter().position(|&o| o == defaults.general.yank_format.as_str()).unwrap_or(3);
+                    const OPTS: &[&str] = &["citation_key", "bibtex", "formatted", "file", "prompt"];
+                    let idx = OPTS.iter().position(|&o| o == defaults.general.yank_format.as_str()).unwrap_or(OPTS.len() - 1);
                     SettingValue::Choice { options: OPTS, index: idx }
                 },
             },

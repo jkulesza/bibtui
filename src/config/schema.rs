@@ -82,9 +82,11 @@ pub struct GeneralConfig {
     pub backup_on_save: bool,
     /// What `yy` copies to the clipboard.
     ///
-    /// Values: `citation_key` | `bibtex` | `formatted` | `prompt`
+    /// Values: `citation_key` | `bibtex` | `formatted` | `file` | `prompt`
     ///
-    /// `prompt` opens a picker dialog each time so the user can choose.
+    /// `file` copies the attached file(s) themselves, for pasting as
+    /// attachments. `prompt` opens a picker dialog each time so the user can
+    /// choose; the picker lists the most-used choices first.
     pub yank_format: String,
 }
 

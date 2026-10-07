@@ -68,7 +68,7 @@ fn render_entry_list_help(f: &mut Frame, area: Rect, theme: &Theme) {
             ("a", "add entry"),
             ("d d", "delete entry"),
             ("D", "duplicate entry"),
-            ("y y", "yank cite key"),
+            ("y y", "yank (picker: f/b/a/c)"),
             ("Space", "citation preview"),
             ("I", "import entry from DOI, URL, or PDF file"),
             ("u", "undo"),

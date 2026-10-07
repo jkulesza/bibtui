@@ -1,5 +1,12 @@
 # Changelog
 
+### 0.65.0
+
+- **Yank attached files** (#61): the `yy` picker gains **Associated File(s)**, which puts the entry's attached file(s) themselves on the clipboard (all of them when there are several), so they paste into an email as attachments or into a file manager as copies. Missing attachments are skipped and counted in the status message. macOS writes file URLs to the general pasteboard; Linux writes `text/uri-list` via `wl-copy` or `xclip`. `yank_format: file` copies the files directly without the picker
+- **Picker hotkeys**: in the `yy` picker, `f` formatted citation, `b` BibTeX entry, `a` associated file(s), and `c` citation key pick and copy immediately; the key is highlighted in each label and listed on the dialog's bottom border. Arrow keys / `j`/`k` + Enter still work
+- **New default order**: Formatted citation, BibTeX entry, Associated File(s), Citation key
+- **Most-used first**: picks from the `yy` picker are counted and persisted (`$XDG_STATE_HOME/bibtui/usage.yaml` on Linux, `~/Library/Application Support/bibtui/usage.yaml` on macOS), and the picker lists the most frequently used choices first; ties keep the default order
+
 ### 0.64.1
 
 - **Windows CI**: JabRef round-trip test fixtures are checked out byte for byte on every platform (`.gitattributes` disables line-ending conversion for them), so the byte-exact JabRef compatibility tests no longer fail on Windows runners

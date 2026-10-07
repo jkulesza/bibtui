@@ -4908,6 +4908,17 @@ impl crate::util::clipboard::Clipboard for MockClipboard {
         }
         Ok(self.paste_text.clone())
     }
+    /// Logged as `files:<path>|<path>...`.
+    fn copy_files(&self, paths: &[std::path::PathBuf]) -> anyhow::Result<()> {
+        if self.fail {
+            anyhow::bail!("mock clipboard failure");
+        }
+        let joined: Vec<String> = paths.iter().map(|p| p.display().to_string()).collect();
+        self.copied
+            .borrow_mut()
+            .push(format!("files:{}", joined.join("|")));
+        Ok(())
+    }
 }
 
 /// Install a recording clipboard on `app`; returns the shared copy log.
@@ -5019,6 +5030,210 @@ fn test_do_yank_clipboard_error_sets_status() {
         .as_deref()
         .unwrap()
         .contains("Clipboard error"));
+}
+
+/// Options and hotkeys of the currently open TypePicker.
+fn picker_options(app: &App) -> (Vec<String>, Vec<char>) {
+    match &app.dialog_state.as_ref().expect("dialog open").kind {
+        crate::tui::components::dialog::DialogKind::TypePicker {
+            options, hotkeys, ..
+        } => (options.clone(), hotkeys.clone()),
+        other => panic!("expected TypePicker, got {:?}", other),
+    }
+}
+
+/// Attach `names` (created inside `dir`) to `key` as a JabRef `file` field.
+fn attach_files(app: &mut App, key: &str, dir: &std::path::Path, names: &[&str]) -> Vec<String> {
+    let paths: Vec<String> = names
+        .iter()
+        .map(|n| {
+            let p = dir.join(n);
+            std::fs::write(&p, b"%PDF").unwrap();
+            p.display().to_string()
+        })
+        .collect();
+    let value = paths
+        .iter()
+        .map(|p| format!(":{}:PDF", p.replace(':', "\\:")))
+        .collect::<Vec<_>>()
+        .join(";");
+    app.database
+        .entries
+        .get_mut(key)
+        .unwrap()
+        .fields
+        .insert("file".to_string(), value);
+    paths
+}
+
+#[test]
+fn test_yank_prompt_default_order_and_hotkeys() {
+    let (mut app, _tmp) = make_app();
+    app.handle_action(Action::YankCitekey);
+    let (options, hotkeys) = picker_options(&app);
+    assert_eq!(
+        options,
+        vec![
+            format!("Formatted citation ({})", app.config.citation.style),
+            "BibTeX entry".to_string(),
+            "Associated File(s)".to_string(),
+            "Citation key".to_string(),
+        ]
+    );
+    assert_eq!(hotkeys, vec!['f', 'b', 'a', 'c']);
+}
+
+#[test]
+fn test_yank_prompt_hotkey_c_copies_key() {
+    let (mut app, _tmp) = make_app();
+    let copied = install_mock_clipboard(&mut app);
+    app.handle_action(Action::YankCitekey);
+    app.handle_action(Action::DialogHotkey('c'));
+    assert_eq!(copied.borrow().as_slice(), ["Doe2021"]);
+    assert!(app.dialog_state.is_none());
+    assert_eq!(app.mode, InputMode::Normal);
+}
+
+#[test]
+fn test_yank_prompt_unbound_hotkey_is_ignored() {
+    let (mut app, _tmp) = make_app();
+    let copied = install_mock_clipboard(&mut app);
+    app.handle_action(Action::YankCitekey);
+    app.handle_action(Action::DialogHotkey('z'));
+    assert!(copied.borrow().is_empty());
+    assert!(app.dialog_state.is_some());
+    assert_eq!(app.mode, InputMode::Dialog);
+}
+
+#[test]
+fn test_yank_prompt_enter_uses_displayed_order() {
+    let (mut app, _tmp) = make_app();
+    let copied = install_mock_clipboard(&mut app);
+    app.handle_action(Action::YankCitekey);
+    // Row 1 is "BibTeX entry" in the default order.
+    app.handle_action(Action::MoveDown);
+    app.handle_action(Action::DialogConfirm);
+    let copied = copied.borrow();
+    assert_eq!(copied.len(), 1);
+    assert!(copied[0].starts_with('@') && copied[0].contains("{Doe2021,"));
+}
+
+#[test]
+fn test_yank_prompt_reorders_by_usage() {
+    let (mut app, _tmp) = make_app();
+    install_mock_clipboard(&mut app);
+    for _ in 0..2 {
+        app.handle_action(Action::YankCitekey);
+        app.handle_action(Action::DialogHotkey('c'));
+    }
+    app.handle_action(Action::YankCitekey);
+    app.handle_action(Action::DialogHotkey('b'));
+
+    app.handle_action(Action::YankCitekey);
+    let (options, hotkeys) = picker_options(&app);
+    assert_eq!(hotkeys, vec!['c', 'b', 'f', 'a']);
+    assert_eq!(options[0], "Citation key");
+    // Enter on the top row now picks the most-used choice.
+    let copied = install_mock_clipboard(&mut app);
+    app.handle_action(Action::DialogConfirm);
+    assert_eq!(copied.borrow().as_slice(), ["Doe2021"]);
+}
+
+#[test]
+fn test_yank_prompt_persists_usage() {
+    let (mut app, _tmp) = make_app();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("usage.yaml");
+    app.usage_path = Some(path.clone());
+    install_mock_clipboard(&mut app);
+    app.handle_action(Action::YankCitekey);
+    app.handle_action(Action::DialogHotkey('a'));
+    let usage = super::yank::YankUsage::load(&path);
+    assert_eq!(usage.count(super::yank::YankChoice::File), 1);
+}
+
+#[test]
+fn test_direct_yank_does_not_count_usage() {
+    let (mut app, _tmp) = make_app();
+    app.config.general.yank_format = "citation_key".to_string();
+    install_mock_clipboard(&mut app);
+    app.handle_action(Action::YankCitekey);
+    assert_eq!(app.yank_usage, super::yank::YankUsage::default());
+}
+
+#[test]
+fn test_do_yank_file_copies_all_attached_files() {
+    let (mut app, _tmp) = make_app();
+    let dir = tempfile::tempdir().unwrap();
+    let paths = attach_files(&mut app, "Smith2020", dir.path(), &["a.pdf", "b c.pdf"]);
+    let copied = install_mock_clipboard(&mut app);
+    app.do_yank("Smith2020", "file");
+    assert_eq!(
+        copied.borrow().as_slice(),
+        [format!("files:{}|{}", paths[0], paths[1])]
+    );
+    assert_eq!(
+        app.status_message.as_deref(),
+        Some("Copied 2 files to clipboard")
+    );
+}
+
+#[test]
+fn test_do_yank_file_skips_missing_files() {
+    let (mut app, _tmp) = make_app();
+    let dir = tempfile::tempdir().unwrap();
+    let paths = attach_files(&mut app, "Smith2020", dir.path(), &["a.pdf", "gone.pdf"]);
+    std::fs::remove_file(&paths[1]).unwrap();
+    let copied = install_mock_clipboard(&mut app);
+    app.do_yank("Smith2020", "file");
+    assert_eq!(copied.borrow().as_slice(), [format!("files:{}", paths[0])]);
+    assert_eq!(
+        app.status_message.as_deref(),
+        Some("Copied file 'a.pdf' to clipboard (1 missing)")
+    );
+}
+
+#[test]
+fn test_do_yank_file_all_missing_reports_error() {
+    let (mut app, _tmp) = make_app();
+    let dir = tempfile::tempdir().unwrap();
+    let paths = attach_files(&mut app, "Smith2020", dir.path(), &["gone.pdf"]);
+    std::fs::remove_file(&paths[0]).unwrap();
+    let copied = install_mock_clipboard(&mut app);
+    app.do_yank("Smith2020", "file");
+    assert!(copied.borrow().is_empty());
+    assert!(app
+        .status_message
+        .as_deref()
+        .unwrap()
+        .starts_with("Attached file not found"));
+}
+
+#[test]
+fn test_do_yank_file_without_attachment() {
+    let (mut app, _tmp) = make_app();
+    app.database
+        .entries
+        .get_mut("Smith2020")
+        .unwrap()
+        .fields
+        .shift_remove("file");
+    let copied = install_mock_clipboard(&mut app);
+    app.do_yank("Smith2020", "file");
+    assert!(copied.borrow().is_empty());
+    assert_eq!(
+        app.status_message.as_deref(),
+        Some("No file attached to this entry")
+    );
+}
+
+#[test]
+fn test_yank_picker_renders_hotkey_hint() {
+    let (mut app, _tmp) = make_app();
+    app.handle_action(Action::YankCitekey);
+    let content = render_to_string(&mut app, 100, 30);
+    assert!(content.contains("Associated File(s)"));
+    assert!(content.contains("[fbac]"));
 }
 
 #[test]

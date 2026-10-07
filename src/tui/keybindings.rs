@@ -307,6 +307,13 @@ fn map_dialog_key(key: KeyEvent, last_key: Option<char>, is_message: bool) -> Op
         KeyCode::Home => Some(Action::MoveToTop),
         KeyCode::PageDown => Some(Action::PageDown),
         KeyCode::PageUp => Some(Action::PageUp),
+        KeyCode::Char(c)
+            if !key
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+        {
+            Some(Action::DialogHotkey(c))
+        }
         _ => None,
     }
 }
@@ -2130,6 +2137,35 @@ mod tests {
                 false
             ),
             None
+        );
+    }
+
+    #[test]
+    fn test_dialog_plain_chars_become_hotkeys() {
+        for c in ['f', 'c', 'b', 'a'] {
+            assert_eq!(
+                map_key(
+                    key(KeyCode::Char(c)),
+                    &InputMode::Dialog,
+                    None,
+                    Some('y'),
+                    false,
+                    false
+                ),
+                Some(Action::DialogHotkey(c))
+            );
+        }
+        // Ctrl-F / Ctrl-B still page rather than picking an option.
+        assert_eq!(
+            map_key(
+                KeyEvent::new(KeyCode::Char('f'), KeyModifiers::CONTROL),
+                &InputMode::Dialog,
+                None,
+                None,
+                false,
+                false
+            ),
+            Some(Action::PageDown)
         );
     }
 

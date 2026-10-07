@@ -46,6 +46,7 @@ use crate::util::export::{export_csl_json, export_ris};
 use crate::util::open::{
     effective_file_dir, parse_file_field, serialize_file_field, Opener, SystemOpener,
 };
+use yank::{YankChoice, YankUsage};
 
 mod actions;
 mod completions;
@@ -55,6 +56,7 @@ mod import;
 mod library;
 mod name_disambig;
 mod save;
+mod yank;
 pub use actions::Action;
 use actions::{PendingAction, UndoItem, MAX_UNDO};
 use completions::*;
@@ -149,6 +151,11 @@ pub struct App {
     // System integrations, swappable for tests
     pub clipboard: Box<dyn Clipboard>,
     pub opener: Box<dyn Opener>,
+
+    /// How often each `yy` picker choice has been used; orders the picker.
+    yank_usage: YankUsage,
+    /// Where `yank_usage` persists; `None` keeps counts in memory only.
+    usage_path: Option<PathBuf>,
 }
 
 /// Entry types offered in the type-picker dialogs (add entry / change type).
@@ -262,6 +269,12 @@ impl App {
                 None => warning,
             });
         }
+        // Tests never touch the user's real usage file.
+        let usage_path = if cfg!(test) {
+            None
+        } else {
+            yank::default_usage_path()
+        };
         let app = App {
             database,
             config,
@@ -270,6 +283,11 @@ impl App {
             theme,
             clipboard: Box::new(SystemClipboard),
             opener: Box::new(SystemOpener),
+            yank_usage: usage_path
+                .as_deref()
+                .map(YankUsage::load)
+                .unwrap_or_default(),
+            usage_path,
             save_io: Box::new(crate::util::persistence::FileSaveIo),
             saved_contents,
             pending_save: None,
@@ -338,6 +356,12 @@ impl App {
         let user_bindings = build_user_bindings(&config.keybindings);
         let default_sort = config.display.default_sort.clone();
 
+        // Tests never touch the user's real usage file.
+        let usage_path = if cfg!(test) {
+            None
+        } else {
+            yank::default_usage_path()
+        };
         let app = App {
             database,
             base_config: config.clone(),
@@ -346,6 +370,11 @@ impl App {
             theme,
             clipboard: Box::new(SystemClipboard),
             opener: Box::new(SystemOpener),
+            yank_usage: usage_path
+                .as_deref()
+                .map(YankUsage::load)
+                .unwrap_or_default(),
+            usage_path,
             save_io: Box::new(crate::util::persistence::FileSaveIo),
             saved_contents: None,
             pending_save: None,
@@ -1079,6 +1108,13 @@ impl App {
             Action::DialogToggle => {
                 if let Some(ref mut dialog) = self.dialog_state {
                     dialog.toggle_selected();
+                }
+            }
+            Action::DialogHotkey(c) => {
+                let idx = self.dialog_state.as_ref().and_then(|d| d.hotkey_index(c));
+                if let (Some(idx), Some(dialog)) = (idx, self.dialog_state.as_mut()) {
+                    dialog.select(idx);
+                    self.handle_dialog_confirm();
                 }
             }
             Action::DialogYank => {
@@ -1885,15 +1921,16 @@ impl App {
         match yank_format.as_str() {
             "prompt" => {
                 let style = self.config.citation.style.clone();
-                self.dialog_state = Some(DialogState::type_picker_titled(
+                let choices = self.yank_usage.ordered_choices();
+                self.dialog_state = Some(DialogState::type_picker_with_hotkeys(
                     "Yank to clipboard",
-                    vec![
-                        "Citation key".to_string(),
-                        "BibTeX entry".to_string(),
-                        format!("Formatted citation ({})", style),
-                    ],
+                    choices.iter().map(|c| c.label(&style)).collect(),
+                    choices.iter().map(|c| c.hotkey()).collect(),
                 ));
-                self.pending_action = Some(PendingAction::YankPrompt { entry_key: key });
+                self.pending_action = Some(PendingAction::YankPrompt {
+                    entry_key: key,
+                    choices,
+                });
                 self.mode = InputMode::Dialog;
             }
             format => {
@@ -1902,8 +1939,23 @@ impl App {
         }
     }
 
+    /// Run a choice picked from the `yy` prompt and count it toward the
+    /// picker's most-used-first ordering.
+    fn yank_from_prompt(&mut self, entry_key: &str, choice: YankChoice) {
+        self.yank_usage.record(choice);
+        if let Some(path) = &self.usage_path {
+            // Losing a usage count is harmless; never let it mask the yank.
+            let _ = self.yank_usage.save(path);
+        }
+        self.do_yank(entry_key, choice.format_id());
+    }
+
     /// Copy `entry_key` to clipboard in the given format string.
     fn do_yank(&mut self, entry_key: &str, format: &str) {
+        if format == "file" {
+            self.yank_files(entry_key);
+            return;
+        }
         let entry = match self.database.entries.get(entry_key) {
             Some(e) => e,
             None => return,
@@ -1931,6 +1983,50 @@ impl App {
             Ok(()) => self.status_message = Some(format!("Copied {} to clipboard", label)),
             Err(e) => self.status_message = Some(format!("Clipboard error: {}", e)),
         }
+    }
+
+    /// Put every existing file attached to `entry_key` on the clipboard so
+    /// it can be pasted as an attachment (e.g. into an email).
+    fn yank_files(&mut self, entry_key: &str) {
+        use crate::util::open::{effective_file_dir, parse_file_field, resolve_file_path};
+
+        let files = self
+            .database
+            .entries
+            .get(entry_key)
+            .and_then(|e| e.fields.get("file"))
+            .map(|v| parse_file_field(v))
+            .unwrap_or_default();
+        if files.is_empty() {
+            self.status_message = Some("No file attached to this entry".to_string());
+            return;
+        }
+        let bib_dir = effective_file_dir(
+            &self.bib_path,
+            self.database.jabref_meta.file_directory.as_deref(),
+        );
+        let (found, missing): (Vec<PathBuf>, Vec<PathBuf>) = files
+            .iter()
+            .map(|f| resolve_file_path(&f.path, &bib_dir))
+            .partition(|p| p.exists());
+        if found.is_empty() {
+            self.status_message =
+                Some(format!("Attached file not found: {}", missing[0].display()));
+            return;
+        }
+        let what = if found.len() == 1 {
+            format!(
+                "file '{}'",
+                found[0].file_name().unwrap_or_default().to_string_lossy()
+            )
+        } else {
+            format!("{} files", found.len())
+        };
+        self.status_message = Some(match self.clipboard.copy_files(&found) {
+            Ok(()) if missing.is_empty() => format!("Copied {} to clipboard", what),
+            Ok(()) => format!("Copied {} to clipboard ({} missing)", what, missing.len()),
+            Err(e) => format!("Clipboard error: {}", e),
+        });
     }
 
     // ── Citation preview ──
@@ -2208,13 +2304,11 @@ impl App {
                 }
                 self.mode = InputMode::Detail;
             }
-            Some(PendingAction::YankPrompt { entry_key }) => {
-                let format = match dialog.as_ref().map(|d| d.selected()) {
-                    Some(0) => "citation_key",
-                    Some(1) => "bibtex",
-                    _ => "formatted",
-                };
-                self.do_yank(&entry_key.clone(), format);
+            Some(PendingAction::YankPrompt { entry_key, choices }) => {
+                let idx = dialog.as_ref().map(|d| d.selected()).unwrap_or(0);
+                if let Some(&choice) = choices.get(idx) {
+                    self.yank_from_prompt(&entry_key, choice);
+                }
             }
             Some(PendingAction::Save) => {
                 self.save();
