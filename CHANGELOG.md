@@ -1,5 +1,10 @@
 # Changelog
 
+### 0.65.1
+
+- **Fix: yanked files now paste into Apple Mail and Outlook** (#61): on macOS, `yy` → Associated File(s) writes the same clipboard contents as Finder's Copy (file URL, file name as UTF-8 and UTF-16 text, and the file's icon) and attaches a security-scope token to each file, as Finder does. Sandboxed apps such as Mail and Outlook previously received the file URL but were denied access to the file, so nothing was attached
+- **Tests**: an on-demand macOS test (`cargo test finder_layout -- --ignored`) checks the clipboard layout against Finder's; it is ignored by default because it overwrites the clipboard
+
 ### 0.65.0
 
 - **Yank attached files** (#61): the `yy` picker gains **Associated File(s)**, which puts the entry's attached file(s) themselves on the clipboard (all of them when there are several), so they paste into an email as attachments or into a file manager as copies. Missing attachments are skipped and counted in the status message. macOS writes file URLs to the general pasteboard; Linux writes `text/uri-list` via `wl-copy` or `xclip`. `yank_format: file` copies the files directly without the picker

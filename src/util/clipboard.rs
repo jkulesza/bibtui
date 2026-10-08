@@ -103,17 +103,70 @@ pub fn copy_to_clipboard(text: &str) -> anyhow::Result<()> {
     }
 }
 
-/// JXA script that writes each argv path to the general pasteboard as a file
-/// URL — the same thing Finder's Copy produces.
+/// JXA script that puts each argv path on the general pasteboard the way
+/// Finder's Copy does: Finder's item types plus a security-scope token, so
+/// sandboxed apps such as Apple Mail and Outlook can attach the file.
 #[cfg(target_os = "macos")]
 const MACOS_COPY_FILES_JXA: &str = r#"
 ObjC.import('AppKit');
+
+// The file's Finder icon as .icns data, or null. ImageIO cannot encode
+// icns from JXA directly, so render the 512px icon to PNG and let sips
+// convert it (its icns writer rejects 1024px@72dpi, hence 512).
+function icnsFor(path, tmpDir, i) {
+    const reps = $.NSWorkspace.sharedWorkspace.iconForFile(path).representations;
+    let cg = null;
+    for (let r = 0; r < reps.count && !cg; r++) {
+        const rep = reps.objectAtIndex(r);
+        if (rep.pixelsWide == 512) cg = rep.CGImageForProposedRectContextHints(null, $(), $());
+    }
+    if (!cg) return null;
+    const png = $.NSBitmapImageRep.alloc.initWithCGImage(cg)
+        .representationUsingTypeProperties($.NSBitmapImageFileTypePNG, $());
+    const pngPath = tmpDir + '/icon' + i + '.png';
+    const icnsPath = tmpDir + '/icon' + i + '.icns';
+    if (!png.writeToFileAtomically(pngPath, true)) return null;
+    const task = $.NSTask.alloc.init;
+    task.launchPath = '/usr/bin/sips';
+    task.arguments = ['-s', 'format', 'icns', pngPath, '--out', icnsPath];
+    task.standardOutput = $.NSFileHandle.fileHandleWithNullDevice;
+    task.standardError = $.NSFileHandle.fileHandleWithNullDevice;
+    task.launch;
+    task.waitUntilExit;
+    if (task.terminationStatus != 0) return null;
+    const data = $.NSData.dataWithContentsOfFile(icnsPath);
+    return data.isNil() ? null : data;
+}
+
+// One pasteboard item per file, with the same types Finder's Copy writes:
+// file URL, file name as UTF-8 and BOM-prefixed UTF-16 text, and the icon.
 function run(argv) {
-    const urls = $.NSMutableArray.alloc.init;
-    argv.forEach(p => urls.addObject($.NSURL.fileURLWithPath(p)));
+    const fm = $.NSFileManager.defaultManager;
+    const tmpDir = ObjC.unwrap($.NSTemporaryDirectory()) + 'bibtui-yank-' + $.NSProcessInfo.processInfo.processIdentifier;
+    fm.createDirectoryAtPathWithIntermediateDirectoriesAttributesError(tmpDir, true, $(), null);
+    const items = $.NSMutableArray.alloc.init;
+    argv.forEach((p, i) => {
+        const url = $.NSURL.fileURLWithPath(p);
+        const name = url.lastPathComponent;
+        const item = $.NSPasteboardItem.alloc.init;
+        item.setStringForType(url.absoluteString, 'public.file-url');
+        item.setDataForType(name.dataUsingEncoding($.NSUTF16StringEncoding), 'public.utf16-external-plain-text');
+        item.setStringForType(name, 'public.utf8-plain-text');
+        const icns = icnsFor(p, tmpDir, i);
+        if (icns) item.setDataForType(icns, 'com.apple.icns');
+        items.addObject(item);
+    });
+    fm.removeItemAtPathError(tmpDir, null);
     const pb = $.NSPasteboard.generalPasteboard;
     pb.clearContents;
-    if (!pb.writeObjects(urls)) { throw new Error('pasteboard write failed'); }
+    if (!pb.writeObjects(items)) { throw new Error('pasteboard write failed'); }
+    // Sandboxed apps (Mail, Outlook) may only open a pasted file when the
+    // item carries a security-scope token, which Finder attaches with this
+    // AppKit SPI. Without it they receive the URL but are denied the file.
+    const sel = '_attachSecurityScopeToURL:index:';
+    if (pb.respondsToSelector(sel)) {
+        argv.forEach((p, i) => pb._attachSecurityScopeToURLIndex($.NSURL.fileURLWithPath(p), i));
+    }
 }
 "#;
 
@@ -216,6 +269,43 @@ mod tests {
     fn test_file_uri_list_crlf() {
         let list = file_uri_list(&[PathBuf::from("/a.pdf"), PathBuf::from("/b.pdf")]);
         assert_eq!(list, "file:///a.pdf\r\nfile:///b.pdf\r\n");
+    }
+
+    /// Overwrites the real clipboard, so run on demand:
+    /// `cargo test finder_layout -- --ignored`
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore]
+    fn test_copy_files_matches_finder_layout() {
+        use std::process::Command;
+        let dir = tempfile::tempdir().unwrap();
+        let paths: Vec<PathBuf> = ["a b.pdf", "c.pdf"]
+            .iter()
+            .map(|n| {
+                let p = dir.path().join(n);
+                std::fs::write(&p, b"%PDF").unwrap();
+                p
+            })
+            .collect();
+        copy_files_to_clipboard(&paths).unwrap();
+
+        let dump = r#"ObjC.import("AppKit");
+            const items = $.NSPasteboard.generalPasteboard.pasteboardItems;
+            let out = [];
+            for (let i = 0; i < items.count; i++) {
+                const it = items.objectAtIndex(i);
+                out.push(ObjC.deepUnwrap(it.types).join(",") + " " + ObjC.unwrap(it.stringForType("public.utf8-plain-text")));
+            }
+            out.join("\n")"#;
+        let out = Command::new("osascript")
+            .args(["-l", "JavaScript", "-e", dump])
+            .output()
+            .unwrap();
+        let types = "public.file-url,public.utf16-external-plain-text,public.utf8-plain-text,com.apple.icns";
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout).trim(),
+            format!("{types} a b.pdf\n{types} c.pdf")
+        );
     }
 
     #[test]
