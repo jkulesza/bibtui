@@ -140,10 +140,7 @@ fn export_previews_writes_jabref_layout_and_round_trips() {
     assert!(other.config.save.sync_filenames);
     assert!(!other.config.save.save_action_latex_cleanup);
     assert_eq!(other.config.titlecase.stop_words, ["a", "of"]);
-    assert_eq!(
-        other.status_message.as_deref(),
-        Some("Library settings: this library overrides YAML save settings (latex_cleanup off, sync_filenames on); see ◆ in Settings")
-    );
+    assert_eq!(other.status_message, None);
 
     // Exporting again changes nothing.
     let mut again = reload(&app);
@@ -360,16 +357,13 @@ fn settings_exported_by_bibtui_survive_jabref_rewriting_them() {
 }
 
 #[test]
-fn startup_notes_library_save_actions_that_override_yaml() {
+fn library_save_actions_override_yaml() {
     // JabRef's default save actions only normalize dates, months, and pages.
     let contents = format!(
         "{LIBRARY}\n@Comment{{jabref-meta: saveActions:enabled;\nall-text-fields[identity]\ndate[normalize_date]\nmonth[normalize_month]\npages[normalize_page_numbers]\n;}}\n"
     );
     let (mut app, _dir) = open(&contents, yaml_config());
-    let status = app.status_message.clone().unwrap();
-    assert!(status.contains("overrides YAML save settings"), "{status}");
-    assert!(status.contains("latex_cleanup off"), "{status}");
-    assert!(!status.contains("normalize_month"), "{status}");
+    assert_eq!(app.status_message, None);
     assert!(!app.config.save.save_action_latex_cleanup);
     assert!(app.config.save.save_action_normalize_month);
 

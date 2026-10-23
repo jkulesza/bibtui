@@ -109,6 +109,25 @@ pub enum Action {
     DisambigCycleVariantReverse,
     DisambigRemoveVariant,
     DisambigPreview,
+    // Duplicates
+    /// Open the duplicate review list (`U`, `:dups`).
+    FindDuplicates,
+    /// Close the merge view (back to the review list) or the review list.
+    CloseDedup,
+    /// Open the merge view for the focused cluster.
+    DedupReconcile,
+    /// Mark the focused cluster as not duplicates.
+    DedupIgnore,
+    /// Keep the next / previous member's value for the focused conflict.
+    DedupPickNext,
+    DedupPickPrev,
+    /// Keep member N's (0-based) value for the focused conflict.
+    DedupPick(usize),
+    /// Keep the next member as the merged entry (its key and position).
+    DedupCycleSurvivor,
+    /// Regenerate the merged entry's key from the citekey template.
+    DedupRegenKey,
+    ApplyMerge,
     // Import / Export
     ImportEntry,
     /// Export all entries as CSL-JSON to a user-specified path.
@@ -283,6 +302,15 @@ pub(super) enum PendingAction {
     },
     /// Dismiss a non-interactive message popup (no side effect on confirm).
     DismissMessage,
+    /// Dismiss the retired-keys report after a merge.
+    DismissMergeReport,
+    /// An imported / added entry looks like a duplicate of `existing`:
+    /// merge, keep both, or discard it.
+    ImportDuplicate {
+        new_key: String,
+        existing: Vec<String>,
+        reasons: Vec<String>,
+    },
     /// Waiting for the user to edit the path of the file at `index` in the `file` field.
     EditFileAttachment {
         entry_key: String,

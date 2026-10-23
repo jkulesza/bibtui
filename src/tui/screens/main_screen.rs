@@ -144,6 +144,14 @@ pub fn render_main_screen(f: &mut Frame, app: &mut App) {
         &app.theme,
     );
 
+    // Duplicate review / merge overlays (below dialogs, e.g. the retired-keys report)
+    if let Some(ref mut review) = app.dedup_review_state {
+        crate::tui::components::dedup::render_dedup_review(f, area, review, &app.theme);
+    }
+    if let Some(ref mut merge) = app.dedup_merge_state {
+        crate::tui::components::dedup::render_dedup_merge(f, area, merge, &app.theme);
+    }
+
     // Dialog overlay
     if let Some(ref mut dialog) = app.dialog_state {
         crate::tui::components::dialog::render_dialog(f, area, dialog, &app.theme);

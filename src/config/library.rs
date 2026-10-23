@@ -311,28 +311,6 @@ pub fn apply_overrides(
     (config, warnings)
 }
 
-/// Short names of save settings (`save.*`) whose effective value differs
-/// from the YAML layer, e.g. `latex_cleanup off`, `entry_sort_order=none`.
-pub fn overridden_save_settings(base: &Config, effective: &Config) -> Vec<String> {
-    let base = flatten(base);
-    flatten(effective)
-        .into_iter()
-        .filter(|(path, value)| path.starts_with("save.") && base.get(path) != Some(value))
-        .map(|(path, value)| {
-            let name = path
-                .trim_start_matches("save.")
-                .trim_start_matches("save_action_")
-                .to_string();
-            match value {
-                Value::Bool(true) => format!("{name} on"),
-                Value::Bool(false) => format!("{name} off"),
-                Value::String(s) => format!("{name}={s}"),
-                _ => name,
-            }
-        })
-        .collect()
-}
-
 // ── Reading library settings ────────────────────────────────────────────────
 
 /// JabRef `saveActions` as bibtui understands them.

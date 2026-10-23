@@ -26,6 +26,8 @@ pub fn map_key(
         InputMode::Settings => map_settings_key(key),
         InputMode::ValidateResults => map_validate_results_key(key),
         InputMode::NameDisambig => map_name_disambig_key(key),
+        InputMode::DedupReview => map_dedup_review_key(key),
+        InputMode::DedupMerge => map_dedup_merge_key(key),
         InputMode::Help => Some(Action::CloseHelp),
     }
 }
@@ -43,6 +45,8 @@ pub enum InputMode {
     Settings,
     ValidateResults,
     NameDisambig,
+    DedupReview,
+    DedupMerge,
     Help,
 }
 
@@ -97,6 +101,7 @@ fn map_normal_key(key: KeyEvent, last_key: Option<char>) -> Option<Action> {
         KeyCode::Char('I') => Some(Action::ImportEntry),
         KeyCode::Char('C') => Some(Action::RegenAllCitekeys),
         KeyCode::Char('M') => Some(Action::DisambiguateNames),
+        KeyCode::Char('U') => Some(Action::FindDuplicates),
         KeyCode::Char('F') => Some(Action::SyncFilenames),
         KeyCode::Esc => Some(Action::ResetSort),
         _ => None,
@@ -384,6 +389,40 @@ fn map_name_disambig_key(key: KeyEvent) -> Option<Action> {
     }
 }
 
+fn map_dedup_review_key(key: KeyEvent) -> Option<Action> {
+    match key.code {
+        KeyCode::Char('j') | KeyCode::Down => Some(Action::MoveDown),
+        KeyCode::Char('k') | KeyCode::Up => Some(Action::MoveUp),
+        KeyCode::Char('g') | KeyCode::Home => Some(Action::MoveToTop),
+        KeyCode::Char('G') | KeyCode::End => Some(Action::MoveToBottom),
+        KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(Action::PageDown)
+        }
+        KeyCode::Char('b') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(Action::PageUp),
+        KeyCode::Enter => Some(Action::DedupReconcile),
+        KeyCode::Char('x') => Some(Action::DedupIgnore),
+        KeyCode::Esc | KeyCode::Char('q') => Some(Action::CloseDedup),
+        _ => None,
+    }
+}
+
+fn map_dedup_merge_key(key: KeyEvent) -> Option<Action> {
+    match key.code {
+        KeyCode::Char('j') | KeyCode::Down => Some(Action::MoveDown),
+        KeyCode::Char('k') | KeyCode::Up => Some(Action::MoveUp),
+        KeyCode::Char('g') | KeyCode::Home => Some(Action::MoveToTop),
+        KeyCode::Char('G') | KeyCode::End => Some(Action::MoveToBottom),
+        KeyCode::Char('h') | KeyCode::Left => Some(Action::DedupPickPrev),
+        KeyCode::Char('l') | KeyCode::Right => Some(Action::DedupPickNext),
+        KeyCode::Char(c @ '1'..='9') => Some(Action::DedupPick(c as usize - '1' as usize)),
+        KeyCode::Tab => Some(Action::DedupCycleSurvivor),
+        KeyCode::Char('c') => Some(Action::DedupRegenKey),
+        KeyCode::Enter => Some(Action::ApplyMerge),
+        KeyCode::Esc | KeyCode::Char('q') => Some(Action::CloseDedup),
+        _ => None,
+    }
+}
+
 fn map_citation_preview_key(key: KeyEvent, last_key: Option<char>) -> Option<Action> {
     match key.code {
         KeyCode::Char('j') | KeyCode::Down => Some(Action::MoveDown),
@@ -576,6 +615,15 @@ pub fn action_from_name(name: &str) -> Option<Action> {
         "DisambigCycleVariantReverse" => Some(Action::DisambigCycleVariantReverse),
         "DisambigRemoveVariant" => Some(Action::DisambigRemoveVariant),
         "DisambigPreview" => Some(Action::DisambigPreview),
+        "FindDuplicates" => Some(Action::FindDuplicates),
+        "CloseDedup" => Some(Action::CloseDedup),
+        "DedupReconcile" => Some(Action::DedupReconcile),
+        "DedupIgnore" => Some(Action::DedupIgnore),
+        "DedupPickNext" => Some(Action::DedupPickNext),
+        "DedupPickPrev" => Some(Action::DedupPickPrev),
+        "DedupCycleSurvivor" => Some(Action::DedupCycleSurvivor),
+        "DedupRegenKey" => Some(Action::DedupRegenKey),
+        "ApplyMerge" => Some(Action::ApplyMerge),
         "ImportEntry" => Some(Action::ImportEntry),
         "ExportJson" => Some(Action::ExportJson),
         "ExportRis" => Some(Action::ExportRis),
@@ -621,6 +669,8 @@ fn mode_from_name(name: &str) -> Option<InputMode> {
         "dialog" => Some(InputMode::Dialog),
         "command" => Some(InputMode::Command),
         "name_disambig" => Some(InputMode::NameDisambig),
+        "dedup_review" => Some(InputMode::DedupReview),
+        "dedup_merge" => Some(InputMode::DedupMerge),
         _ => None,
     }
 }
@@ -2319,6 +2369,61 @@ mod tests {
         );
     }
 
+    // ── Duplicate review / merge modes ──
+
+    #[test]
+    fn test_dedup_modes() {
+        let map = |code, mode| map_key(key(code), &mode, None, None, false, false);
+        assert_eq!(
+            map(KeyCode::Char('U'), InputMode::Normal),
+            Some(Action::FindDuplicates)
+        );
+        assert_eq!(
+            map(KeyCode::Enter, InputMode::DedupReview),
+            Some(Action::DedupReconcile)
+        );
+        assert_eq!(
+            map(KeyCode::Char('x'), InputMode::DedupReview),
+            Some(Action::DedupIgnore)
+        );
+        assert_eq!(
+            map(KeyCode::Esc, InputMode::DedupReview),
+            Some(Action::CloseDedup)
+        );
+        assert_eq!(
+            map(KeyCode::Char('j'), InputMode::DedupMerge),
+            Some(Action::MoveDown)
+        );
+        assert_eq!(
+            map(KeyCode::Char('l'), InputMode::DedupMerge),
+            Some(Action::DedupPickNext)
+        );
+        assert_eq!(
+            map(KeyCode::Char('h'), InputMode::DedupMerge),
+            Some(Action::DedupPickPrev)
+        );
+        assert_eq!(
+            map(KeyCode::Char('3'), InputMode::DedupMerge),
+            Some(Action::DedupPick(2))
+        );
+        assert_eq!(
+            map(KeyCode::Tab, InputMode::DedupMerge),
+            Some(Action::DedupCycleSurvivor)
+        );
+        assert_eq!(
+            map(KeyCode::Char('c'), InputMode::DedupMerge),
+            Some(Action::DedupRegenKey)
+        );
+        assert_eq!(
+            map(KeyCode::Enter, InputMode::DedupMerge),
+            Some(Action::ApplyMerge)
+        );
+        assert_eq!(
+            map(KeyCode::Esc, InputMode::DedupMerge),
+            Some(Action::CloseDedup)
+        );
+    }
+
     // ── NameDisambig mode ──
 
     #[test]
@@ -3270,6 +3375,15 @@ mod tests {
             "DisambigCycleVariantReverse",
             "DisambigRemoveVariant",
             "DisambigPreview",
+            "FindDuplicates",
+            "CloseDedup",
+            "DedupReconcile",
+            "DedupIgnore",
+            "DedupPickNext",
+            "DedupPickPrev",
+            "DedupCycleSurvivor",
+            "DedupRegenKey",
+            "ApplyMerge",
             "ImportEntry",
             "ExportJson",
             "ExportRis",
@@ -3321,6 +3435,8 @@ mod tests {
             "dialog",
             "command",
             "name_disambig",
+            "dedup_review",
+            "dedup_merge",
         ];
         for mode_name in modes {
             let mut mode_map: IndexMap<String, IndexMap<String, String>> = IndexMap::new();

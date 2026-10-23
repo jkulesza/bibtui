@@ -188,6 +188,7 @@ impl App {
                 } else {
                     Some("Imported entry — press 'c' to regenerate citation key".to_string())
                 };
+                self.offer_duplicate_merge(&key);
             }
             Err(e) => {
                 self.dialog_state = Some(DialogState::message(

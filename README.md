@@ -27,7 +27,7 @@ A terminal UI BibTeX manager written in Rust. Designed as a lightweight, keyboar
 - Export entries to **CSL-JSON** (Zotero/Pandoc compatible) or **RIS** via `:export-json` / `:export-ris`
 - In-TUI settings editor (`S`) with live config import/export, `Tab`-completion path dialogs, and field group management
 - Validate command (`v`) dry-runs all save actions and shows which fields would change, without modifying the file
-- Context-sensitive help modal (`?`): entry-list view shows navigation, search, command-palette, and **Quality** (C / M / v) keys in dedicated sections; detail view shows field editing and vim modal editor keys
+- Context-sensitive help modal (`?`): entry-list view shows navigation, search, command-palette, and **Quality** (C / M / U / v) keys in dedicated sections; detail view shows field editing and vim modal editor keys
 - `F` in the detail view syncs the attached filename to the current citation key on demand, with undo support; partial failures keep successful paths accurate, and forward/undo renames never overwrite an existing destination
 - Scrollable filename-sync preview dialog confirms file renames before they are applied
 - Import entries from a DOI, URL, or local PDF file (`I` or `:import <doi-or-url-or-path>`): queries Crossref for metadata, with extensible publisher-specific scrapers (ANS, Taylor & Francis); automatically downloads an open-access PDF via Unpaywall when available; extracts DOI from local PDFs and sets the file attachment directly; citation key is generated immediately from the configured template
@@ -35,6 +35,7 @@ A terminal UI BibTeX manager written in Rust. Designed as a lightweight, keyboar
 - Per-file attachment management in the detail view: each attached file appears as its own navigable row; `e`/`Enter` edits the path, `f` adds a new attachment, `d` removes an individual file
 - URL fields preserve percent-encoding (e.g. `%20`) on save
 - Leading/trailing whitespace is stripped from every field value on save (`{University of Texas }` → `{University of Texas}`); disable with `save_action_trim_whitespace: false`
+- **Duplicate detection and merging** (`U` or `:dups`): finds entries sharing a DOI, ISBN (ISBN-10 and -13 compare equal), eprint, or URL, or with near-identical titles (same year and first author); a field-by-field merge view resolves conflicts, combines groups and attached files, retargets `crossref`s, deletes the other copies, and reports the retired citation keys — all as one undoable step. "Not a duplicate" marks are stored in the `.bib`, and imports or new entries that match an existing one offer to merge instead (see [Duplicates](#duplicates-u))
 - Duplicate citation keys are detected at load: later copies are renamed with a `_dupN` suffix (persisted on the next save) and a startup warning lists the affected keys
 - `w` fetches DOI/URL from Crossref via metadata (title, author, year) when none is present, in both the entry list and detail view; only sets `url` when it is distinct from the DOI; when multiple links are available (DOI, URL, ISBN) a picker dialog is shown
 - `w` opens an OpenLibrary search (`openlibrary.org/search?isbn=…`) for entries with an `isbn` field but no DOI or URL
@@ -118,6 +119,7 @@ repeat deletions, confirmations, or custom bindings.
 | `B` | Toggle case-protecting brace display |
 | `L` | Toggle LaTeX rendering (accents, math, dashes) |
 | `v` | Validate: dry-run save actions, show what would change |
+| `U` | Find and merge duplicate entries (see [Duplicates](#duplicates-u)) |
 | `I` | Import entry from DOI, URL, ISBN, or local PDF file |
 | `S` | Open settings editor |
 | `u` | Undo last change |
@@ -250,6 +252,57 @@ Path dialogs (settings export/import, import entry, and export dialogs) support 
 completion: the first press fills the longest common prefix of all matches; subsequent
 presses cycle through candidates. Leading `~` is expanded to the home directory.
 
+### Duplicates (`U`)
+
+`U` (or `:dups`) lists clusters of possible duplicates. Two entries match when
+they share a normalized **DOI**, **ISBN** (ISBN-10 and ISBN-13 compare equal),
+**eprint**, or **URL**, or when their normalized titles (LaTeX rendered, braces,
+case, and punctuation ignored) are at least `duplicates.title_threshold` similar
+and the year and first-author surname agree (each check can be turned off).
+Differing DOIs, ISBNs, eprints, editions, volumes, or report numbers mark
+distinct works and never match; chapters of one book sharing its ISBN do not
+match either. Matches chain, so A~B and B~C form one cluster.
+
+| Key | Review list |
+|-----|-------------|
+| `j` / `k`, `g` / `G`, `Ctrl-F` / `Ctrl-B` | Move between clusters |
+| `Enter` | Reconcile the cluster in the merge view |
+| `x` | Mark the cluster as **not duplicates** (stored in the `.bib`; undoable) |
+| `Esc` / `q` | Close |
+
+The merge view shows every field: identical ones (`✓`), ones only some entries
+have (`+`, kept), and conflicts, where you pick the value to keep. `groups` and
+`file` are combined across entries (`∪`), dropping repeated paths. The entry
+with the most fields is kept by default; the others are deleted.
+
+| Key | Merge view |
+|-----|------------|
+| `j` / `k` | Next / previous conflict |
+| `h` / `l`, `1`–`9` | Keep the previous / next / Nth entry's value |
+| `Tab` | Keep the next entry instead (its citation key and file position) |
+| `c` | Regenerate the citation key from the template and merged fields |
+| `Enter` | Merge (one `u` undoes the whole merge) |
+| `Esc` / `q` | Back to the review list |
+
+After a merge, `crossref` fields pointing at a retired key are updated and a
+popup lists the retired keys as `old → new`; `yy` copies the list so you can
+update your `.tex` sources.
+
+When an imported entry (or one added with `a`, once its detail view closes)
+matches an existing entry, bibtui offers to merge it, keep both (marking them
+as not duplicates), or discard it. When a file is opened, the status bar
+reports how many possible duplicate clusters it has.
+
+"Not duplicates" marks are stored as
+a JabRef metadata comment with one set of keys per line, which JabRef keeps:
+
+```bibtex
+@Comment{jabref-meta: bibtuiNotDuplicates:
+keyA,keyB;
+keyC,keyD,keyE;
+}
+```
+
 ### Settings editor (`S`)
 
 Opens a full-screen view of all configuration options. Changes apply immediately to the running session.
@@ -289,6 +342,7 @@ Open with `:` from the entry list.
 | `:sort <field>` | Sort by field (repeat to toggle direction) |
 | `:sort none` | Clear sort and restore file order |
 | `:sort` | Toggle sort direction |
+| `:dups` / `:duplicates` | Find and merge duplicate entries (same as `U`) |
 | `:group <name>` | Filter to a named group |
 | `:search <query>` | Apply a search query |
 | `:import <doi-or-url-or-path>` | Import entry from DOI, URL, or local PDF file |
@@ -410,8 +464,8 @@ Notes:
 
 - A library that already has JabRef `saveActions` or `saveOrderConfig`
   (for example JabRef's defaults, which only normalize dates, months, and
-  pages) overrides the corresponding YAML settings. bibtui says so at startup;
-  turn an action back on in Settings to rewrite `saveActions` for both programs.
+  pages) overrides the corresponding YAML settings; these are marked ◆ in
+  Settings. Turn an action back on there to rewrite `saveActions` for both programs.
 - If JabRef's `saveActions` use formatters bibtui does not have, or its
   `saveOrderConfig` sorts by other fields, bibtui reads what it can and never
   rewrites them.
@@ -468,6 +522,14 @@ save:
 titlecase:
   ignore_words: [MCNP, OpenMC]           # words kept verbatim by the T title-case command
 
+duplicates:                               # duplicate detection (U / :dups)
+  title_threshold: 0.9                    # min title similarity (0.0–1.0) without a shared
+                                          # DOI / ISBN / eprint / URL
+  require_same_year: true                 # title matches also need the same year
+  require_same_author: true               # ...and the same first-author surname
+  check_on_load: true                     # status-bar note when a file is opened
+  check_on_import: true                   # offer to merge an imported / added duplicate
+
 theme:
   selected_bg: "#3b4261"
   selected_fg: "#c0caf5"
@@ -496,7 +558,7 @@ keybindings:
     "ctrl-r": "RegenCitekey"  # regenerate citekey
 ```
 
-Supported modes: `normal`, `detail`, `search`, `editing`, `settings`, `citation_preview`, `dialog`, `command`.
+Supported modes: `normal`, `detail`, `search`, `editing`, `settings`, `citation_preview`, `dialog`, `command`, `name_disambig`, `dedup_review`, `dedup_merge`.
 Use `"None"` as the action to intentionally unbind a key.
 
 See `bibtui.yaml.example` for all options including columns, citekey templates, save normalization, and a full keybinding reference.

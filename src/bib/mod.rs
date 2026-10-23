@@ -1,4 +1,5 @@
 pub mod citekey;
+pub mod dedup;
 pub mod entry_types;
 pub mod jabref;
 pub mod model;

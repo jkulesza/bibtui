@@ -1,5 +1,14 @@
 # Changelog
 
+### 0.66.0
+
+- **Find and merge duplicate entries**: `U` (or `:dups`) lists clusters of likely duplicates. Entries match on a shared DOI, ISBN (ISBN-10 and ISBN-13 compare equal), eprint, or URL, or on a similar title (similarity ≥ `duplicates.title_threshold`, default 0.9) with the same year and first-author surname. Different DOIs, ISBNs, eprints, editions, volumes, or report numbers mark two entries as distinct works, chapters that share a book's ISBN are not flagged, and URLs shared by many entries are ignored
+- **Field-by-field merge view**: `Enter` on a cluster shows every field; identical values merge automatically and conflicts are picked with `h`/`l` or `1`–`9`. `Tab` changes which entry (and citation key) survives, `c` regenerates the key from the template, and `Enter` merges. Groups and attached files are combined, `crossref` fields pointing at removed keys are updated, and the whole merge is one undo step. A report lists the retired keys as `old → new`; `yy` copies it for updating `.tex` files
+- **"Not duplicates" marks**: `x` in the review list records a cluster as distinct works so it is not reported again. Marks are undoable and saved in the `.bib` as `@Comment{jabref-meta: bibtuiNotDuplicates:…}`, one set of keys per line, which JabRef keeps
+- **Checks on load and import**: opening a file reports how many possible duplicate clusters it has; importing a matching entry, or closing the detail view of one added with `a`, offers to merge, keep both (marking them not duplicates), or discard it
+- **Config**: a `duplicates:` block (`title_threshold`, `require_same_year`, `require_same_author`, `check_on_load`, `check_on_import`), also editable in a new Duplicates section of the `S` settings screen
+- **Startup**: the status line no longer says when library save settings override the YAML ones; those settings are still marked ◆ in Settings
+
 ### 0.65.1
 
 - **Fix: yanked files now paste into Apple Mail and Outlook** (#61): on macOS, `yy` → Associated File(s) writes the same clipboard contents as Finder's Copy (file URL, file name as UTF-8 and UTF-16 text, and the file's icon) and attaches a security-scope token to each file, as Finder does. Sandboxed apps such as Mail and Outlook previously received the file URL but were denied access to the file, so nothing was attached

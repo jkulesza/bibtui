@@ -50,6 +50,7 @@ use yank::{YankChoice, YankUsage};
 
 mod actions;
 mod completions;
+mod dedup;
 mod editing;
 mod groups;
 mod import;
@@ -101,6 +102,11 @@ pub struct App {
     pub last_settings_cursor: usize,
     pub validate_results_state: Option<ValidateResultsState>,
     pub name_disambig_state: Option<NameDisambigState>,
+    pub dedup_review_state: Option<crate::tui::components::dedup::DedupReviewState>,
+    pub dedup_merge_state: Option<crate::tui::components::dedup::DedupMergeState>,
+    /// Key of an entry added with `a`; checked for duplicates when its
+    /// detail view closes.
+    pending_dup_check: Option<String>,
     pub help_state: Option<HelpState>,
     pub help_pre_mode: Option<InputMode>,
 
@@ -237,18 +243,6 @@ impl App {
                 None => warning,
             });
         }
-        // Save settings change file contents, so say when the library
-        // overrides the YAML ones (e.g. JabRef's own saveActions).
-        let overridden = crate::config::library::overridden_save_settings(&base_config, &config);
-        if !overridden.is_empty() {
-            library_warnings.insert(
-                0,
-                format!(
-                    "this library overrides YAML save settings ({}); see ◆ in Settings",
-                    overridden.join(", ")
-                ),
-            );
-        }
         if !library_warnings.is_empty() {
             let warning = format!("Library settings: {}", library_warnings.join("; "));
             status_message = Some(match status_message {
@@ -275,7 +269,7 @@ impl App {
         } else {
             yank::default_usage_path()
         };
-        let app = App {
+        let mut app = App {
             database,
             config,
             base_config,
@@ -315,6 +309,9 @@ impl App {
             last_settings_cursor: 0,
             validate_results_state: None,
             name_disambig_state: None,
+            dedup_review_state: None,
+            dedup_merge_state: None,
+            pending_dup_check: None,
             help_state: None,
             help_pre_mode: None,
             search_engine: SearchEngine::new(),
@@ -336,6 +333,7 @@ impl App {
             pending_doi_fetch: None,
             user_bindings,
         };
+        app.report_duplicates_on_load();
 
         Ok(app)
     }
@@ -402,6 +400,9 @@ impl App {
             last_settings_cursor: 0,
             validate_results_state: None,
             name_disambig_state: None,
+            dedup_review_state: None,
+            dedup_merge_state: None,
+            pending_dup_check: None,
             help_state: None,
             help_pre_mode: None,
             search_engine: SearchEngine::new(),
@@ -653,6 +654,10 @@ impl App {
         // Clear status message on any action
         self.status_message = None;
 
+        if self.dedup_navigation(&action) {
+            return;
+        }
+
         match action {
             Action::MoveDown => {
                 if let Some(ref mut nds) = self.name_disambig_state {
@@ -787,7 +792,13 @@ impl App {
                         detail.clear_search();
                     }
                 } else {
+                    let closing = self.detail_entry_key.clone();
                     self.close_detail();
+                    if let Some(key) = self.pending_dup_check.take() {
+                        if closing.as_deref() == Some(key.as_str()) {
+                            self.offer_duplicate_merge(&key);
+                        }
+                    }
                 }
             }
             Action::EnterDetailSearch => {
@@ -1071,6 +1082,32 @@ impl App {
             Action::ApplyNameDisambig => {
                 self.apply_name_disambiguation();
             }
+            Action::FindDuplicates => self.open_duplicate_review(),
+            Action::CloseDedup => self.close_dedup(),
+            Action::DedupReconcile => self.reconcile_duplicate_cluster(),
+            Action::DedupIgnore => self.ignore_duplicate_cluster(),
+            Action::DedupPickNext => {
+                if let Some(ref mut state) = self.dedup_merge_state {
+                    state.pick_step(1);
+                }
+            }
+            Action::DedupPickPrev => {
+                if let Some(ref mut state) = self.dedup_merge_state {
+                    state.pick_step(-1);
+                }
+            }
+            Action::DedupPick(member) => {
+                if let Some(ref mut state) = self.dedup_merge_state {
+                    state.pick(member);
+                }
+            }
+            Action::DedupCycleSurvivor => {
+                if let Some(ref mut state) = self.dedup_merge_state {
+                    state.cycle_survivor();
+                }
+            }
+            Action::DedupRegenKey => self.regen_merge_key(),
+            Action::ApplyMerge => self.apply_merge(),
             Action::EnterCommand => {
                 self.mode = InputMode::Command;
                 self.command_palette_state.clear();
@@ -1101,6 +1138,8 @@ impl App {
                     InputMode::Settings
                 } else if self.detail_state.is_some() {
                     InputMode::Detail
+                } else if self.dedup_review_state.is_some() {
+                    InputMode::DedupReview
                 } else {
                     InputMode::Normal
                 };
@@ -1622,6 +1661,7 @@ impl App {
             ));
         }
         self.mode = InputMode::Detail;
+        self.pending_dup_check = Some(key);
         self.status_message = Some(format!("Added new {} entry", type_name));
     }
 
@@ -2078,6 +2118,7 @@ impl App {
             "wq!" => {
                 self.request_save_with(true, true);
             }
+            "dups" | "duplicates" => self.open_duplicate_review(),
             "settings-export bib" => self.request_library_export(),
             "settings-clear-bib" => self.clear_library_settings(),
             _ if cmd == "settings-export yaml" || cmd.starts_with("settings-export yaml ") => {
@@ -2325,6 +2366,19 @@ impl App {
             }
             Some(PendingAction::DismissMessage) => {
                 // Message popup dismissed — nothing to do; mode already reset above.
+            }
+            Some(PendingAction::DismissMergeReport) => {
+                if self.dedup_review_state.is_some() {
+                    self.mode = InputMode::DedupReview;
+                }
+            }
+            Some(PendingAction::ImportDuplicate {
+                new_key,
+                existing,
+                reasons,
+            }) => {
+                let choice = dialog.as_ref().map(|d| d.selected()).unwrap_or(1);
+                self.resolve_import_duplicate(choice, new_key, existing, reasons);
             }
             Some(PendingAction::AddGroup { .. })
             | Some(PendingAction::RenameGroup { .. })
@@ -2934,3 +2988,6 @@ mod library_tests;
 
 #[cfg(test)]
 mod group_tests;
+
+#[cfg(test)]
+mod dedup_tests;

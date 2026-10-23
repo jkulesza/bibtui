@@ -502,6 +502,46 @@ impl SettingsState {
             });
         }
 
+        // ── Duplicates ──
+        let dup_base = items.len();
+        items.extend([
+            SettingItem {
+                id: "duplicates.title_threshold".into(),
+                label: "title_threshold".into(),
+                description: "Minimum title similarity (0.0–1.0) for entries without a shared DOI/ISBN/eprint/URL to be reported as possible duplicates. Default: 0.9.".into(),
+                value: SettingValue::Str(config.duplicates.title_threshold.to_string()),
+                default: SettingValue::Str(defaults.duplicates.title_threshold.to_string()),
+            },
+            SettingItem {
+                id: "duplicates.require_same_year".into(),
+                label: "require_same_year".into(),
+                description: "A title match also requires the same year (when both entries have one).".into(),
+                value: SettingValue::Bool(config.duplicates.require_same_year),
+                default: SettingValue::Bool(defaults.duplicates.require_same_year),
+            },
+            SettingItem {
+                id: "duplicates.require_same_author".into(),
+                label: "require_same_author".into(),
+                description: "A title match also requires the same first-author surname (when both entries have one).".into(),
+                value: SettingValue::Bool(config.duplicates.require_same_author),
+                default: SettingValue::Bool(defaults.duplicates.require_same_author),
+            },
+            SettingItem {
+                id: "duplicates.check_on_load".into(),
+                label: "check_on_load".into(),
+                description: "Report possible duplicates in the status bar when a file is opened.".into(),
+                value: SettingValue::Bool(config.duplicates.check_on_load),
+                default: SettingValue::Bool(defaults.duplicates.check_on_load),
+            },
+            SettingItem {
+                id: "duplicates.check_on_import".into(),
+                label: "check_on_import".into(),
+                description: "Offer to merge when an imported or newly added entry matches an existing one.".into(),
+                value: SettingValue::Bool(config.duplicates.check_on_import),
+                default: SettingValue::Bool(defaults.duplicates.check_on_import),
+            },
+        ]);
+
         // Item index map:
         //  0  general.backup_on_save       7  save.align_fields
         //  1  general.yank_format          8  save.field_order
@@ -536,6 +576,7 @@ impl SettingsState {
         //  Display (continued):          36  journal_field_content
         //  Save Actions (continued):     37  trim_whitespace
         //                                38+ citekey templates
+        //  Duplicates:                   dup_base.. (after the templates)
         let mut rows: Vec<SettingRow> = vec![
             SettingRow::Section("General"),
             SettingRow::Item(11), // bib_file
@@ -570,6 +611,12 @@ impl SettingsState {
             SettingRow::Item(33), // unicode_to_latex
             SettingRow::Item(34), // abbreviate_journal
             SettingRow::Item(35), // regenerate_citekeys
+            SettingRow::Section("Duplicates"),
+            SettingRow::Item(dup_base),     // title_threshold
+            SettingRow::Item(dup_base + 1), // require_same_year
+            SettingRow::Item(dup_base + 2), // require_same_author
+            SettingRow::Item(dup_base + 3), // check_on_load
+            SettingRow::Item(dup_base + 4), // check_on_import
             SettingRow::Section("Citation"),
             SettingRow::Item(10), // style
             SettingRow::Section("Titlecase"),
@@ -996,6 +1043,33 @@ impl SettingsState {
                         } else {
                             Some(v.trim().to_string())
                         };
+                    }
+                }
+                "duplicates.title_threshold" => {
+                    if let SettingValue::Str(v) = &item.value {
+                        if let Ok(t) = v.trim().parse::<f64>() {
+                            config.duplicates.title_threshold = t.clamp(0.0, 1.0);
+                        }
+                    }
+                }
+                "duplicates.require_same_year" => {
+                    if let SettingValue::Bool(v) = item.value {
+                        config.duplicates.require_same_year = v;
+                    }
+                }
+                "duplicates.require_same_author" => {
+                    if let SettingValue::Bool(v) = item.value {
+                        config.duplicates.require_same_author = v;
+                    }
+                }
+                "duplicates.check_on_load" => {
+                    if let SettingValue::Bool(v) = item.value {
+                        config.duplicates.check_on_load = v;
+                    }
+                }
+                "duplicates.check_on_import" => {
+                    if let SettingValue::Bool(v) = item.value {
+                        config.duplicates.check_on_import = v;
                     }
                 }
                 "display.group_sidebar_width" => {

@@ -112,6 +112,7 @@ fn render_entry_list_help(f: &mut Frame, area: Rect, theme: &Theme) {
             &[
                 ("C", "regenerate all cite keys"),
                 ("M", "name disambiguator"),
+                ("U / :dups", "find & merge duplicates"),
                 ("v", "validate (preview save)"),
                 ("F", "sync all filenames to cite keys"),
             ],

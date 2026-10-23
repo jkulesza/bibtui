@@ -14,6 +14,7 @@ pub struct Config {
     pub theme: ThemeConfig,
     pub titlecase: TitlecaseConfig,
     pub field_groups: Vec<CustomFieldGroup>,
+    pub duplicates: DuplicatesConfig,
     /// Per-mode user-defined keybinding overrides.
     ///
     /// Keys are mode names (`normal`, `detail`, `search`, `editing`,
@@ -55,7 +56,55 @@ impl Config {
             ));
         }
 
+        let threshold = self.duplicates.title_threshold;
+        if !(0.0..=1.0).contains(&threshold) {
+            warnings.push(format!(
+                "duplicates.title_threshold {} is outside 0.0–1.0; clamped",
+                threshold
+            ));
+        }
+
         warnings
+    }
+}
+
+/// Duplicate-entry detection (`U` / `:dups`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DuplicatesConfig {
+    /// Minimum normalized title similarity (0.0–1.0) for two entries without
+    /// a shared identifier to count as possible duplicates.
+    pub title_threshold: f64,
+    /// A title match also requires the same year (when both have one).
+    pub require_same_year: bool,
+    /// A title match also requires the same first-author surname.
+    pub require_same_author: bool,
+    /// Report possible duplicates in the status bar when a file is opened.
+    pub check_on_load: bool,
+    /// Offer to merge when an imported or newly added entry matches one
+    /// already in the library.
+    pub check_on_import: bool,
+}
+
+impl Default for DuplicatesConfig {
+    fn default() -> Self {
+        DuplicatesConfig {
+            title_threshold: 0.9,
+            require_same_year: true,
+            require_same_author: true,
+            check_on_load: true,
+            check_on_import: true,
+        }
+    }
+}
+
+impl DuplicatesConfig {
+    pub fn settings(&self) -> crate::bib::dedup::DedupSettings {
+        crate::bib::dedup::DedupSettings {
+            title_threshold: self.title_threshold,
+            require_same_year: self.require_same_year,
+            require_same_author: self.require_same_author,
+        }
     }
 }
 

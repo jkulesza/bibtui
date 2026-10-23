@@ -727,7 +727,7 @@ impl App {
     }
 
     /// Preserve the raw binding while changing the semantic identity.
-    fn rename_entry_key(&mut self, old: &str, new: &str) -> Option<UndoItem> {
+    pub(super) fn rename_entry_key(&mut self, old: &str, new: &str) -> Option<UndoItem> {
         let original_index = self.database.entries.get_index_of(old)?;
         let mut entry = self.database.entries.shift_remove(old)?;
         let undo = UndoItem::CitekeyChanged {
@@ -747,12 +747,15 @@ impl App {
         if self.detail_entry_key.as_deref() == Some(old) {
             self.detail_entry_key = Some(new.into());
         }
+        if self.pending_dup_check.as_deref() == Some(old) {
+            self.pending_dup_check = Some(new.into());
+        }
         Some(undo)
     }
 
     /// Apply the complete mapping once to original reference values. In
     /// particular A -> B and B -> C must not turn references to A into C.
-    fn update_crossrefs(
+    pub(super) fn update_crossrefs(
         &mut self,
         mapping: &std::collections::HashMap<String, String>,
     ) -> Vec<UndoItem> {

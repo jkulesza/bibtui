@@ -198,6 +198,17 @@ theme:
   search_match: "#ff9e64"
   border_color: "#565f89"
 
+# Duplicate detection (U / :dups).  Entries sharing a DOI, ISBN, eprint, or URL
+# always match; otherwise titles must be at least title_threshold similar
+# (LaTeX, braces, case, and punctuation ignored).  Differing DOIs, ISBNs,
+# eprints, editions, volumes, or report numbers never match.
+duplicates:
+  title_threshold: 0.9      # 0.0–1.0
+  require_same_year: true   # title matches also need the same year (if both have one)
+  require_same_author: true # ...and the same first-author surname
+  check_on_load: true       # status-bar note with the number of clusters on open
+  check_on_import: true     # offer to merge an imported / newly added duplicate
+
 # Custom field groups for the entry detail view.
 # Fields listed here are pulled out of the generic "Other" section and shown
 # under their own named header.  Each field is assigned to the FIRST matching group.
@@ -217,7 +228,7 @@ field_groups:
 # for all keys not listed here.
 #
 # Supported modes:   normal  detail  search  editing  settings  citation_preview
-#                    dialog  command
+#                    dialog  command  name_disambig  dedup_review  dedup_merge
 #
 # Key spec format:
 #   Single char:   "j"  "/"  "A"  (uppercase letter = no extra modifier)

@@ -37,6 +37,7 @@ src/
     groups.rs      — Group CRUD + raw-file sync
     import.rs      — DOI/URL/PDF import + background fetch handling
     completions.rs — Field/sort/path tab completion
+    dedup.rs       — Duplicate review/merge, not-duplicate marks, import check
     tests.rs       — App test module
   bib/
     parser.rs      — Custom recursive-descent BibTeX parser (byte-perfect round-trip)
@@ -46,6 +47,7 @@ src/
     entry_types.rs — Required/optional field definitions per entry type
     jabref.rs      — JabRef group parsing (@Comment blocks)
     normalize.rs   — Field normalization (month, pages)
+    dedup.rs       — Duplicate detection (identifier + fuzzy-title matching, clustering)
   config/          — YAML config loading (serde_yaml)
   tui/
     components/    — Reusable UI widgets (dialogs, editors, lists)
