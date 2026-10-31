@@ -1,5 +1,9 @@
 # Changelog
 
+### 0.66.1
+
+- **Fix: tech report citations follow IEEEtranN** (#62): the citation preview and yanked citations now read `<institution> Tech. Rep. <number>` (e.g. `Los Alamos National Laboratory Tech. Rep. LA-UR-24-28595`) instead of `<institution>, Rep. <number>`. A `type` field replaces the `Tech. Rep.` label, and is shown even when there is no `number`
+
 ### 0.66.0
 
 - **Find and merge duplicate entries**: `U` (or `:dups`) lists clusters of likely duplicates. Entries match on a shared DOI, ISBN (ISBN-10 and ISBN-13 compare equal), eprint, or URL, or on a similar title (similarity ≥ `duplicates.title_threshold`, default 0.9) with the same year and first-author surname. Different DOIs, ISBNs, eprints, editions, volumes, or report numbers mark two entries as distinct works, chapters that share a book's ISBN are not flagged, and URLs shared by many entries are ignored

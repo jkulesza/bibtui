@@ -96,17 +96,23 @@ fn format_ieeetran(entry: &Entry) -> String {
             let mut p: Vec<String> = Vec::new();
             push_authors(&mut p, &authors);
             push_quoted_title(&mut p, &title);
-            push_nonempty(&mut p, field(entry, "institution"));
+            // IEEEtranN style: "<institution> Tech. Rep. <number>", where the
+            // `type` field (if present) replaces the default "Tech. Rep." label.
+            let institution = field(entry, "institution");
             let number = field(entry, "number");
             let report_type = field(entry, "type");
-            if !number.is_empty() {
-                let label = if report_type.is_empty() {
-                    "Rep.".to_string()
-                } else {
-                    report_type
-                };
-                p.push(format!("{} {}", label, number));
-            }
+            let label = match (report_type.is_empty(), number.is_empty()) {
+                (true, true) => String::new(),
+                (true, false) => format!("Tech. Rep. {}", number),
+                (false, true) => report_type,
+                (false, false) => format!("{} {}", report_type, number),
+            };
+            let inst_label = [institution, label]
+                .into_iter()
+                .filter(|s| !s.is_empty())
+                .collect::<Vec<_>>()
+                .join(" ");
+            push_nonempty(&mut p, inst_label);
             push_nonempty(&mut p, year.clone());
             let mut s = p.join(", ");
             push_link(&mut s, entry);
@@ -537,8 +543,11 @@ mod tests {
             ],
         );
         let result = format_citation(&entry, "ieee");
-        assert!(result.contains("Rep. TR-42"), "result: {}", result);
-        assert!(result.contains("MIT"), "result: {}", result);
+        assert!(
+            result.contains(", MIT Tech. Rep. TR-42, 2020"),
+            "result: {}",
+            result
+        );
     }
 
     #[test]
@@ -556,7 +565,49 @@ mod tests {
         );
         let result = format_citation(&entry, "ieee");
         assert!(
-            result.contains("Technical Memorandum 42"),
+            result.contains(", MIT Technical Memorandum 42, 2020"),
+            "result: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_format_techreport_lanl_issue_62() {
+        let entry = make_entry(
+            EntryType::TechReport,
+            &[
+                ("author", "Sokolowsky, S. J. and Kulesza, J. A."),
+                (
+                    "title",
+                    "Nuclear Weapons Effects Nomogram Python Application",
+                ),
+                ("institution", "Los Alamos National Laboratory"),
+                ("number", "LA-UR-24-28595"),
+                ("year", "2024"),
+            ],
+        );
+        let result = format_citation(&entry, "ieee");
+        assert!(
+            result.contains("Los Alamos National Laboratory Tech. Rep. LA-UR-24-28595, 2024"),
+            "result: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_format_techreport_type_without_number() {
+        let entry = make_entry(
+            EntryType::TechReport,
+            &[
+                ("title", "A Report"),
+                ("institution", "MIT"),
+                ("type", "White Paper"),
+                ("year", "2020"),
+            ],
+        );
+        let result = format_citation(&entry, "ieee");
+        assert!(
+            result.contains("MIT White Paper, 2020"),
             "result: {}",
             result
         );
