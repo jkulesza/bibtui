@@ -72,8 +72,12 @@ display:
       width: !Percent 15
 
 citation:
-  # Bibliography style used to format the citation preview popup (Space in the entry list).
-  # Currently supported: IEEEtranN
+  # Bibliography style used for the citation preview popup (Space in the entry list)
+  # and the "formatted" yank. Supported:
+  #   IEEEtranN   — full IEEE reference (default)
+  #   slidefooter — terse author, venue, year for presentation footers, e.g.
+  #                 "Smith et al., Phys. Rev. Lett. 12(3), 2020" or
+  #                 "Sokolowsky and Kulesza, LANL LA-UR-24-28595, 2024"
   style: IEEEtranN
 
 citekey:

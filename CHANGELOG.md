@@ -1,5 +1,14 @@
 # Changelog
 
+### 0.67.0
+
+- **New citation style: `slidefooter`** (#63): a terse author/venue/year format for presentation footers, selectable alongside IEEEtranN as `citation.style` or in the Citation section of `S` settings; used by the `Space` preview and the formatted `yy` yank. Authors are surnames (`A`, `A and B`, `A et al.`; editors marked `(ed.)`/`(eds.)`), followed by:
+  - **Articles**: ISO 4 journal (the `journal_abbrev` field, else the built-in abbreviator with `save.journal_abbreviations` overrides) and `vol(no)`, e.g. `Smith et al., Phys. Rev. Lett. 12(3), 2020`
+  - **Technical reports**: institution acronym and report number, e.g. `Sokolowsky and Kulesza, LANL LA-UR-24-28595, 2024`; without a number, the `type` and a short title
+  - **Books**: short title (`shorttitle`, else the main title before any subtitle, cut after six words) and edition, e.g. `Knuth, The Art of Computer Programming, 3rd ed., 1997`
+  - **Other types**: conference papers use the parenthesized conference acronym (`Proc. HEART`) or the ISO 4 booktitle; theses give degree and school acronym; chapters, collections, manuals, proceedings, unpublished and misc entries use the shortest retrievable title, `howpublished`, or DOI
+- **Settings**: the citation style setting now lists every built-in style, and its description explains each
+
 ### 0.66.2
 
 - **Tests: field editing**: 32 new app-level tests cover field edit/undo, the two-phase new-field flow (with month normalization), field and file-attachment add/edit/delete, title-casing, name normalization, every editor-confirmed prompt (exports, imports, new file, settings field groups and columns, groups), and the vim commands as dispatched by the app. `app/editing.rs` coverage rose from 39% to 94%

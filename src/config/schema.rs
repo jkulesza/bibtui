@@ -363,8 +363,8 @@ impl Default for ThemeConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct CitationConfig {
-    /// Bibliography style used to format the preview.
-    /// Currently supported: IEEEtranN (default).
+    /// Bibliography style used to format the preview and formatted yank.
+    /// Supported: IEEEtranN (default), slidefooter.
     pub style: String,
 }
 

@@ -40,7 +40,7 @@ use crate::tui::screens::main_screen::{render_main_screen, Focus};
 use crate::tui::screens::settings_screen::render_settings_screen;
 use crate::tui::theme::Theme;
 use crate::tui::Term;
-use crate::util::citation::format_citation;
+use crate::util::citation::format_citation_with;
 use crate::util::clipboard::{Clipboard, SystemClipboard};
 use crate::util::export::{export_csl_json, export_ris};
 use crate::util::open::{
@@ -2015,7 +2015,11 @@ impl App {
                 format!("BibTeX entry for '{}'", entry.citation_key),
             ),
             _ => (
-                format_citation(entry, &self.config.citation.style),
+                format_citation_with(
+                    entry,
+                    &self.config.citation.style,
+                    &self.config.save.journal_abbreviations,
+                ),
                 format!("citation for '{}'", entry.citation_key),
             ),
         };
@@ -2077,7 +2081,11 @@ impl App {
             None => return,
         };
         let citation = match self.database.entries.get(&key) {
-            Some(entry) => format_citation(entry, &self.config.citation.style),
+            Some(entry) => format_citation_with(
+                entry,
+                &self.config.citation.style,
+                &self.config.save.journal_abbreviations,
+            ),
             None => return,
         };
         self.citation_preview_state = Some(CitationPreviewState {

@@ -19,7 +19,7 @@ A terminal UI BibTeX manager written in Rust. Designed as a lightweight, keyboar
 - Clipboard yank (`yy`) in configurable format: formatted citation, raw BibTeX, the attached file(s) themselves (paste them into an email as attachments), or citation key. The picker lists the choices you use most first and accepts `f` / `b` / `a` / `c` as shortcuts
 - Per-entry status indicators: `●` unsaved change, `⎘` file attachment, `⎋` DOI/URL
 - Open attached files (`o`) or DOI/URL links (`w`) with OS default applications
-- Citation preview popup (`Space`) with DOI/URL link, formatted in IEEEtranN style
+- Citation preview popup (`Space`) and formatted yank in a selectable style (`citation.style`, also in Settings): **IEEEtranN** (full IEEE reference with DOI/URL link) or **slidefooter** (terse author, venue, and year for presentation footers, e.g. `Smith et al., Phys. Rev. Lett. 12(3), 2020` or `Sokolowsky and Kulesza, LANL LA-UR-24-28595, 2024`)
 - LaTeX markup rendered to Unicode for display (`L` to toggle)
 - Assigned groups shown in the entry detail header alongside the entry type
 - ISO 4 journal abbreviation: the Journal column always shows the abbreviated form; a save action syncs `journal_full` and `journal_abbrev` companion fields
@@ -482,7 +482,7 @@ general:
   yank_format: prompt                     # citation_key | bibtex | formatted | file | prompt
                                           #   citation_key — bare key (e.g. Smith2020)
                                           #   bibtex       — raw @Article{...} block
-                                          #   formatted    — IEEEtranN citation string
+                                          #   formatted    — citation in citation.style
                                           #   file         — the attached file(s), pasteable
                                           #                  as email attachments
                                           #   prompt       — picker dialog each time, most-used
@@ -518,6 +518,9 @@ save:
   save_action_abbreviate_journal: false   # populate journal_abbrev (ISO 4) and journal_full
                                           # companion fields on save; rewrite journal per
                                           # journal_field_content (display/settings)
+
+citation:
+  style: IEEEtranN                       # IEEEtranN | slidefooter (terse, for slide footers)
 
 titlecase:
   ignore_words: [MCNP, OpenMC]           # words kept verbatim by the T title-case command

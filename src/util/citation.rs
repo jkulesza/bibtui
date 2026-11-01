@@ -1,17 +1,39 @@
 //! Citation formatting for the preview popup.
 //!
-//! Currently implements IEEEtranN (IEEE numbered bibliography style).
-//! Add additional styles by matching on `style` in `format_citation()`.
+//! Styles:
+//! - `IEEEtranN` (IEEE numbered bibliography style, the default)
+//! - `slidefooter` (terse author/venue/year for presentation footers; see
+//!   [`slidefooter`])
+//!
+//! Add additional styles by matching on `style` in `format_citation_with()`.
+
+mod slidefooter;
 
 use crate::bib::model::{Entry, EntryType};
 use crate::util::latex::render_latex;
 use crate::util::titlecase::strip_case_braces;
+use indexmap::IndexMap;
+
+/// Built-in style names, as offered in the settings screen.
+pub const STYLES: &[&str] = &["IEEEtranN", "slidefooter"];
 
 /// Format `entry` as a bibliography citation using `style`.
 /// Unrecognised style names fall back to IEEEtranN.
 pub fn format_citation(entry: &Entry, style: &str) -> String {
-    match style.to_lowercase().replace('-', "").as_str() {
-        "ieeetran" | "ieeetrann" | "ieee" | "ieeetranbst" => format_ieeetran(entry),
+    format_citation_with(entry, style, &IndexMap::new())
+}
+
+/// Like [`format_citation`], with user journal-abbreviation overrides
+/// (`save.journal_abbreviations`) for styles that abbreviate journals.
+pub fn format_citation_with(
+    entry: &Entry,
+    style: &str,
+    journal_overrides: &IndexMap<String, String>,
+) -> String {
+    match style.to_lowercase().replace(['-', '_', ' '], "").as_str() {
+        "slidefooter" | "slide" | "footer" => {
+            slidefooter::format_slidefooter(entry, journal_overrides)
+        }
         _ => format_ieeetran(entry),
     }
 }
@@ -528,6 +550,28 @@ mod tests {
         );
         let result = format_citation(&entry, "ieee");
         assert!(result.contains("New York: Press"), "result: {}", result);
+    }
+
+    #[test]
+    fn test_format_citation_dispatches_slidefooter() {
+        let entry = make_entry(
+            EntryType::TechReport,
+            &[
+                ("author", "Smith, Jane"),
+                ("institution", "Los Alamos National Laboratory"),
+                ("number", "LA-UR-1"),
+                ("year", "2020"),
+            ],
+        );
+        let want = "Smith, LANL LA-UR-1, 2020";
+        assert_eq!(format_citation(&entry, "slidefooter"), want);
+        assert_eq!(format_citation(&entry, "Slide-Footer"), want);
+        assert_eq!(format_citation(&entry, "slide_footer"), want);
+        // Unknown names still fall back to IEEEtranN.
+        assert!(format_citation(&entry, "nope").contains("Tech. Rep."));
+        for s in STYLES {
+            assert!(!format_citation(&entry, s).is_empty());
+        }
     }
 
     #[test]

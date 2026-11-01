@@ -251,14 +251,14 @@ impl SettingsState {
             SettingItem {
                 id: "citation.style".into(),
                 label: "style".into(),
-                description: "Citation preview format style shown when pressing Space on an entry. Currently supported: IEEEtranN.".into(),
+                description: "Citation format for the preview (Space) and formatted yank: IEEEtranN (full IEEE reference) or slidefooter (terse author, venue, year for slide footers).".into(),
                 value: {
-                    const OPTS: &[&str] = &["IEEEtranN"];
+                    const OPTS: &[&str] = crate::util::citation::STYLES;
                     let idx = OPTS.iter().position(|&o| o == config.citation.style.as_str()).unwrap_or(0);
                     SettingValue::Choice { options: OPTS, index: idx }
                 },
                 default: {
-                    const OPTS: &[&str] = &["IEEEtranN"];
+                    const OPTS: &[&str] = crate::util::citation::STYLES;
                     let idx = OPTS.iter().position(|&o| o == defaults.citation.style.as_str()).unwrap_or(0);
                     SettingValue::Choice { options: OPTS, index: idx }
                 },
@@ -1636,6 +1636,33 @@ pub fn render_settings(f: &mut Frame, area: Rect, state: &mut SettingsState, the
 mod tests {
     use super::*;
     use crate::config::defaults::default_config;
+
+    // ── Citation style ──
+
+    #[test]
+    fn test_citation_style_offers_slidefooter_and_applies_it() {
+        let mut config = default_config();
+        let mut state = SettingsState::new(&config);
+        let item = state
+            .items
+            .iter_mut()
+            .find(|i| i.id == "citation.style")
+            .unwrap();
+        assert_eq!(item.value.display(), "IEEEtranN");
+        item.value.toggle();
+        assert_eq!(item.value.display(), "slidefooter");
+        state.apply_to_config(&mut config);
+        assert_eq!(config.citation.style, "slidefooter");
+
+        // A config already set to slidefooter opens on that choice.
+        let state = SettingsState::new(&config);
+        let item = state
+            .items
+            .iter()
+            .find(|i| i.id == "citation.style")
+            .unwrap();
+        assert_eq!(item.value.display(), "slidefooter");
+    }
 
     // ── SettingValue ──
 
