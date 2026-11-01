@@ -2991,3 +2991,9 @@ mod group_tests;
 
 #[cfg(test)]
 mod dedup_tests;
+
+#[cfg(test)]
+mod editing_tests;
+
+#[cfg(test)]
+mod completion_tests;

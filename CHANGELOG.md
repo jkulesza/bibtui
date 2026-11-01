@@ -1,5 +1,11 @@
 # Changelog
 
+### 0.66.2
+
+- **Tests: field editing**: 32 new app-level tests cover field edit/undo, the two-phase new-field flow (with month normalization), field and file-attachment add/edit/delete, title-casing, name normalization, every editor-confirmed prompt (exports, imports, new file, settings field groups and columns, groups), and the vim commands as dispatched by the app. `app/editing.rs` coverage rose from 39% to 94%
+- **Tests: tab completion**: 13 new tests cover path completion (single match, no match, common prefix, forward/backward cycling, add-file ordering, `~` handling), field-name and month completions, and value common-prefix completion. `app/completions.rs` coverage rose from 67% to 96%; overall coverage is now 93.9%
+- **CI coverage floor**: the `src/app/editing.rs` minimum in `coverage-baseline.json` is raised from 34% to 90% line coverage (measured 95.2%), so CI fails if the new editing tests are lost
+
 ### 0.66.1
 
 - **Fix: tech report citations follow IEEEtranN** (#62): the citation preview and yanked citations now read `<institution> Tech. Rep. <number>` (e.g. `Los Alamos National Laboratory Tech. Rep. LA-UR-24-28595`) instead of `<institution>, Rep. <number>`. A `type` field replaces the `Tech. Rep.` label, and is shown even when there is no `number`
