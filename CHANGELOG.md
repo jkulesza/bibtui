@@ -1,5 +1,9 @@
 # Changelog
 
+### 0.68.1
+
+- **Security: rustls 0.23.46** (Dependabot #15, #16, #17, #18): updates the TLS library used for DOI/URL import from 0.23.38, fixing unbounded Brotli certificate decompression before authentication, a ServerHello that could downgrade later handshakes to a classical-only X25519 key share, TLS secrets exposed by session `Debug` formatting, and TLS 1.3 handshake messages accepted across encryption levels. Also updates rustls-webpki to 0.103.16.
+
 ### 0.68.0
 
 - **Closing the entry editor focuses the edited entry** (#64): returning to the list now puts the cursor on the entry that was just open, scrolling it into view, including newly added or imported entries and entries that were renamed or re-sorted while editing. If the entry is hidden by the current search or group filter, the selection is unchanged.
