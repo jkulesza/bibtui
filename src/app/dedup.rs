@@ -435,7 +435,7 @@ impl App {
     }
 
     /// Select `key` in the entry list if it is visible.
-    fn select_entry_key(&mut self, key: &str) {
+    pub(super) fn select_entry_key(&mut self, key: &str) {
         let Some(sorted) = self.sorted_keys.iter().position(|k| k == key) else {
             return;
         };

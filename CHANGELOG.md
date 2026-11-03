@@ -1,5 +1,9 @@
 # Changelog
 
+### 0.68.0
+
+- **Closing the entry editor focuses the edited entry** (#64): returning to the list now puts the cursor on the entry that was just open, scrolling it into view, including newly added or imported entries and entries that were renamed or re-sorted while editing. If the entry is hidden by the current search or group filter, the selection is unchanged.
+
 ### 0.67.0
 
 - **New citation style: `slidefooter`** (#63): a terse author/venue/year format for presentation footers, selectable alongside IEEEtranN as `citation.style` or in the Citation section of `S` settings; used by the `Space` preview and the formatted `yy` yank. Authors are surnames (`A`, `A and B`, `A et al.`; editors marked `(ed.)`/`(eds.)`), followed by:

@@ -176,7 +176,7 @@ The detail header shows the entry type and its currently assigned groups.
 | `u` | Undo last change |
 | `/` | Start incremental field search |
 | `n` / `N` | Jump to next / previous search match |
-| `Esc` | Clear active search (first press); close detail (second press) |
+| `Esc` | Clear active search (first press); close detail and return to the list with that entry selected (second press) |
 
 ### Field editor (Editing mode)
 

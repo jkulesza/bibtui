@@ -5494,3 +5494,34 @@ fn attachment_field(paths: &[&std::path::Path]) -> String {
             .collect::<Vec<_>>(),
     )
 }
+
+// ── Closing the editor focuses the edited entry (#64) ──────────────────
+
+#[test]
+fn test_close_detail_selects_renamed_entry() {
+    let (mut app, _tmp) = make_app();
+    // Sorted: Doe2021, Smith2020. Open Smith2020.
+    app.handle_action(Action::MoveDown);
+    app.handle_action(Action::OpenDetail);
+    assert_eq!(app.detail_entry_key.as_deref(), Some("Smith2020"));
+    // Regenerating the key re-sorts the entry to the top of the list.
+    app.handle_action(Action::RegenCitekey);
+    let new_key = app.detail_entry_key.clone().unwrap();
+    assert_ne!(new_key, "Smith2020");
+    app.handle_action(Action::CloseDetail);
+    assert_eq!(app.mode, InputMode::Normal);
+    assert_eq!(app.selected_entry_key().as_deref(), Some(new_key.as_str()));
+}
+
+#[test]
+fn test_close_detail_selects_newly_added_entry() {
+    let (mut app, _tmp) = make_app();
+    app.add_entry_of_type("Misc");
+    let new_key = app.detail_entry_key.clone().unwrap();
+    app.handle_action(Action::CloseDetail);
+    if app.mode == InputMode::Dialog {
+        // A duplicate-check dialog is not expected for an empty entry.
+        panic!("unexpected dialog after closing new entry");
+    }
+    assert_eq!(app.selected_entry_key().as_deref(), Some(new_key.as_str()));
+}

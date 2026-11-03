@@ -1378,8 +1378,13 @@ impl App {
     /// Rebuild sort and all active filters together. Stored offsets never
     /// survive a change to the vector they index. Preserve selection by key.
     fn refresh_view(&mut self) {
+        // While an entry is open in the editor, the list follows that entry
+        // (it may have been renamed, re-sorted, or newly added) so the cursor
+        // lands on it when the editor closes.
         let selected = self
-            .selected_entry_key()
+            .detail_entry_key
+            .clone()
+            .or_else(|| self.selected_entry_key())
             .or_else(|| self.pending_search_selection.clone());
         let old_position = self.entry_list_state.selected();
         // Any refresh other than a pure query change (including one with a
@@ -1589,8 +1594,18 @@ impl App {
     }
 
     fn close_detail(&mut self) {
+        // Flush any pending list refresh while the edited entry is still
+        // known, then put the list cursor on it.
+        if self.view_dirty {
+            self.refresh_view();
+        }
+        if let Some(key) = self.detail_entry_key.take() {
+            self.select_entry_key(&key);
+            if self.search_bar_state.searching {
+                self.pending_search_selection = Some(key);
+            }
+        }
         self.detail_state = None;
-        self.detail_entry_key = None;
         self.field_editor_state = None;
         self.mode = InputMode::Normal;
     }
