@@ -1,7 +1,8 @@
 # Changelog
 
-### Unreleased
+### 0.69.0
 
+- **Help dialog sized to its content**: the `?` help popups (entry list and detail view) widen to show every key and description untruncated when the terminal allows, instead of capping at 100 columns. Each column's key field fits its widest key, so long commands such as `:import <doi/isbn/url>` no longer run into their descriptions, and descriptions within a column line up. In narrow terminals the columns share the space in proportion to their content and only descriptions are truncated.
 - **Search matches highlighted in the entry list**: while a search is active, text in the visible columns that exactly matches the query (case-insensitively) is shown in the `search_match` theme color, including on the selected row. Highlighting is exact, not fuzzy: the query's plain words are highlighted only as the whole phrase (`variance reduction` never highlights `variance` or `reduction` alone), and each `field:` term is highlighted separately in that field's column only. Highlights clear when the search is cleared.
 
 ### 0.68.1

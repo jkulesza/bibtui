@@ -4,6 +4,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+
 use crate::tui::theme::Theme;
 
 #[derive(Clone, Debug)]
@@ -32,31 +34,6 @@ fn popup_area(area: Rect, width: u16, height: u16) -> Rect {
 }
 
 fn render_entry_list_help(f: &mut Frame, area: Rect, theme: &Theme) {
-    let width = (area.width * 9 / 10).clamp(60, 100);
-    let height = (area.height.saturating_sub(2)).max(10);
-    let popup = popup_area(area, width, height);
-
-    f.render_widget(Clear, popup);
-
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(theme.border)
-        .title(" Help — Entry List ")
-        .title_bottom(Line::from(Span::styled(" Any key: close ", theme.label)));
-
-    let inner = block.inner(popup);
-    f.render_widget(block, popup);
-
-    if inner.width < 4 || inner.height < 2 {
-        return;
-    }
-
-    let half = inner.width / 2;
-    let cols = Layout::horizontal([Constraint::Length(half), Constraint::Min(1)]).split(inner);
-
-    let kw = theme.header;
-    let dim = theme.label;
-
     let left_sections: &[(&str, &[(&str, &str)])] = &[(
         "Entry List",
         &[
@@ -127,39 +104,17 @@ fn render_entry_list_help(f: &mut Frame, area: Rect, theme: &Theme) {
         ),
     ];
 
-    f.render_widget(build_column(left_sections, cols[0].width, kw, dim), cols[0]);
-    f.render_widget(
-        build_column(right_sections, cols[1].width, kw, dim),
-        cols[1],
+    render_two_column_help(
+        f,
+        area,
+        theme,
+        " Help — Entry List ",
+        left_sections,
+        right_sections,
     );
 }
 
 fn render_detail_help(f: &mut Frame, area: Rect, theme: &Theme) {
-    let width = (area.width * 9 / 10).clamp(60, 100);
-    let height = (area.height.saturating_sub(2)).max(10);
-    let popup = popup_area(area, width, height);
-
-    f.render_widget(Clear, popup);
-
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(theme.border)
-        .title(" Help — Detail View ")
-        .title_bottom(Line::from(Span::styled(" Any key: close ", theme.label)));
-
-    let inner = block.inner(popup);
-    f.render_widget(block, popup);
-
-    if inner.width < 4 || inner.height < 2 {
-        return;
-    }
-
-    let half = inner.width / 2;
-    let cols = Layout::horizontal([Constraint::Length(half), Constraint::Min(1)]).split(inner);
-
-    let kw = theme.header;
-    let dim = theme.label;
-
     let left_sections: &[(&str, &[(&str, &str)])] = &[(
         "Detail View",
         &[
@@ -219,21 +174,105 @@ fn render_detail_help(f: &mut Frame, area: Rect, theme: &Theme) {
         ),
     ];
 
-    f.render_widget(build_column(left_sections, cols[0].width, kw, dim), cols[0]);
-    f.render_widget(
-        build_column(right_sections, cols[1].width, kw, dim),
-        cols[1],
+    render_two_column_help(
+        f,
+        area,
+        theme,
+        " Help — Detail View ",
+        left_sections,
+        right_sections,
     );
 }
 
+type HelpSections<'a> = [(&'a str, &'a [(&'a str, &'a str)])];
+
+/// Gap between the end of the widest key and the start of its description.
+const KEY_GAP: usize = 2;
+/// Indent before each key.
+const KEY_INDENT: usize = 2;
+
+/// Width of the widest key in `sections`.
+fn key_width(sections: &HelpSections) -> usize {
+    sections
+        .iter()
+        .flat_map(|(_, entries)| entries.iter())
+        .map(|(key, _)| key.width())
+        .max()
+        .unwrap_or(0)
+}
+
+/// Width a column needs to show every key and description untruncated.
+fn column_width(sections: &HelpSections) -> usize {
+    let keys = key_width(sections);
+    sections
+        .iter()
+        .flat_map(|(heading, entries)| {
+            std::iter::once(heading.width()).chain(
+                entries
+                    .iter()
+                    .map(move |(_, desc)| KEY_INDENT + keys + KEY_GAP + desc.width()),
+            )
+        })
+        .max()
+        .unwrap_or(0)
+}
+
+/// Draw a centered two-column help popup. It is as wide as needed to show
+/// both columns untruncated when the terminal allows (and at least 60
+/// columns), and each column's key field fits its widest key so keys never
+/// run into their descriptions.
+fn render_two_column_help(
+    f: &mut Frame,
+    area: Rect,
+    theme: &Theme,
+    title: &str,
+    left: &HelpSections,
+    right: &HelpSections,
+) {
+    let left_need = column_width(left);
+    let right_need = column_width(right);
+    // Two border columns plus one blank column before the right border.
+    let natural = (left_need + KEY_GAP + right_need + 3).min(u16::MAX as usize) as u16;
+    let width = natural.max(60).min(area.width);
+    let height = (area.height.saturating_sub(2)).max(10);
+    let popup = popup_area(area, width, height);
+
+    f.render_widget(Clear, popup);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(theme.border)
+        .title(title.to_string())
+        .title_bottom(Line::from(Span::styled(" Any key: close ", theme.label)));
+
+    let inner = block.inner(popup);
+    f.render_widget(block, popup);
+
+    if inner.width < 4 || inner.height < 2 {
+        return;
+    }
+
+    // Split in proportion to what each column needs, so any truncation in a
+    // narrow terminal is shared fairly.
+    let total = (left_need + KEY_GAP + right_need).max(1);
+    let left_width = ((inner.width as usize * (left_need + KEY_GAP)) / total) as u16;
+    let cols =
+        Layout::horizontal([Constraint::Length(left_width), Constraint::Min(1)]).split(inner);
+
+    let kw = theme.header;
+    let dim = theme.label;
+    f.render_widget(build_column(left, cols[0].width, kw, dim), cols[0]);
+    f.render_widget(build_column(right, cols[1].width, kw, dim), cols[1]);
+}
+
 fn build_column<'a>(
-    sections: &[(&'a str, &[(&'a str, &'a str)])],
+    sections: &HelpSections<'a>,
     col_width: u16,
     kw: ratatui::style::Style,
     dim: ratatui::style::Style,
 ) -> Paragraph<'a> {
-    let key_col = 18usize;
-    let max_desc = (col_width as usize).saturating_sub(key_col + 3);
+    let key_col = key_width(sections);
+    let max_desc = (col_width as usize).saturating_sub(KEY_INDENT + key_col + KEY_GAP);
 
     let bold = kw.add_modifier(Modifier::BOLD);
 
@@ -244,9 +283,22 @@ fn build_column<'a>(
         }
         lines.push(Line::from(Span::styled(*section, bold)));
         for (key, desc) in *entries {
-            let desc_trunc: String = desc.chars().take(max_desc).collect();
+            let mut desc_trunc = String::new();
+            let mut used = 0;
+            for c in desc.chars() {
+                let w = c.width().unwrap_or(0);
+                if used + w > max_desc {
+                    break;
+                }
+                used += w;
+                desc_trunc.push(c);
+            }
+            let pad = key_col.saturating_sub(key.width()) + KEY_GAP;
             lines.push(Line::from(vec![
-                Span::styled(format!("  {:<width$}", key, width = key_col), kw),
+                Span::styled(
+                    format!("{}{}{}", " ".repeat(KEY_INDENT), key, " ".repeat(pad)),
+                    kw,
+                ),
                 Span::styled(desc_trunc, dim),
             ]));
         }
@@ -435,5 +487,68 @@ mod tests {
             &[("k", "a very long description that should be truncated")],
         )];
         let _ = build_column(sections, 10, theme.header, theme.label);
+    }
+
+    fn render_lines(context: HelpContext, width: u16, height: u16) -> Vec<String> {
+        let mut term = make_terminal(width, height);
+        let state = HelpState { context };
+        let theme = default_theme();
+        term.draw(|f| render_help(f, f.area(), &state, &theme))
+            .unwrap();
+        let buffer = term.backend().buffer().clone();
+        (0..height)
+            .map(|y| (0..width).map(|x| buffer[(x, y)].symbol()).collect())
+            .collect()
+    }
+
+    #[test]
+    fn test_wide_terminal_shows_long_keys_and_descriptions_untruncated() {
+        let lines = render_lines(HelpContext::EntryList, 200, 50);
+        let all = lines.join("\n");
+        assert!(
+            all.contains(":import <doi/isbn/url>  import from DOI, ISBN, or URL"),
+            "{all}"
+        );
+        assert!(all.contains(":sort <field>"));
+        assert!(all.contains("sort by field; :sort none = file order"));
+        assert!(all.contains("import entry from DOI, URL, or PDF file"));
+    }
+
+    #[test]
+    fn test_popup_is_only_as_wide_as_needed() {
+        let lines = render_lines(HelpContext::EntryList, 250, 50);
+        let top = lines.iter().find(|line| line.contains("Help")).unwrap();
+        let border = top.trim().chars().count();
+        assert!(
+            border < 200,
+            "popup should not fill a very wide terminal: {border}"
+        );
+    }
+
+    #[test]
+    fn test_narrow_terminal_keys_never_run_into_descriptions() {
+        // Even when descriptions must be truncated, each key is followed by
+        // the gap before its description.
+        let lines = render_lines(HelpContext::EntryList, 90, 50);
+        let row = lines
+            .iter()
+            .find(|line| line.contains(":import <doi/isbn/url>"))
+            .unwrap();
+        let after = row.split(":import <doi/isbn/url>").nth(1).unwrap();
+        assert!(after.starts_with("  "), "{row}");
+    }
+
+    #[test]
+    fn test_key_columns_align_within_each_column() {
+        let lines = render_lines(HelpContext::EntryList, 200, 50);
+        let start = |needle: &str| {
+            let line = lines.iter().find(|l| l.contains(needle)).unwrap();
+            line.chars().count() - line.split(needle).nth(1).unwrap().chars().count()
+        };
+        // Descriptions in the commands column all start at the same column.
+        assert_eq!(
+            start("force quit") - "force quit".len(),
+            start("import from DOI") - "import from DOI".len()
+        );
     }
 }
