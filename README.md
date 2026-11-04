@@ -145,6 +145,12 @@ Search syntax:
 - Unknown qualifiers search custom fields; `key`/`citekey`/`citation_key` and
   `type`/`entrytype` are aliases; URLs and DOIs containing colons are literal text
 
+While a search is active, text in the results that exactly matches it
+(case-insensitively) is highlighted in the `search_match` theme color. The plain
+words of the query are highlighted only as one whole phrase (`variance reduction`
+highlights "variance reduction", not either word alone); each `field:` term is
+highlighted separately, in that field's column only.
+
 Search combines with the selected group (both filters apply). In libraries of more
 than 500 entries, searches run in the background: the search bar shows
 `searching…` and the current results stay visible until the new ones arrive.

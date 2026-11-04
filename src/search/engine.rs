@@ -135,6 +135,46 @@ impl CompiledQuery {
     }
 }
 
+/// A search term to highlight in displayed results: its literal text, and
+/// the field it is restricted to when the query qualified it (`title:foo`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HighlightTerm {
+    pub field: Option<String>,
+    pub text: String,
+}
+
+/// The literal text to highlight in the results for `query` (matched
+/// case-insensitively). Highlighting is exact, not fuzzy: the query's
+/// unqualified words are highlighted only as the whole phrase they form
+/// together (`variance reduction` highlights "variance reduction", never
+/// "variance" or "reduction" alone). Each `field:` term is its own phrase,
+/// restricted to that field.
+pub fn highlight_terms(query: &str) -> Vec<HighlightTerm> {
+    let mut phrase: Vec<String> = Vec::new();
+    let mut qualified: Vec<HighlightTerm> = Vec::new();
+    for term in parse_query(query) {
+        if term.text.is_empty() {
+            continue;
+        }
+        match term.field {
+            None => phrase.push(term.text),
+            Some(field) => qualified.push(HighlightTerm {
+                field: Some(field),
+                text: term.text,
+            }),
+        }
+    }
+    let mut terms = Vec::with_capacity(qualified.len() + 1);
+    if !phrase.is_empty() {
+        terms.push(HighlightTerm {
+            field: None,
+            text: phrase.join(" "),
+        });
+    }
+    terms.extend(qualified);
+    terms
+}
+
 #[derive(Debug, PartialEq, Eq)]
 struct QueryTerm {
     field: Option<String>,
@@ -225,6 +265,40 @@ mod tests {
     use super::*;
     use crate::bib::model::{Entry, EntryType};
     use indexmap::IndexMap;
+
+    #[test]
+    fn test_highlight_terms_joins_unqualified_words_into_one_phrase() {
+        assert_eq!(
+            highlight_terms("variance  reduction"),
+            vec![HighlightTerm {
+                field: None,
+                text: "variance reduction".into()
+            }]
+        );
+    }
+
+    #[test]
+    fn test_highlight_terms_keeps_qualified_terms_separate() {
+        assert_eq!(
+            highlight_terms(r#"monte title:"type systems" carlo year:2020"#),
+            vec![
+                HighlightTerm {
+                    field: None,
+                    text: "monte carlo".into()
+                },
+                HighlightTerm {
+                    field: Some("title".into()),
+                    text: "type systems".into()
+                },
+                HighlightTerm {
+                    field: Some("year".into()),
+                    text: "2020".into()
+                },
+            ]
+        );
+        assert!(highlight_terms("").is_empty());
+        assert!(highlight_terms("title:").is_empty());
+    }
 
     fn make_entry(key: &str, fields: &[(&str, &str)]) -> Entry {
         let mut f = IndexMap::new();

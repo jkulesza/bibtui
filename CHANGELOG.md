@@ -1,5 +1,9 @@
 # Changelog
 
+### Unreleased
+
+- **Search matches highlighted in the entry list**: while a search is active, text in the visible columns that exactly matches the query (case-insensitively) is shown in the `search_match` theme color, including on the selected row. Highlighting is exact, not fuzzy: the query's plain words are highlighted only as the whole phrase (`variance reduction` never highlights `variance` or `reduction` alone), and each `field:` term is highlighted separately in that field's column only. Highlights clear when the search is cleared.
+
 ### 0.68.1
 
 - **Security: rustls 0.23.46** (Dependabot #15, #16, #17, #18): updates the TLS library used for DOI/URL import from 0.23.38, fixing unbounded Brotli certificate decompression before authentication, a ServerHello that could downgrade later handshakes to a classical-only X25519 key share, TLS secrets exposed by session `Debug` formatting, and TLS 1.3 handshake messages accepted across encryption levels. Also updates rustls-webpki to 0.103.16.

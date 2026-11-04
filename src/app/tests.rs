@@ -5525,3 +5525,128 @@ fn test_close_detail_selects_newly_added_entry() {
     }
     assert_eq!(app.selected_entry_key().as_deref(), Some(new_key.as_str()));
 }
+
+// ── Search-term highlighting in the entry list ──────────────────────────
+
+/// Render the app and return each buffer cell's (symbol, fg color) by row.
+fn render_cells(
+    app: &mut App,
+    width: u16,
+    height: u16,
+) -> Vec<Vec<(String, ratatui::style::Color)>> {
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+    terminal.draw(|f| app.render(f)).unwrap();
+    let buffer = terminal.backend().buffer().clone();
+    (0..height)
+        .map(|y| {
+            (0..width)
+                .map(|x| {
+                    let cell = &buffer[(x, y)];
+                    (cell.symbol().to_string(), cell.fg)
+                })
+                .collect()
+        })
+        .collect()
+}
+
+/// Colors of the cells spelling `needle` on the first row containing it,
+/// starting at column `skip` or later.
+fn colors_of(
+    rows: &[Vec<(String, ratatui::style::Color)>],
+    needle: &str,
+    skip: usize,
+) -> Option<Vec<ratatui::style::Color>> {
+    let needle: Vec<String> = needle.chars().map(|c| c.to_string()).collect();
+    for row in rows {
+        for start in skip..row.len().saturating_sub(needle.len()) {
+            if row[start..start + needle.len()]
+                .iter()
+                .zip(&needle)
+                .all(|((symbol, _), want)| symbol == want)
+            {
+                return Some(
+                    row[start..start + needle.len()]
+                        .iter()
+                        .map(|(_, fg)| *fg)
+                        .collect(),
+                );
+            }
+        }
+    }
+    None
+}
+
+fn search_for(app: &mut App, query: &str) {
+    app.handle_action(Action::EnterSearch);
+    for c in query.chars() {
+        app.handle_action(Action::SearchChar(c));
+    }
+    app.handle_action(Action::ConfirmSearch);
+}
+
+#[test]
+fn test_search_highlights_matching_text_on_selected_row() {
+    let (mut app, _tmp) = make_app();
+    app.show_groups = false;
+    search_for(&mut app, "rust");
+    assert_eq!(app.selected_entry_key().as_deref(), Some("Doe2021"));
+    let rows = render_cells(&mut app, 140, 12);
+    let match_fg = app.theme.search_match.fg.unwrap();
+    let selected_fg = app.theme.selected.fg.unwrap();
+    assert_eq!(colors_of(&rows, "Rust", 0), Some(vec![match_fg; 4]));
+    // The rest of the selected row keeps the selection color.
+    assert_eq!(
+        colors_of(&rows, " Programming", 0),
+        Some(vec![selected_fg; 12])
+    );
+}
+
+#[test]
+fn test_search_highlight_is_case_insensitive_and_cleared_on_exit() {
+    let (mut app, _tmp) = make_app();
+    app.show_groups = false;
+    search_for(&mut app, "PROGRAM");
+    let match_fg = app.theme.search_match.fg.unwrap();
+    let rows = render_cells(&mut app, 140, 12);
+    assert_eq!(colors_of(&rows, "Program", 0), Some(vec![match_fg; 7]));
+    app.handle_action(Action::EnterSearch);
+    app.handle_action(Action::ExitSearch);
+    let rows = render_cells(&mut app, 140, 12);
+    let colors = colors_of(&rows, "Program", 0).unwrap();
+    assert!(colors.iter().all(|fg| *fg != match_fg));
+}
+
+#[test]
+fn test_field_qualified_search_highlights_only_that_column() {
+    let (mut app, _tmp) = make_app();
+    app.show_groups = false;
+    search_for(&mut app, "author:doe");
+    let match_fg = app.theme.search_match.fg.unwrap();
+    let rows = render_cells(&mut app, 140, 12);
+    // Author column ("Doe, Jane" or abbreviated "Doe") is highlighted ...
+    assert_eq!(colors_of(&rows, "Doe", 0), Some(vec![match_fg; 3]));
+    // ... but the citation key "Doe2021" is not.
+    let key = colors_of(&rows, "Doe2021", 0).unwrap();
+    assert!(key.iter().all(|fg| *fg != match_fg));
+}
+
+#[test]
+fn test_multi_word_search_highlights_only_the_whole_phrase() {
+    let (mut app, _tmp) = make_app();
+    app.show_groups = false;
+    search_for(&mut app, "rust programming");
+    let match_fg = app.theme.search_match.fg.unwrap();
+    let rows = render_cells(&mut app, 140, 12);
+    assert_eq!(
+        colors_of(&rows, "Rust Programming", 0),
+        Some(vec![match_fg; 16])
+    );
+
+    // Words that only match separately are not highlighted.
+    search_for(&mut app, "programming rust");
+    let rows = render_cells(&mut app, 140, 12);
+    let colors = colors_of(&rows, "Rust Programming", 0).unwrap();
+    assert!(colors.iter().all(|fg| *fg != match_fg));
+}

@@ -40,6 +40,9 @@ pub fn render_main_screen(f: &mut Frame, app: &mut App) {
         app.database.jabref_meta.file_directory.as_deref(),
     );
 
+    // Highlight literal occurrences of the search terms in the results.
+    let highlights = crate::search::engine::highlight_terms(&app.search_bar_state.query);
+
     // Show the active sort field as an extra column on the right when it
     // isn't already one of the configured columns, so the sort is visually
     // confirmable. Derived fresh each frame, so it hides itself as soon as
@@ -83,6 +86,7 @@ pub fn render_main_screen(f: &mut Frame, app: &mut App) {
             app.config.display.abbreviate_authors,
             true, // Journal column always shows abbreviated form
             &bib_dir,
+            &highlights,
         );
     } else {
         crate::tui::components::entry_list::render_entry_list_window(
@@ -98,6 +102,7 @@ pub fn render_main_screen(f: &mut Frame, app: &mut App) {
             app.config.display.abbreviate_authors,
             true, // Journal column always shows abbreviated form
             &bib_dir,
+            &highlights,
         );
     }
 
