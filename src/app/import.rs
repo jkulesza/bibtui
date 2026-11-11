@@ -2,7 +2,114 @@
 
 use super::*;
 
+/// Fields a DOI lookup searches with (title, author, year) or may change
+/// (doi, url).
+const DOI_LOOKUP_FIELDS: [&str; 5] = ["title", "author", "year", "doi", "url"];
+
+/// The entry a background DOI lookup was started for, as it was then.
+///
+/// Entries have no identity beyond their citation key, so a result is
+/// applied only when the entry under the same key still has exactly these
+/// field values. A renamed, deleted or edited entry, or a different entry
+/// that later took the key, gets nothing, so a late answer can never
+/// overwrite newer data.
+#[derive(Debug, Clone)]
+pub(super) struct DoiLookup {
+    pub(super) entry_key: String,
+    fields: Vec<(&'static str, Option<String>)>,
+}
+
+impl DoiLookup {
+    pub(super) fn of(entry: &Entry) -> Self {
+        Self {
+            entry_key: entry.citation_key.clone(),
+            fields: DOI_LOOKUP_FIELDS
+                .iter()
+                .map(|&f| (f, entry.fields.get(f).cloned()))
+                .collect(),
+        }
+    }
+
+    /// The first looked-up field whose value has changed since the lookup.
+    fn changed_field(&self, entry: &Entry) -> Option<&'static str> {
+        self.fields
+            .iter()
+            .find(|(f, old)| entry.fields.get(*f) != old.as_ref())
+            .map(|(f, _)| *f)
+    }
+}
+
 impl App {
+    /// Whether the user is between interactions: in the entry list or an
+    /// entry's detail view with no editor, prompt or dialog open. Finished
+    /// background work is applied only then, so it never replaces a draft,
+    /// a pending confirmation, or the target of an open dialog.
+    pub(super) fn is_idle_for_background(&self) -> bool {
+        matches!(self.mode, InputMode::Normal | InputMode::Detail)
+            && self.field_editor_state.is_none()
+            && self.dialog_state.is_none()
+            && self.settings_state.is_none()
+    }
+
+    /// Collect finished background imports and DOI lookups, and apply them
+    /// once [`is_idle_for_background`](Self::is_idle_for_background).
+    /// Returns whether anything visible changed.
+    pub(super) fn poll_background_tasks(&mut self) -> bool {
+        let mut changed = false;
+        if let Some(rx) = &self.pending_import {
+            match rx.try_recv() {
+                Ok(result) => {
+                    self.pending_import = None;
+                    self.finished_import = Some(result);
+                }
+                Err(mpsc::TryRecvError::Empty) => {
+                    // Still working. The "Fetching…" status was already drawn
+                    // when the fetch started, so avoid a full redraw on every
+                    // 100 ms poll tick; wait for completion or a real event.
+                }
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    self.pending_import = None;
+                    self.status_message =
+                        Some("Import failed: fetcher thread disconnected".to_string());
+                    changed = true;
+                }
+            }
+        }
+        if let Some((_, rx)) = &self.pending_doi_fetch {
+            match rx.try_recv() {
+                Ok(result) => {
+                    if let Some((lookup, _)) = self.pending_doi_fetch.take() {
+                        self.finished_doi_fetch = Some((lookup, result));
+                    }
+                }
+                Err(mpsc::TryRecvError::Empty) => {
+                    // Still working; see above.
+                }
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    self.pending_doi_fetch = None;
+                    self.status_message =
+                        Some("DOI lookup failed: thread disconnected".to_string());
+                    changed = true;
+                }
+            }
+        }
+        // Showing an import can itself open a dialog (a duplicate offer), so
+        // check again before applying a DOI result.
+        if self.is_idle_for_background() {
+            if let Some(result) = self.finished_import.take() {
+                self.handle_import_result(result);
+                changed = true;
+            }
+        }
+        if self.is_idle_for_background() {
+            if let Some((lookup, result)) = self.finished_doi_fetch.take() {
+                self.handle_doi_fetch_result(lookup, result);
+                changed = true;
+            }
+        }
+        changed
+    }
+
     /// Open a field-editor prompt asking the user to enter a DOI, URL, or local PDF path.
     pub(super) fn start_import_entry(&mut self) {
         self.field_editor_state = Some(
@@ -17,7 +124,7 @@ impl App {
 
     /// Spawn a background thread to fetch the entry, storing the receiver for polling.
     pub(super) fn spawn_import(&mut self, doi_or_url: String) {
-        if self.pending_import.is_some() {
+        if self.pending_import.is_some() || self.finished_import.is_some() {
             self.status_message = Some("Import already in progress — please wait".to_string());
             return;
         }
@@ -211,7 +318,7 @@ impl App {
             }
         };
 
-        if self.pending_doi_fetch.is_some() {
+        if self.pending_doi_fetch.is_some() || self.finished_doi_fetch.is_some() {
             self.status_message = Some("DOI lookup already in progress".to_string());
             return;
         }
@@ -221,6 +328,7 @@ impl App {
             None => return,
         };
 
+        let lookup = DoiLookup::of(entry);
         let title = entry.fields.get("title").cloned().unwrap_or_default();
         let author = entry.fields.get("author").cloned().unwrap_or_default();
         let year = entry.fields.get("year").cloned().unwrap_or_default();
@@ -237,72 +345,89 @@ impl App {
             let _ = tx.send(result);
         });
 
-        self.pending_doi_fetch = Some((entry_key, rx));
+        self.pending_doi_fetch = Some((lookup, rx));
         self.status_message = Some("Searching for DOI…".to_string());
     }
 
-    /// Apply the result of a metadata→DOI lookup to the entry.
+    /// Apply the result of a metadata→DOI lookup to the entry it was
+    /// started for, provided that entry is unchanged (see [`DoiLookup`]).
+    /// The DOI and URL changes form one undo step.
     pub(super) fn handle_doi_fetch_result(
         &mut self,
-        entry_key: String,
+        lookup: DoiLookup,
         result: Result<(String, String), String>,
     ) {
-        match result {
-            Ok((doi, url)) => {
-                let mut changed = false;
-
-                // Only set url if it carries information beyond the DOI itself
-                // (Crossref often returns https://doi.org/<doi> as the URL, which is redundant).
-                let url_is_distinct = !url.is_empty()
-                    && crate::util::import::crossref::CrossrefFetcher::extract_doi(&url)
-                        .is_none_or(|extracted| extracted != doi);
-                let effective_url = if url_is_distinct { url.as_str() } else { "" };
-
-                // Update doi and url fields, recording undo for each changed field.
-                for (field, new_val) in [("doi", doi.as_str()), ("url", effective_url)] {
-                    if new_val.is_empty() {
-                        continue;
-                    }
-                    let old = self
-                        .database
-                        .entries
-                        .get(&entry_key)
-                        .and_then(|e| e.fields.get(field).cloned());
-                    if old.as_deref() == Some(new_val) {
-                        continue; // No change
-                    }
-                    self.push_undo(UndoItem::FieldChanged {
-                        entry_key: entry_key.clone(),
-                        field_name: field.to_string(),
-                        old_value: old,
-                    });
-                    if let Some(entry) = self.database.entries.get_mut(&entry_key) {
-                        entry.fields.insert(field.to_string(), new_val.to_string());
-                        entry.dirty = true;
-                    }
-                    changed = true;
-                }
-
-                if changed {
-                    // Refresh the detail view if this entry is still open
-                    if self.detail_entry_key.as_deref() == Some(entry_key.as_str()) {
-                        if let Some(entry) = self.database.entries.get(&entry_key) {
-                            let entry_clone = entry.clone();
-                            if let Some(ref mut detail) = self.detail_state {
-                                detail.refresh(&entry_clone);
-                            }
-                        }
-                    }
-                    self.dirty = true;
-                    self.refresh_view();
-                    self.status_message = Some(format!("Found DOI: {}", doi));
-                } else {
-                    self.status_message = Some(format!("DOI already up-to-date: {}", doi));
-                }
-            }
+        let (doi, url) = match result {
+            Ok(found) => found,
             Err(e) => {
                 self.status_message = Some(format!("DOI lookup failed: {}", e));
+                return;
+            }
+        };
+        let entry_key = lookup.entry_key.clone();
+        let Some(entry) = self.database.entries.get(&entry_key) else {
+            self.status_message = Some(format!(
+                "DOI lookup result not applied: '{entry_key}' was renamed or deleted during the lookup (found {doi})"
+            ));
+            return;
+        };
+        if let Some(field) = lookup.changed_field(entry) {
+            self.status_message = Some(format!(
+                "DOI lookup result not applied: the {field} of '{entry_key}' changed during the lookup (found {doi})"
+            ));
+            return;
+        }
+
+        // Only set url if it carries information beyond the DOI itself
+        // (Crossref often returns https://doi.org/<doi> as the URL, which is redundant).
+        let url_is_distinct = !url.is_empty()
+            && crate::util::import::crossref::CrossrefFetcher::extract_doi(&url)
+                .is_none_or(|extracted| extracted != doi);
+        let effective_url = if url_is_distinct { url.as_str() } else { "" };
+
+        let changes: Vec<(&str, &str, Option<String>)> =
+            [("doi", doi.as_str()), ("url", effective_url)]
+                .into_iter()
+                .filter(|(_, new_val)| !new_val.is_empty())
+                .filter_map(|(field, new_val)| {
+                    let old = entry.fields.get(field).cloned();
+                    (old.as_deref() != Some(new_val)).then_some((field, new_val, old))
+                })
+                .collect();
+        if changes.is_empty() {
+            self.status_message = Some(format!("DOI already up-to-date: {}", doi));
+            return;
+        }
+
+        let mut undo = Vec::with_capacity(changes.len());
+        if let Some(entry) = self.database.entries.get_mut(&entry_key) {
+            for (field, new_val, old_value) in changes {
+                entry.fields.insert(field.to_string(), new_val.to_string());
+                undo.push(UndoItem::FieldChanged {
+                    entry_key: entry_key.clone(),
+                    field_name: field.to_string(),
+                    old_value,
+                });
+            }
+            entry.dirty = true;
+        }
+        self.push_undo(if undo.len() == 1 {
+            undo.remove(0)
+        } else {
+            UndoItem::Batch(undo)
+        });
+
+        // Refresh the detail view if this entry is still open
+        if self.detail_entry_key.as_deref() == Some(entry_key.as_str()) {
+            if let Some(entry) = self.database.entries.get(&entry_key) {
+                let entry_clone = entry.clone();
+                if let Some(ref mut detail) = self.detail_state {
+                    detail.refresh(&entry_clone);
+                }
             }
         }
+        self.dirty = true;
+        self.refresh_view();
+        self.status_message = Some(format!("Found DOI: {}", doi));
     }
 }

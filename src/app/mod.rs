@@ -66,7 +66,9 @@ use completions::*;
 use save::*;
 
 /// Channel for a background DOI-from-metadata lookup: Ok((doi, url)) or an error message.
-type DoiFetchReceiver = mpsc::Receiver<Result<(String, String), String>>;
+/// A metadata→DOI lookup's answer: (doi, url) or an error message.
+type DoiFetchResult = Result<(String, String), String>;
+type DoiFetchReceiver = mpsc::Receiver<DoiFetchResult>;
 
 pub struct App {
     pub database: Database,
@@ -145,8 +147,14 @@ pub struct App {
     // Import
     /// Receives the result of a background DOI/URL import fetch.
     pending_import: Option<mpsc::Receiver<crate::util::import::ImportResult>>,
-    /// Background DOI-from-metadata lookup: (entry_key, receiver of (doi, url) or error).
-    pending_doi_fetch: Option<(String, DoiFetchReceiver)>,
+    /// A finished import waiting for the current interaction (an open
+    /// editor, dialog, prompt, ...) to end before it is shown.
+    finished_import: Option<crate::util::import::ImportResult>,
+    /// Background DOI-from-metadata lookup: the entry it was started for,
+    /// and the receiver of (doi, url) or an error.
+    pending_doi_fetch: Option<(import::DoiLookup, DoiFetchReceiver)>,
+    /// A finished DOI lookup waiting, like `finished_import`, to be applied.
+    finished_doi_fetch: Option<(import::DoiLookup, DoiFetchResult)>,
 
     /// Compiled user keybinding overrides from config.  Checked before
     /// built-in defaults in `handle_key`.
@@ -332,7 +340,9 @@ impl App {
             undo_stack: Vec::new(),
             save_generation: Some(0),
             pending_import: None,
+            finished_import: None,
             pending_doi_fetch: None,
+            finished_doi_fetch: None,
             user_bindings,
         };
         app.report_duplicates_on_load();
@@ -423,7 +433,9 @@ impl App {
             undo_stack: Vec::new(),
             save_generation: Some(0),
             pending_import: None,
+            finished_import: None,
             pending_doi_fetch: None,
+            finished_doi_fetch: None,
             user_bindings,
         };
 
@@ -445,48 +457,8 @@ impl App {
             if self.poll_search() {
                 needs_redraw = true;
             }
-            // Poll background import task
-            if self.pending_import.is_some() {
-                match self.pending_import.as_ref().unwrap().try_recv() {
-                    Ok(result) => {
-                        self.pending_import = None;
-                        self.handle_import_result(result);
-                        needs_redraw = true;
-                    }
-                    Err(mpsc::TryRecvError::Empty) => {
-                        // Still working. The "Fetching…" status was already drawn
-                        // when the fetch started, so avoid a full redraw on every
-                        // 100 ms poll tick; wait for completion or a real event.
-                    }
-                    Err(mpsc::TryRecvError::Disconnected) => {
-                        self.pending_import = None;
-                        self.status_message =
-                            Some("Import failed: fetcher thread disconnected".to_string());
-                        needs_redraw = true;
-                    }
-                }
-            }
-            // Poll background DOI-from-metadata lookup
-            if self.pending_doi_fetch.is_some() {
-                let result = self.pending_doi_fetch.as_ref().unwrap().1.try_recv();
-                match result {
-                    Ok(fetch_result) => {
-                        let entry_key = self.pending_doi_fetch.take().unwrap().0;
-                        self.handle_doi_fetch_result(entry_key, fetch_result);
-                        needs_redraw = true;
-                    }
-                    Err(mpsc::TryRecvError::Empty) => {
-                        // Still working; the "Searching for DOI…" status was
-                        // already drawn when the fetch started. Skip the per-tick
-                        // redraw and wait for completion or a real event.
-                    }
-                    Err(mpsc::TryRecvError::Disconnected) => {
-                        self.pending_doi_fetch = None;
-                        self.status_message =
-                            Some("DOI lookup failed: thread disconnected".to_string());
-                        needs_redraw = true;
-                    }
-                }
+            if self.poll_background_tasks() {
+                needs_redraw = true;
             }
         }
         Ok(())

@@ -1844,3 +1844,341 @@ fn manual_sync_renames_once_the_file_is_no_longer_shared() {
     );
     assert!(dir.path().join("A.pdf").exists());
 }
+
+// ── N07/N08: background DOI lookups and imports ──────────────────────────
+
+const BACKGROUND_BIB: &str =
+    "@Article{A, title={First Study}, author={Smith, Ann}, year={2020}, note={n}}\n\
+@Article{B, title={Second Study}, author={Jones, Bob}, year={2021}}\n";
+
+/// Start a DOI lookup for `key` whose answer the test controls.
+fn start_doi_lookup(
+    app: &mut App,
+    key: &str,
+) -> std::sync::mpsc::Sender<Result<(String, String), String>> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let lookup = super::import::DoiLookup::of(&app.database.entries[key]);
+    app.pending_doi_fetch = Some((lookup, rx));
+    tx
+}
+
+/// Finish a background import with `result` and poll once.
+fn finish_import(app: &mut App, result: crate::util::import::ImportResult) {
+    let (tx, rx) = std::sync::mpsc::channel();
+    tx.send(result).unwrap();
+    app.pending_import = Some(rx);
+    app.poll_background_tasks();
+}
+
+fn background_import() -> crate::util::import::ImportResult {
+    let mut fields = IndexMap::new();
+    fields.insert("title".to_string(), "imported work".to_string());
+    fields.insert("author".to_string(), "Lee, Cy".to_string());
+    fields.insert("year".to_string(), "2024".to_string());
+    Ok(crate::util::import::ImportedEntry::new("article", fields))
+}
+
+fn background_import_error() -> crate::util::import::ImportResult {
+    Err(crate::util::import::ImportError::Network(
+        "timed out".into(),
+    ))
+}
+
+fn field(app: &App, key: &str, name: &str) -> Option<String> {
+    app.database.entries[key].fields.get(name).cloned()
+}
+
+fn status(app: &App) -> &str {
+    app.status_message.as_deref().unwrap_or("")
+}
+
+/// Confirming an edit regenerates a key that does not match the template,
+/// so tests that commit an edit first give every entry its template key.
+fn background_app_with_template_keys() -> (App, tempfile::TempDir) {
+    let (mut app, dir) = review_app(BACKGROUND_BIB);
+    app.regen_all_citekeys_impl(false);
+    (app, dir)
+}
+
+fn key_with_title(app: &App, title: &str) -> String {
+    app.database
+        .entries
+        .values()
+        .find(|e| e.fields.get("title").map(String::as_str) == Some(title))
+        .unwrap()
+        .citation_key
+        .clone()
+}
+
+/// Open `key`'s detail view and start editing `name` with draft `draft`.
+fn edit_draft(app: &mut App, key: &str, name: &str, draft: &str) {
+    use crate::tui::components::entry_detail::DisplayItem;
+    select_entry(app, key);
+    app.handle_action(Action::OpenDetail);
+    let detail = app.detail_state.as_mut().unwrap();
+    let idx = detail
+        .display_fields
+        .iter()
+        .position(|d| matches!(d, DisplayItem::Field { name: n, .. } if n == name))
+        .unwrap();
+    detail.select(idx);
+    app.handle_action(Action::EditField);
+    assert_eq!(app.mode, InputMode::Editing);
+    let editor = app.field_editor_state.as_mut().unwrap();
+    editor.value = draft.to_string();
+    editor.cursor = draft.len();
+}
+
+#[test]
+fn doi_result_applies_to_unchanged_entry_as_one_undo_step() {
+    let (mut app, _dir) = review_app(BACKGROUND_BIB);
+    let tx = start_doi_lookup(&mut app, "A");
+    let depth = app.undo_stack.len();
+    tx.send(Ok((
+        "10.1000/found".into(),
+        "https://publisher.example/a".into(),
+    )))
+    .unwrap();
+    assert!(app.poll_background_tasks());
+    assert_eq!(field(&app, "A", "doi").as_deref(), Some("10.1000/found"));
+    assert_eq!(
+        field(&app, "A", "url").as_deref(),
+        Some("https://publisher.example/a")
+    );
+    assert_eq!(status(&app), "Found DOI: 10.1000/found");
+    assert_eq!(app.undo_stack.len(), depth + 1, "one undo step");
+
+    app.handle_action(Action::Undo);
+    assert_eq!(field(&app, "A", "doi"), None);
+    assert_eq!(field(&app, "A", "url"), None);
+}
+
+#[test]
+fn doi_result_never_overwrites_a_manual_doi() {
+    let (mut app, _dir) = review_app(BACKGROUND_BIB);
+    let tx = start_doi_lookup(&mut app, "A");
+    review_edit(&mut app, "A", "doi", "10.1000/manual");
+    let depth = app.undo_stack.len();
+    tx.send(Ok(("10.1000/stale".into(), String::new())))
+        .unwrap();
+    app.poll_background_tasks();
+    assert_eq!(field(&app, "A", "doi").as_deref(), Some("10.1000/manual"));
+    assert_eq!(app.undo_stack.len(), depth);
+    assert!(status(&app).contains("not applied"), "{}", status(&app));
+    assert!(
+        status(&app).contains("doi of 'A' changed"),
+        "{}",
+        status(&app)
+    );
+    assert!(
+        status(&app).contains("found 10.1000/stale"),
+        "{}",
+        status(&app)
+    );
+}
+
+#[test]
+fn doi_result_discarded_after_title_or_author_change() {
+    for (name, value) in [("title", "Revised Study"), ("author", "Smith, Anne")] {
+        let (mut app, _dir) = review_app(BACKGROUND_BIB);
+        let tx = start_doi_lookup(&mut app, "A");
+        review_edit(&mut app, "A", name, value);
+        tx.send(Ok(("10.1000/stale".into(), String::new())))
+            .unwrap();
+        app.poll_background_tasks();
+        assert_eq!(field(&app, "A", "doi"), None, "{name}");
+        assert!(
+            status(&app).contains(&format!("the {name} of 'A' changed")),
+            "{}",
+            status(&app)
+        );
+    }
+}
+
+#[test]
+fn doi_result_discarded_after_key_change_deletion_or_key_reuse() {
+    // Key regenerated: the entry now lives under another key.
+    let (mut app, _dir) = review_app(BACKGROUND_BIB);
+    let tx = start_doi_lookup(&mut app, "A");
+    let mut entry = app.database.entries.shift_remove("A").unwrap();
+    entry.citation_key = "Smith2020".into();
+    app.database.entries.insert("Smith2020".into(), entry);
+    let depth = app.undo_stack.len();
+    tx.send(Ok(("10.1000/x".into(), String::new()))).unwrap();
+    app.poll_background_tasks();
+    assert_eq!(field(&app, "Smith2020", "doi"), None);
+    assert_eq!(app.undo_stack.len(), depth);
+    assert!(
+        status(&app).contains("'A' was renamed or deleted"),
+        "{}",
+        status(&app)
+    );
+
+    // Deleted: no undo record, no success message.
+    let (mut app, _dir) = review_app(BACKGROUND_BIB);
+    let tx = start_doi_lookup(&mut app, "A");
+    app.delete_entry("A");
+    let depth = app.undo_stack.len();
+    tx.send(Ok(("10.1000/x".into(), String::new()))).unwrap();
+    app.poll_background_tasks();
+    assert!(!app.database.entries.contains_key("A"));
+    assert_eq!(app.undo_stack.len(), depth);
+    assert!(!status(&app).contains("Found DOI"), "{}", status(&app));
+
+    // Key reused by a different entry: the answer is not for it.
+    let (mut app, _dir) = review_app(BACKGROUND_BIB);
+    let tx = start_doi_lookup(&mut app, "A");
+    let mut other = app.database.entries.shift_remove("A").unwrap();
+    other.fields.insert("title".into(), "Unrelated Work".into());
+    app.database.entries.insert("A".into(), other);
+    tx.send(Ok(("10.1000/x".into(), String::new()))).unwrap();
+    app.poll_background_tasks();
+    assert_eq!(field(&app, "A", "doi"), None);
+    assert!(status(&app).contains("not applied"), "{}", status(&app));
+}
+
+#[test]
+fn doi_result_applies_after_change_is_undone() {
+    let (mut app, _dir) = review_app(BACKGROUND_BIB);
+    let tx = start_doi_lookup(&mut app, "A");
+    review_edit(&mut app, "A", "title", "Revised Study");
+    app.handle_action(Action::Undo);
+    tx.send(Ok(("10.1000/found".into(), String::new())))
+        .unwrap();
+    app.poll_background_tasks();
+    assert_eq!(field(&app, "A", "doi").as_deref(), Some("10.1000/found"));
+}
+
+#[test]
+fn doi_result_waits_for_open_editor_on_the_same_entry() {
+    let (mut app, _dir) = background_app_with_template_keys();
+    let a = key_with_title(&app, "First Study");
+    edit_draft(&mut app, &a, "note", "draft text");
+    let tx = start_doi_lookup(&mut app, &a);
+    tx.send(Ok(("10.1000/found".into(), String::new())))
+        .unwrap();
+    app.poll_background_tasks();
+    assert_eq!(app.mode, InputMode::Editing);
+    assert_eq!(app.field_editor_state.as_ref().unwrap().value, "draft text");
+    assert_eq!(field(&app, &a, "doi"), None, "applied only after the edit");
+
+    app.handle_action(Action::ConfirmEdit);
+    assert_eq!(field(&app, &a, "note").as_deref(), Some("draft text"));
+    app.poll_background_tasks();
+    // The note is not a looked-up field, so the answer still applies.
+    assert_eq!(field(&app, &a, "doi").as_deref(), Some("10.1000/found"));
+}
+
+#[test]
+fn second_doi_lookup_refused_while_a_result_waits() {
+    let (mut app, _dir) = review_app(BACKGROUND_BIB);
+    edit_draft(&mut app, "A", "note", "x");
+    let tx = start_doi_lookup(&mut app, "A");
+    tx.send(Ok(("10.1000/found".into(), String::new())))
+        .unwrap();
+    app.poll_background_tasks();
+    assert!(app.finished_doi_fetch.is_some());
+    app.handle_action(Action::CancelEdit);
+    app.mode = InputMode::Editing; // still busy, e.g. another prompt
+    app.start_fetch_doi();
+    assert_eq!(status(&app), "DOI lookup already in progress");
+}
+
+#[test]
+fn import_waits_for_field_edit_then_opens_and_undoes() {
+    let (mut app, _dir) = background_app_with_template_keys();
+    let a = key_with_title(&app, "First Study");
+    edit_draft(&mut app, &a, "note", "draft text");
+    finish_import(&mut app, background_import());
+    assert_eq!(app.mode, InputMode::Editing);
+    assert_eq!(app.detail_entry_key.as_deref(), Some(a.as_str()));
+    assert_eq!(app.field_editor_state.as_ref().unwrap().value, "draft text");
+    assert_eq!(app.database.entries.len(), 2, "not added yet");
+
+    app.handle_action(Action::ConfirmEdit);
+    assert_eq!(field(&app, &a, "note").as_deref(), Some("draft text"));
+    assert!(app.poll_background_tasks());
+    assert_eq!(app.database.entries.len(), 3);
+    let imported = app.detail_entry_key.clone().unwrap();
+    assert_ne!(imported, a);
+    assert_eq!(app.mode, InputMode::Detail);
+
+    app.handle_action(Action::Undo);
+    assert!(!app.database.entries.contains_key(&imported));
+    assert_eq!(field(&app, &a, "note").as_deref(), Some("draft text"));
+}
+
+#[test]
+fn failed_import_waits_for_export_path_prompt() {
+    let (mut app, _dir) = review_app(BACKGROUND_BIB);
+    app.command_palette_state.input = "settings-export yaml".into();
+    app.execute_command();
+    assert_eq!(app.mode, InputMode::Editing);
+    finish_import(&mut app, background_import_error());
+    assert!(matches!(
+        app.pending_action,
+        Some(PendingAction::ExportSettings)
+    ));
+    assert!(app.dialog_state.is_none());
+    assert_eq!(
+        app.field_editor_state.as_ref().unwrap().value,
+        "bibtui.yaml"
+    );
+
+    app.handle_action(Action::CancelEdit);
+    app.poll_background_tasks();
+    assert_eq!(app.mode, InputMode::Dialog);
+    assert!(matches!(
+        app.pending_action,
+        Some(PendingAction::DismissMessage)
+    ));
+}
+
+#[test]
+fn import_waits_for_confirm_dialog_merge_review_and_settings() {
+    // A delete confirmation keeps its target and continuation.
+    let (mut app, _dir) = review_app(BACKGROUND_BIB);
+    app.start_delete_entry();
+    assert_eq!(app.mode, InputMode::Dialog);
+    let pending = format!("{:?}", app.pending_action);
+    finish_import(&mut app, background_import());
+    assert_eq!(app.mode, InputMode::Dialog);
+    assert_eq!(format!("{:?}", app.pending_action), pending);
+    assert_eq!(app.database.entries.len(), 2);
+    app.handle_action(Action::DialogCancel);
+    app.poll_background_tasks();
+    assert_eq!(app.database.entries.len(), 3);
+
+    // Duplicate review stays open.
+    let (mut app, _dir) = review_app(BACKGROUND_BIB);
+    app.open_duplicate_review();
+    finish_import(&mut app, background_import());
+    assert_eq!(app.mode, InputMode::DedupReview);
+    assert_eq!(app.database.entries.len(), 2);
+    app.close_dedup();
+    app.poll_background_tasks();
+    assert_eq!(app.database.entries.len(), 3);
+    assert_eq!(app.mode, InputMode::Detail);
+
+    // Settings stay open, and the error is shown after leaving them.
+    let (mut app, _dir) = review_app(BACKGROUND_BIB);
+    app.handle_action(Action::EnterSettings);
+    assert_eq!(app.mode, InputMode::Settings);
+    finish_import(&mut app, background_import_error());
+    assert_eq!(app.mode, InputMode::Settings);
+    assert!(app.dialog_state.is_none());
+    app.handle_action(Action::ExitSettings);
+    app.poll_background_tasks();
+    assert_eq!(app.mode, InputMode::Dialog);
+}
+
+#[test]
+fn second_import_refused_while_a_result_waits() {
+    let (mut app, _dir) = review_app(BACKGROUND_BIB);
+    app.open_duplicate_review();
+    finish_import(&mut app, background_import());
+    assert!(app.finished_import.is_some());
+    app.spawn_import("10.1000/next".into());
+    assert_eq!(status(&app), "Import already in progress — please wait");
+    assert!(app.pending_import.is_none(), "no second fetch started");
+}
