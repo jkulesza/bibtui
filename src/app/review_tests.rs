@@ -2267,3 +2267,156 @@ fn unique_doi_match_is_assigned_without_asking() {
     assert_ne!(app.mode, InputMode::Dialog);
     assert_eq!(field(&app, "A", "doi").as_deref(), Some("10.1000/sure"));
 }
+
+// ── N11: "not duplicates" marks follow key changes ───────────────────────
+
+/// Two copies of one work that the user has said are different (e.g. a
+/// preprint and the article), plus an unrelated entry.
+const NOT_DUP_BIB: &str =
+    "@Article{A, title={Neutron Transport Methods}, author={Smith, Ann}, year={2020}}\n\
+@Article{B, title={Neutron Transport Methods}, author={Smith, Ann}, year={2020}}\n\
+@Article{C, title={Unrelated Topic}, author={Jones, Bob}, year={2011}}\n";
+
+fn marked_app() -> (App, tempfile::TempDir) {
+    let (mut app, dir) = review_app(NOT_DUP_BIB);
+    assert_eq!(app.duplicate_clusters().len(), 1, "A and B look alike");
+    app.mark_not_duplicates(&["A".to_string(), "B".to_string()]);
+    assert!(app.duplicate_clusters().is_empty());
+    (app, dir)
+}
+
+fn regen_key_of(app: &mut App, key: &str) {
+    select_entry(app, key);
+    app.handle_action(Action::OpenDetail);
+    app.regen_citekey();
+    app.handle_action(Action::CloseDetail);
+}
+
+#[test]
+fn not_duplicate_mark_follows_single_rekeying_and_undo() {
+    let (mut app, _dir) = marked_app();
+    regen_key_of(&mut app, "A");
+    let a = app
+        .database
+        .entries
+        .keys()
+        .find(|k| *k != "B" && *k != "C")
+        .unwrap()
+        .clone();
+    assert_ne!(a, "A");
+    assert_eq!(
+        app.not_duplicate_sets(),
+        vec![{
+            let mut s = vec![a.clone(), "B".to_string()];
+            s.sort();
+            s
+        }]
+    );
+    assert!(app.duplicate_clusters().is_empty(), "decision kept");
+
+    app.handle_action(Action::Undo);
+    assert!(app.database.entries.contains_key("A"));
+    assert_eq!(
+        app.not_duplicate_sets(),
+        vec![vec!["A".to_string(), "B".to_string()]]
+    );
+    assert!(app.duplicate_clusters().is_empty());
+}
+
+#[test]
+fn not_duplicate_mark_follows_bulk_rekeying_with_collision_suffixes() {
+    let (mut app, _dir) = marked_app();
+    app.regen_all_citekeys();
+    // Same metadata, so the keys collide and one gets a suffix.
+    let keys: Vec<String> = app.database.entries.keys().cloned().collect();
+    assert!(!keys.contains(&"A".to_string()) && !keys.contains(&"B".to_string()));
+    let sets = app.not_duplicate_sets();
+    assert_eq!(sets.len(), 1);
+    assert!(
+        sets[0].iter().all(|k| app.database.entries.contains_key(k)),
+        "{sets:?}"
+    );
+    assert!(app.duplicate_clusters().is_empty(), "decision kept");
+
+    app.handle_action(Action::Undo);
+    assert_eq!(
+        app.not_duplicate_sets(),
+        vec![vec!["A".to_string(), "B".to_string()]]
+    );
+}
+
+#[test]
+fn not_duplicate_mark_survives_save_time_rekeying_and_reload() {
+    let (mut app, _dir) = marked_app();
+    app.config.save.save_action_regenerate_citekeys = true;
+    assert!(app.save(), "{:?}", app.status_message);
+    assert!(app.duplicate_clusters().is_empty());
+    let reloaded = App::new(app.bib_path.clone(), app.config.clone()).unwrap();
+    assert!(
+        !reloaded.database.entries.contains_key("A"),
+        "keys were regenerated"
+    );
+    assert_eq!(reloaded.not_duplicate_sets(), app.not_duplicate_sets());
+    assert!(
+        reloaded.duplicate_clusters().is_empty(),
+        "decision kept after reload"
+    );
+}
+
+#[test]
+fn not_duplicate_marks_use_one_simultaneous_mapping() {
+    let (mut app, _dir) = marked_app();
+    app.mark_not_duplicates(&["B".to_string(), "C".to_string()]);
+    // A and B swap keys: references move once, not twice.
+    let mapping = std::collections::HashMap::from([
+        ("A".to_string(), "B".to_string()),
+        ("B".to_string(), "A".to_string()),
+        ("C".to_string(), "D".to_string()),
+    ]);
+    app.update_key_references(&mapping);
+    assert_eq!(
+        app.not_duplicate_sets(),
+        vec![
+            vec!["A".to_string(), "B".to_string()],
+            vec!["A".to_string(), "D".to_string()],
+        ]
+    );
+}
+
+#[test]
+fn merging_retires_keys_in_not_duplicate_marks() {
+    // Merging C into A keeps the A/B decision on the surviving key.
+    let (mut app, _dir) = marked_app();
+    app.mark_not_duplicates(&["B".to_string(), "C".to_string()]);
+    app.open_merge(&["A".to_string(), "C".to_string()], vec![], false);
+    app.dedup_merge_state.as_mut().unwrap().survivor = 0;
+    app.apply_merge();
+    assert!(!app.database.entries.contains_key("C"));
+    assert_eq!(
+        app.not_duplicate_sets(),
+        vec![vec!["A".to_string(), "B".to_string()]]
+    );
+
+    app.handle_action(Action::Undo);
+    assert!(app.database.entries.contains_key("C"));
+    assert_eq!(app.not_duplicate_sets().len(), 2);
+
+    // Merging the marked entries themselves drops the now-empty mark.
+    let (mut app, _dir) = marked_app();
+    app.open_merge(&["A".to_string(), "B".to_string()], vec![], false);
+    app.apply_merge();
+    assert!(app.not_duplicate_sets().is_empty());
+    assert_eq!(
+        app.meta_comment_text(super::dedup::NOT_DUPLICATES_META),
+        None
+    );
+}
+
+#[test]
+fn deleting_a_marked_entry_keeps_the_mark_for_undo() {
+    let (mut app, _dir) = marked_app();
+    app.delete_entry("A");
+    assert_eq!(app.not_duplicate_sets().len(), 1);
+    app.handle_action(Action::Undo);
+    assert!(app.duplicate_clusters().is_empty());
+}

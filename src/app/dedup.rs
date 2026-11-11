@@ -19,6 +19,20 @@ use crate::util::titlecase::strip_case_braces;
 /// It is not a `bibtui.*` key because it is library data, not a setting.
 pub(super) const NOT_DUPLICATES_META: &str = "bibtuiNotDuplicates";
 
+/// The metadata comment holding `sets`, or `None` (remove it) when empty.
+fn not_duplicates_comment(sets: &[Vec<String>]) -> Option<String> {
+    if sets.is_empty() {
+        return None;
+    }
+    let body: String = sets
+        .iter()
+        .map(|s| format!("{};\n", escape_meta(&s.join(","))))
+        .collect();
+    Some(format!(
+        "@Comment{{jabref-meta: {NOT_DUPLICATES_META}:\n{body}}}"
+    ))
+}
+
 impl App {
     // ── "Not duplicates" marks ──────────────────────────────────────────────
 
@@ -55,17 +69,48 @@ impl App {
             return;
         }
         sets.push(set);
-        let body: String = sets
-            .iter()
-            .map(|s| format!("{};\n", escape_meta(&s.join(","))))
-            .collect();
         self.apply_library_changes(vec![MetaChange {
             key: NOT_DUPLICATES_META.to_string(),
-            comment: Some(format!(
-                "@Comment{{jabref-meta: {NOT_DUPLICATES_META}:\n{body}}}"
-            )),
+            comment: not_duplicates_comment(&sets),
             summary: "not-duplicate marks".to_string(),
         }]);
+    }
+
+    /// Rewrite the "not duplicates" marks after citation keys change, using
+    /// the same simultaneous `old → new` mapping as crossrefs (so A→B with
+    /// B→C moves a mark on A to B, not C). A mark whose keys collapse into
+    /// one entry, as when marked entries are merged, is dropped. Marks on
+    /// deleted entries are kept, so undoing the deletion restores them.
+    /// Returns the undo record, or `None` when no mark changed.
+    pub(super) fn retarget_not_duplicates(
+        &mut self,
+        mapping: &std::collections::HashMap<String, String>,
+    ) -> Option<UndoItem> {
+        if mapping.is_empty() {
+            return None;
+        }
+        let sets = self.not_duplicate_sets();
+        let mut retargeted: Vec<Vec<String>> = Vec::with_capacity(sets.len());
+        for set in &sets {
+            let mut new_set: Vec<String> = set
+                .iter()
+                .map(|k| mapping.get(k).unwrap_or(k).clone())
+                .collect();
+            new_set.sort();
+            new_set.dedup();
+            if new_set.len() >= 2 && !retargeted.contains(&new_set) {
+                retargeted.push(new_set);
+            }
+        }
+        if retargeted == sets {
+            return None;
+        }
+        let previous = self.meta_comment_text(NOT_DUPLICATES_META);
+        self.set_meta_comment(NOT_DUPLICATES_META, not_duplicates_comment(&retargeted));
+        self.database.jabref_meta = crate::bib::jabref::parse_meta(&self.database.raw_file);
+        Some(UndoItem::LibraryMetaChanged {
+            previous: vec![(NOT_DUPLICATES_META.to_string(), previous)],
+        })
     }
 
     // ── Detection ───────────────────────────────────────────────────────────
@@ -239,7 +284,7 @@ impl App {
         self.open_merge(&cluster.keys, cluster.reasons, true);
     }
 
-    fn open_merge(&mut self, keys: &[String], reasons: Vec<String>, from_review: bool) {
+    pub(super) fn open_merge(&mut self, keys: &[String], reasons: Vec<String>, from_review: bool) {
         let entries: Vec<&Entry> = keys
             .iter()
             .filter_map(|k| self.database.entries.get(k))
@@ -398,7 +443,7 @@ impl App {
             .iter()
             .map(|k| (k.clone(), final_key.clone()))
             .collect();
-        undo.extend(self.update_crossrefs(&mapping));
+        undo.extend(self.update_key_references(&mapping));
 
         self.push_undo(UndoItem::Batch(undo));
         self.refresh_view();

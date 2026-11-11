@@ -121,7 +121,7 @@ impl App {
     }
 
     /// The current `@Comment` text of a metadata key, if present.
-    fn meta_comment_text(&self, key: &str) -> Option<String> {
+    pub(super) fn meta_comment_text(&self, key: &str) -> Option<String> {
         self.database
             .raw_file
             .items
@@ -164,7 +164,7 @@ impl App {
     /// Add, replace, or remove one metadata comment in the raw file. New
     /// comments are placed among the existing metadata comments in JabRef's
     /// key order. Raw indices of entries and pending deletions are kept valid.
-    fn set_meta_comment(&mut self, key: &str, comment: Option<String>) {
+    pub(super) fn set_meta_comment(&mut self, key: &str, comment: Option<String>) {
         let items = &self.database.raw_file.items;
         let existing = items.iter().position(
             |item| matches!(item, RawItem::Comment { raw_text } if meta_comment_key(raw_text) == Some(key)),

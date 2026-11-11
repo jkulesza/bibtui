@@ -741,7 +741,7 @@ impl App {
                     if let Some(item) = self.rename_entry_key(key, &new_key) {
                         let mapping = std::collections::HashMap::from([(key.clone(), new_key)]);
                         let mut undo = vec![item];
-                        undo.extend(self.update_crossrefs(&mapping));
+                        undo.extend(self.update_key_references(&mapping));
                         self.push_undo(UndoItem::Batch(undo));
                         self.refresh_view();
 
@@ -786,6 +786,17 @@ impl App {
             self.pending_dup_check = Some(new.into());
         }
         Some(undo)
+    }
+
+    /// Point everything that names an entry by key at its new key:
+    /// crossrefs and "not duplicates" marks. Returns their undo records.
+    pub(super) fn update_key_references(
+        &mut self,
+        mapping: &std::collections::HashMap<String, String>,
+    ) -> Vec<UndoItem> {
+        let mut undo = self.update_crossrefs(mapping);
+        undo.extend(self.retarget_not_duplicates(mapping));
+        undo
     }
 
     /// Apply the complete mapping once to original reference values. In
@@ -884,7 +895,7 @@ impl App {
             }
         }
 
-        let reference_undo = self.update_crossrefs(&mapping);
+        let reference_undo = self.update_key_references(&mapping);
         if push_undo {
             undo_items.extend(reference_undo);
         }

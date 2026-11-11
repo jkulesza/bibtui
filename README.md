@@ -314,6 +314,13 @@ keyC,keyD,keyE;
 }
 ```
 
+The marks follow citation-key changes: regenerating one key (`c`), all keys,
+or keys at save time, and renaming the surviving entry of a merge, update
+them together with `crossref` fields, in the same undo step. Merged-away keys
+are replaced by the surviving key, and a mark between entries that are later
+merged into one is dropped. Marks on a deleted entry are kept, so undoing the
+deletion restores them.
+
 ### Settings editor (`S`)
 
 Opens a full-screen view of all configuration options. Changes apply immediately to the running session.
