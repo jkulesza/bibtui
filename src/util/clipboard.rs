@@ -10,7 +10,8 @@ pub trait Clipboard {
     fn copy_files(&self, paths: &[PathBuf]) -> anyhow::Result<()>;
 }
 
-/// The real system clipboard (pbcopy/pbpaste on macOS, xclip/xsel on Linux).
+/// The real system clipboard: pbcopy/pbpaste on macOS, xclip/xsel on
+/// Linux, and the Win32 clipboard API on Windows.
 pub struct SystemClipboard;
 
 impl Clipboard for SystemClipboard {
@@ -25,31 +26,103 @@ impl Clipboard for SystemClipboard {
     }
 }
 
+/// Run a clipboard helper, feed it `input` on stdin, and return its stdout.
+/// Fails when the helper cannot start or exits unsuccessfully, so a broken
+/// backend is reported instead of looking like a successful copy or an
+/// empty paste.
+///
+/// Copy helpers such as xclip and wl-copy leave a background process
+/// serving the selection, which inherits the helper's output handles. When
+/// copying, stdout therefore goes to null and stderr to a file rather than a
+/// pipe: reading a pipe to its end would wait for that background process.
+#[cfg_attr(
+    not(any(target_os = "macos", target_os = "linux", all(unix, test))),
+    allow(dead_code)
+)]
+fn run_clipboard_command(
+    cmd: &mut std::process::Command,
+    input: Option<&[u8]>,
+) -> anyhow::Result<Vec<u8>> {
+    use std::io::{Read, Seek, Write};
+    use std::process::Stdio;
+    let program = cmd.get_program().to_string_lossy().into_owned();
+    let mut stderr_file = tempfile::tempfile()?;
+    let (stdin, stdout) = match input {
+        Some(_) => (Stdio::piped(), Stdio::null()),
+        None => (Stdio::null(), Stdio::piped()),
+    };
+    let mut child = cmd
+        .stdin(stdin)
+        .stdout(stdout)
+        .stderr(Stdio::from(stderr_file.try_clone()?))
+        .spawn()
+        .map_err(|e| anyhow::Error::new(e).context(format!("could not run {program}")))?;
+    if let (Some(data), Some(mut pipe)) = (input, child.stdin.take()) {
+        pipe.write_all(data)?;
+        // Dropping the pipe closes it so the helper sees end of input.
+    }
+    let output = child.wait_with_output()?;
+    if !output.status.success() {
+        let mut stderr = String::new();
+        stderr_file.rewind()?;
+        // Best effort: a helper's stderr need not be UTF-8.
+        let mut bytes = Vec::new();
+        if stderr_file.read_to_end(&mut bytes).is_ok() {
+            stderr = String::from_utf8_lossy(&bytes).trim().to_string();
+        }
+        if stderr.is_empty() {
+            anyhow::bail!("{program} failed ({})", output.status);
+        }
+        anyhow::bail!("{program} failed ({}): {stderr}", output.status);
+    }
+    Ok(output.stdout)
+}
+
+/// Try each helper in turn, moving on only when one is not installed.
+/// A helper that is installed but fails stops the search with its error.
+#[cfg_attr(not(any(target_os = "linux", all(unix, test))), allow(dead_code))]
+fn run_first_available(
+    commands: Vec<std::process::Command>,
+    input: Option<&[u8]>,
+    missing_hint: &str,
+) -> anyhow::Result<Vec<u8>> {
+    for mut cmd in commands {
+        match run_clipboard_command(&mut cmd, input) {
+            Err(e)
+                if e.downcast_ref::<std::io::Error>()
+                    .is_some_and(|io| io.kind() == std::io::ErrorKind::NotFound) => {}
+            other => return other,
+        }
+    }
+    anyhow::bail!("No clipboard tool found ({missing_hint})")
+}
+
 /// Read text from the system clipboard.
 pub fn read_from_clipboard() -> anyhow::Result<String> {
     #[cfg(target_os = "macos")]
     {
         use std::process::Command;
-        let output = Command::new("pbpaste").output()?;
-        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+        let out = run_clipboard_command(&mut Command::new("pbpaste"), None)?;
+        Ok(String::from_utf8_lossy(&out).into_owned())
     }
 
     #[cfg(target_os = "linux")]
     {
         use std::process::Command;
-        let result = Command::new("xclip")
-            .args(["-selection", "clipboard", "-o"])
-            .output();
-        let output = match result {
-            Ok(o) => o,
-            Err(_) => Command::new("xsel")
-                .args(["--clipboard", "--output"])
-                .output()?,
-        };
-        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+        let mut xclip = Command::new("xclip");
+        xclip.args(["-selection", "clipboard", "-o"]);
+        let mut xsel = Command::new("xsel");
+        xsel.args(["--clipboard", "--output"]);
+        let out = run_first_available(vec![xclip, xsel], None, "install xclip or xsel")?;
+        Ok(String::from_utf8_lossy(&out).into_owned())
     }
 
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(windows)]
+    {
+        windows::paste_text()
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
     {
         anyhow::bail!("Clipboard not supported on this platform");
     }
@@ -60,47 +133,97 @@ pub fn copy_to_clipboard(text: &str) -> anyhow::Result<()> {
     #[cfg(target_os = "macos")]
     {
         use std::process::Command;
-        let mut child = Command::new("pbcopy")
-            .stdin(std::process::Stdio::piped())
-            .spawn()?;
-        if let Some(stdin) = child.stdin.as_mut() {
-            use std::io::Write;
-            stdin.write_all(text.as_bytes())?;
-        }
-        child.wait()?;
+        run_clipboard_command(&mut Command::new("pbcopy"), Some(text.as_bytes()))?;
         Ok(())
     }
 
     #[cfg(target_os = "linux")]
     {
         use std::process::Command;
-        // Try xclip first, then xsel
-        let result = Command::new("xclip")
-            .args(["-selection", "clipboard"])
-            .stdin(std::process::Stdio::piped())
-            .spawn();
-
-        let mut child = match result {
-            Ok(child) => child,
-            Err(_) => Command::new("xsel")
-                .arg("--clipboard")
-                .stdin(std::process::Stdio::piped())
-                .spawn()?,
-        };
-
-        if let Some(stdin) = child.stdin.as_mut() {
-            use std::io::Write;
-            stdin.write_all(text.as_bytes())?;
-        }
-        child.wait()?;
+        let mut xclip = Command::new("xclip");
+        xclip.args(["-selection", "clipboard"]);
+        let mut xsel = Command::new("xsel");
+        xsel.arg("--clipboard").arg("--input");
+        run_first_available(
+            vec![xclip, xsel],
+            Some(text.as_bytes()),
+            "install xclip or xsel",
+        )?;
         Ok(())
     }
 
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(windows)]
+    {
+        windows::copy_text(text)
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
     {
         let _ = text;
         anyhow::bail!("Clipboard not supported on this platform");
     }
+}
+
+/// Windows clipboard access through the Win32 API (CF_UNICODETEXT for
+/// text, CF_HDROP for files, the format Explorer's Copy uses).
+#[cfg(windows)]
+mod windows {
+    use clipboard_win::{formats, options::DoClear, raw, Clipboard};
+    use std::path::PathBuf;
+
+    /// Another program may hold the clipboard open briefly; retry like
+    /// browsers do before giving up.
+    const OPEN_ATTEMPTS: usize = 10;
+
+    fn open() -> anyhow::Result<Clipboard> {
+        Clipboard::new_attempts(OPEN_ATTEMPTS)
+            .map_err(|e| anyhow::anyhow!("could not open the Windows clipboard: {e}"))
+    }
+
+    pub(super) fn copy_text(text: &str) -> anyhow::Result<()> {
+        let _clipboard = open()?;
+        raw::set_string_with(text, DoClear)
+            .map_err(|e| anyhow::anyhow!("could not set clipboard text: {e}"))
+    }
+
+    pub(super) fn paste_text() -> anyhow::Result<String> {
+        let _clipboard = open()?;
+        // No text on the clipboard reads as empty, as with pbpaste/xclip.
+        if !raw::is_format_avail(formats::CF_UNICODETEXT) {
+            return Ok(String::new());
+        }
+        let mut out = Vec::new();
+        raw::get_string(&mut out)
+            .map_err(|e| anyhow::anyhow!("could not read clipboard text: {e}"))?;
+        Ok(String::from_utf8_lossy(&out).into_owned())
+    }
+
+    pub(super) fn copy_files(paths: &[PathBuf]) -> anyhow::Result<()> {
+        let list = super::windows_file_list(paths)?;
+        let _clipboard = open()?;
+        raw::set_file_list_with(&list, DoClear)
+            .map_err(|e| anyhow::anyhow!("could not put files on the clipboard: {e}"))
+    }
+}
+
+/// Absolute, UTF-8 paths for a Windows CF_HDROP file list. Explorer and
+/// mail clients resolve dropped files without a working directory, so a
+/// relative path would point nowhere.
+#[cfg_attr(not(any(windows, test)), allow(dead_code))]
+fn windows_file_list(paths: &[PathBuf]) -> anyhow::Result<Vec<String>> {
+    paths
+        .iter()
+        .map(|p| {
+            let abs = std::path::absolute(p)
+                .map_err(|e| anyhow::anyhow!("could not resolve {}: {e}", p.display()))?;
+            abs.into_os_string().into_string().map_err(|raw| {
+                anyhow::anyhow!(
+                    "{} is not valid Unicode and cannot be copied",
+                    std::path::Path::new(&raw).display()
+                )
+            })
+        })
+        .collect()
 }
 
 /// JXA script that puts each argv path on the general pasteboard the way
@@ -194,36 +317,29 @@ pub fn copy_files_to_clipboard(paths: &[PathBuf]) -> anyhow::Result<()> {
 
     #[cfg(target_os = "linux")]
     {
-        use std::io::Write;
-        use std::process::{Command, Stdio};
+        use std::process::Command;
         let uris = file_uri_list(paths);
         // Wayland first when available, then X11. xsel cannot set a MIME
         // target, so it is not usable here.
-        let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some();
-        let spawn = || -> std::io::Result<std::process::Child> {
-            if wayland {
-                if let Ok(child) = Command::new("wl-copy")
-                    .args(["--type", "text/uri-list"])
-                    .stdin(Stdio::piped())
-                    .spawn()
-                {
-                    return Ok(child);
-                }
-            }
-            Command::new("xclip")
-                .args(["-selection", "clipboard", "-t", "text/uri-list"])
-                .stdin(Stdio::piped())
-                .spawn()
-        };
-        let mut child = spawn()?;
-        if let Some(stdin) = child.stdin.as_mut() {
-            stdin.write_all(uris.as_bytes())?;
+        let mut commands = Vec::new();
+        if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+            let mut wl = Command::new("wl-copy");
+            wl.args(["--type", "text/uri-list"]);
+            commands.push(wl);
         }
-        child.wait()?;
+        let mut xclip = Command::new("xclip");
+        xclip.args(["-selection", "clipboard", "-t", "text/uri-list"]);
+        commands.push(xclip);
+        run_first_available(commands, Some(uris.as_bytes()), "install wl-copy or xclip")?;
         Ok(())
     }
 
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(windows)]
+    {
+        windows::copy_files(paths)
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
     {
         anyhow::bail!("Copying files to the clipboard is not supported on this platform");
     }
@@ -306,6 +422,103 @@ mod tests {
             String::from_utf8_lossy(&out.stdout).trim(),
             format!("{types} a b.pdf\n{types} c.pdf")
         );
+    }
+
+    #[cfg(unix)]
+    fn sh(script: &str) -> std::process::Command {
+        let mut cmd = std::process::Command::new("sh");
+        cmd.args(["-c", script]);
+        cmd
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_clipboard_command_returns_stdout_on_success() {
+        let out = run_clipboard_command(&mut sh("printf 'pasted é'"), None).unwrap();
+        assert_eq!(String::from_utf8(out).unwrap(), "pasted é");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_clipboard_command_delivers_input() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("got");
+        let mut cmd = sh("cat > \"$0\"");
+        cmd.arg(&dest);
+        run_clipboard_command(&mut cmd, Some("copied é\n".as_bytes())).unwrap();
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), "copied é\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_clipboard_command_nonzero_exit_reports_stderr() {
+        let err = run_clipboard_command(&mut sh("echo 'no display' >&2; exit 3"), None)
+            .unwrap_err()
+            .to_string();
+        assert!(err.starts_with("sh failed"), "{err}");
+        assert!(err.ends_with(": no display"), "{err}");
+
+        let err = run_clipboard_command(&mut sh("exit 1"), Some(b"x"))
+            .unwrap_err()
+            .to_string();
+        assert!(err.starts_with("sh failed ("), "{err}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_clipboard_command_does_not_wait_for_background_server() {
+        // Like xclip: the helper exits at once but leaves a child running
+        // that still holds the inherited output handles.
+        let start = std::time::Instant::now();
+        run_clipboard_command(&mut sh("cat >/dev/null; (sleep 5 &) ; exit 0"), Some(b"x")).unwrap();
+        assert!(start.elapsed() < std::time::Duration::from_secs(3));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_first_available_skips_missing_tools_only() {
+        let missing = std::process::Command::new("bibtui-no-such-clipboard-tool");
+        let out = run_first_available(vec![missing, sh("printf second")], None, "hint").unwrap();
+        assert_eq!(out, b"second");
+
+        // An installed tool that fails is reported, not skipped.
+        let err = run_first_available(vec![sh("exit 2"), sh("printf second")], None, "hint")
+            .unwrap_err()
+            .to_string();
+        assert!(err.starts_with("sh failed"), "{err}");
+
+        let none = vec![std::process::Command::new("bibtui-no-such-clipboard-tool")];
+        let err = run_first_available(none, None, "install xclip")
+            .unwrap_err()
+            .to_string();
+        assert_eq!(err, "No clipboard tool found (install xclip)");
+    }
+
+    #[test]
+    fn test_windows_file_list_is_absolute() {
+        let list = windows_file_list(&[PathBuf::from("PDF/a b.pdf")]).unwrap();
+        let expected = std::env::current_dir().unwrap().join("PDF/a b.pdf");
+        assert_eq!(list, vec![expected.to_string_lossy().into_owned()]);
+        assert!(std::path::Path::new(&list[0]).is_absolute());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_windows_file_list_rejects_non_unicode_path() {
+        use std::os::unix::ffi::OsStrExt;
+        let bad = PathBuf::from(std::ffi::OsStr::from_bytes(b"/tmp/\xff.pdf"));
+        let err = windows_file_list(&[bad]).unwrap_err().to_string();
+        assert!(err.contains("not valid Unicode"), "{err}");
+    }
+
+    /// Overwrites the real clipboard, so run on demand:
+    /// `cargo test text_round_trip -- --ignored`
+    #[test]
+    #[ignore]
+    fn test_system_clipboard_text_round_trip() {
+        let text = "bibtui clipboard test — Gödel {A and B}";
+        copy_to_clipboard(text).unwrap();
+        assert_eq!(read_from_clipboard().unwrap(), text);
     }
 
     #[test]

@@ -62,6 +62,8 @@ cp target/release/bibtui ~/.local/bin/
 
 Pre-built binaries for Linux (static musl and RPM), macOS (Apple Silicon and Intel), and Windows are attached to each [GitHub release](https://github.com/jkulesza/bibtui/releases). macOS binaries are code-signed and notarized with an Apple Developer ID, so Gatekeeper will not block them.
 
+**Clipboard support** (`yy`, `p` in the field editor, copying import errors): macOS uses the built-in `pbcopy`/`pbpaste` and Windows uses the system clipboard directly, so neither needs anything installed; on Windows, yanking attached files puts them on the clipboard the way Explorer's Copy does, ready to paste into a mail or a folder. Linux needs `xclip` or `xsel` for text, and `wl-copy` (Wayland) or `xclip` to copy files. If a clipboard tool is missing or fails, the status line says so instead of reporting a copy.
+
 **Linux RPM** (Fedora / RHEL / openSUSE):
 
 ```sh
