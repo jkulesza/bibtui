@@ -270,16 +270,202 @@ pub fn open_path(path: &Path) -> Result<()> {
     if !path.exists() {
         bail!("File not found: {}", path.display());
     }
-    let cmd = os_open_cmd();
-    std::process::Command::new(cmd).arg(path).spawn()?;
-    Ok(())
+    open_target(path.as_os_str())
 }
 
 /// Open a URL with the OS-default browser.
 pub fn open_url(url: &str) -> Result<()> {
-    let cmd = os_open_cmd();
-    std::process::Command::new(cmd).arg(url).spawn()?;
-    Ok(())
+    open_target(std::ffi::OsStr::new(url))
+}
+
+/// Hand a file path or URL to the OS: `open` on macOS, `xdg-open` on
+/// Linux, and the shell's `ShellExecuteW` on Windows. The target is passed
+/// as one argument, never through a shell, so characters such as `&`, `;`
+/// or spaces in a URL or file name are not interpreted.
+fn open_target(target: &std::ffi::OsStr) -> Result<()> {
+    #[cfg(windows)]
+    {
+        windows::shell_open(target)
+    }
+    #[cfg(unix)]
+    {
+        run_opener(opener_command(target), OPENER_WAIT)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = target;
+        bail!("Opening files is not supported on this platform")
+    }
+}
+
+/// The opener program for this platform and a hint for when it is missing.
+#[cfg_attr(not(any(unix, test)), allow(dead_code))]
+fn os_open_cmd() -> (&'static str, &'static str) {
+    if cfg!(target_os = "macos") {
+        ("open", "")
+    } else {
+        ("xdg-open", " (install xdg-utils)")
+    }
+}
+
+#[cfg_attr(not(any(unix, test)), allow(dead_code))]
+fn opener_command(target: &std::ffi::OsStr) -> std::process::Command {
+    let mut cmd = std::process::Command::new(os_open_cmd().0);
+    cmd.arg(target);
+    cmd
+}
+
+/// How long to wait for the opener to report a failure. `open` and most
+/// `xdg-open` back ends hand the target to the application and exit at
+/// once; some `xdg-open` fallbacks run the application in the foreground,
+/// so one still running after this is assumed to have started it.
+#[cfg_attr(not(unix), allow(dead_code))]
+const OPENER_WAIT: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// Run an opener without letting it write over the terminal UI, and turn a
+/// missing program or a quick nonzero exit into an error that carries the
+/// opener's message (for example "no application knows how to open").
+#[cfg_attr(not(any(unix, test)), allow(dead_code))]
+fn run_opener(mut cmd: std::process::Command, wait: std::time::Duration) -> Result<()> {
+    use std::io::{Read, Seek};
+    use std::process::Stdio;
+    let program = cmd.get_program().to_string_lossy().into_owned();
+    let mut stderr_file = tempfile::tempfile()?;
+    let mut child = cmd
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::from(stderr_file.try_clone()?))
+        .spawn()
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                let hint = if program == os_open_cmd().0 {
+                    os_open_cmd().1
+                } else {
+                    ""
+                };
+                anyhow::anyhow!("{program} not found{hint}")
+            } else {
+                anyhow::anyhow!("could not run {program}: {e}")
+            }
+        })?;
+    let deadline = std::time::Instant::now() + wait;
+    loop {
+        if let Some(status) = child.try_wait()? {
+            if status.success() {
+                return Ok(());
+            }
+            let mut bytes = Vec::new();
+            stderr_file.rewind()?;
+            let _ = stderr_file.read_to_end(&mut bytes);
+            let stderr = String::from_utf8_lossy(&bytes);
+            let stderr = stderr.trim();
+            if stderr.is_empty() {
+                bail!("{program} failed ({status})");
+            }
+            bail!("{program} failed ({status}): {stderr}");
+        }
+        if std::time::Instant::now() >= deadline {
+            // Reap it whenever the application exits.
+            std::thread::spawn(move || {
+                let _ = child.wait();
+            });
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+}
+
+/// Windows: `ShellExecuteW` with the "open" verb, which is what Explorer
+/// does on double-click. It opens files with their associated application
+/// and URLs in the default browser, and reports failures with an error code
+/// instead of an exit status.
+#[cfg(windows)]
+mod windows {
+    use std::ffi::{c_void, OsStr};
+    use std::os::windows::ffi::OsStrExt;
+
+    #[link(name = "shell32")]
+    extern "system" {
+        fn ShellExecuteW(
+            hwnd: *mut c_void,
+            operation: *const u16,
+            file: *const u16,
+            parameters: *const u16,
+            directory: *const u16,
+            show_cmd: i32,
+        ) -> *mut c_void;
+    }
+
+    #[link(name = "ole32")]
+    extern "system" {
+        fn CoInitializeEx(reserved: *mut c_void, co_init: u32) -> i32;
+        fn CoUninitialize();
+    }
+
+    const SW_SHOWNORMAL: i32 = 1;
+    const COINIT_APARTMENTTHREADED: u32 = 0x2;
+    const COINIT_DISABLE_OLE1DDE: u32 = 0x4;
+
+    fn wide(s: &OsStr) -> Vec<u16> {
+        s.encode_wide().chain(std::iter::once(0)).collect()
+    }
+
+    pub(super) fn shell_open(target: &OsStr) -> anyhow::Result<()> {
+        let file = wide(target);
+        let verb = wide(OsStr::new("open"));
+        // Shell extensions that handle some file types need COM, which
+        // Microsoft says to initialize first; a thread of our own keeps
+        // that apartment separate from the rest of the program.
+        let code = std::thread::spawn(move || {
+            // SAFETY: both strings are NUL-terminated UTF-16 buffers that
+            // outlive the calls; null is allowed for the window, parameters
+            // and directory; COM is uninitialized only if initialized here.
+            unsafe {
+                let hr = CoInitializeEx(
+                    std::ptr::null_mut(),
+                    COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE,
+                );
+                let result = ShellExecuteW(
+                    std::ptr::null_mut(),
+                    verb.as_ptr(),
+                    file.as_ptr(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    SW_SHOWNORMAL,
+                ) as isize;
+                if hr >= 0 {
+                    CoUninitialize();
+                }
+                result
+            }
+        })
+        .join()
+        .map_err(|_| anyhow::anyhow!("the Windows opener thread panicked"))?;
+        if code > 32 {
+            Ok(())
+        } else {
+            anyhow::bail!("{}", super::shell_execute_error(code))
+        }
+    }
+}
+
+/// Explain a `ShellExecuteW` failure code (any value of 32 or less).
+#[cfg_attr(not(any(windows, test)), allow(dead_code))]
+fn shell_execute_error(code: isize) -> String {
+    let reason = match code {
+        0 | 8 => "out of memory",
+        2 => "file not found",
+        3 => "path not found",
+        5 => "access denied",
+        11 => "invalid program file",
+        26 => "sharing violation",
+        27 => "incomplete file association",
+        28..=30 => "the application did not respond",
+        31 => "no application is associated with this file type",
+        32 => "a required DLL was not found",
+        _ => "unknown error",
+    };
+    format!("Windows could not open it: {reason} (error {code})")
 }
 
 /// Abstraction over "open with the OS-default application" so app logic
@@ -289,7 +475,8 @@ pub trait Opener {
     fn open_url(&self, url: &str) -> Result<()>;
 }
 
-/// The real OS opener (`open` on macOS, `xdg-open` on Linux).
+/// The real OS opener (`open` on macOS, `xdg-open` on Linux,
+/// `ShellExecuteW` on Windows).
 pub struct SystemOpener;
 
 impl Opener for SystemOpener {
@@ -301,24 +488,86 @@ impl Opener for SystemOpener {
     }
 }
 
-fn os_open_cmd() -> &'static str {
-    #[cfg(target_os = "macos")]
-    {
-        "open"
-    }
-    #[cfg(target_os = "linux")]
-    {
-        "xdg-open"
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-    {
-        "xdg-open"
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_opener_passes_target_as_one_argument() {
+        let url = "https://example.org/a b?x=1&y=$(rm -rf ~);z";
+        let cmd = opener_command(std::ffi::OsStr::new(url));
+        assert_eq!(cmd.get_program(), os_open_cmd().0);
+        let args: Vec<_> = cmd.get_args().collect();
+        assert_eq!(args, vec![std::ffi::OsStr::new(url)]);
+    }
+
+    #[cfg(unix)]
+    fn sh(script: &str) -> std::process::Command {
+        let mut cmd = std::process::Command::new("sh");
+        cmd.args(["-c", script]);
+        cmd
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_run_opener_reports_failure_with_message() {
+        let wait = std::time::Duration::from_secs(5);
+        let err = run_opener(sh("echo 'no application found' >&2; exit 4"), wait)
+            .unwrap_err()
+            .to_string();
+        assert!(err.starts_with("sh failed"), "{err}");
+        assert!(err.ends_with(": no application found"), "{err}");
+        assert!(run_opener(sh("exit 0"), wait).is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_run_opener_does_not_wait_for_foreground_application() {
+        let start = std::time::Instant::now();
+        run_opener(sh("sleep 5"), std::time::Duration::from_millis(100)).unwrap();
+        assert!(start.elapsed() < std::time::Duration::from_secs(3));
+    }
+
+    /// Native contract: the real `open` rejects a missing file with a
+    /// nonzero exit, and its message reaches the caller. Nothing launches.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_macos_open_failure_is_reported() {
+        let target = std::ffi::OsStr::new("/nonexistent/bibtui-test/paper.pdf");
+        let err = run_opener(opener_command(target), OPENER_WAIT)
+            .unwrap_err()
+            .to_string();
+        assert!(err.starts_with("open failed"), "{err}");
+        assert!(err.contains("does not exist"), "{err}");
+    }
+
+    #[test]
+    fn test_run_opener_missing_program() {
+        let cmd = std::process::Command::new("bibtui-no-such-opener");
+        let err = run_opener(cmd, std::time::Duration::from_secs(1))
+            .unwrap_err()
+            .to_string();
+        assert_eq!(err, "bibtui-no-such-opener not found");
+    }
+
+    #[test]
+    fn test_open_path_missing_file_is_error() {
+        let err = open_path(Path::new("/nonexistent/bibtui/paper.pdf"))
+            .unwrap_err()
+            .to_string();
+        assert!(err.starts_with("File not found"), "{err}");
+    }
+
+    #[test]
+    fn test_shell_execute_error_messages() {
+        assert_eq!(
+            shell_execute_error(31),
+            "Windows could not open it: no application is associated with this file type (error 31)"
+        );
+        assert!(shell_execute_error(2).contains("file not found"));
+        assert!(shell_execute_error(29).contains("did not respond"));
+        assert!(shell_execute_error(17).contains("unknown error (error 17)"));
+    }
 
     #[test]
     fn test_parse_single_file() {

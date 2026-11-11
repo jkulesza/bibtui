@@ -63,7 +63,9 @@ cp target/release/bibtui ~/.local/bin/
 
 Pre-built binaries for Linux (static musl and RPM), macOS (Apple Silicon and Intel), and Windows are attached to each [GitHub release](https://github.com/jkulesza/bibtui/releases). macOS binaries are code-signed and notarized with an Apple Developer ID, so Gatekeeper will not block them.
 
-**Clipboard support** (`yy`, `p` in the field editor, copying import errors): macOS uses the built-in `pbcopy`/`pbpaste` and Windows uses the system clipboard directly, so neither needs anything installed; on Windows, yanking attached files puts them on the clipboard the way Explorer's Copy does, ready to paste into a mail or a folder. Linux needs `xclip` or `xsel` for text, and `wl-copy` (Wayland) or `xclip` to copy files. If a clipboard tool is missing or fails, the status line says so instead of reporting a copy.
+**Clipboard support** (`yy`, `p` in the field editor, copying import errors): macOS uses the built-in `pbcopy`/`pbpaste` and Windows uses the system clipboard directly, so neither needs anything installed; on Windows, yanking attached files puts them on the clipboard the way Explorer's Copy does, ready to paste into a mail or a folder. Linux uses `wl-copy`/`wl-paste` (the `wl-clipboard` package) on Wayland and `xclip` or `xsel` on X11, for both text and files (`xsel` cannot copy files). If a clipboard tool is missing or fails, the status line says so instead of reporting a copy; an empty clipboard pastes nothing.
+
+**Opening files and links** (`o`, `w`): macOS uses `open`, Linux `xdg-open` (from `xdg-utils`), and Windows the same mechanism as double-clicking in Explorer, so files open in their associated application and links in the default browser. The path or URL is passed as a single argument, never through a shell. If the opener reports a failure (for example, no application for that file type), the status line shows its message.
 
 **Linux RPM** (Fedora / RHEL / openSUSE):
 

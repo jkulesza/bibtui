@@ -10,8 +10,9 @@ pub trait Clipboard {
     fn copy_files(&self, paths: &[PathBuf]) -> anyhow::Result<()>;
 }
 
-/// The real system clipboard: pbcopy/pbpaste on macOS, xclip/xsel on
-/// Linux, and the Win32 clipboard API on Windows.
+/// The real system clipboard: pbcopy/pbpaste on macOS, wl-copy/wl-paste
+/// (Wayland) or xclip/xsel (X11) on Linux, and the Win32 clipboard API on
+/// Windows.
 pub struct SystemClipboard;
 
 impl Clipboard for SystemClipboard {
@@ -97,6 +98,28 @@ fn run_first_available(
     anyhow::bail!("No clipboard tool found ({missing_hint})")
 }
 
+/// Text clipboard tools tried on Linux, for the "not found" message.
+#[cfg(target_os = "linux")]
+const LINUX_TEXT_TOOLS: &str = "install wl-clipboard on Wayland, or xclip or xsel on X11";
+
+/// Whether a paste helper's error only means there is no text to paste.
+/// pbpaste succeeds with empty output then, but xclip and wl-paste exit
+/// unsuccessfully; that should read as an empty paste, like on macOS.
+#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+fn is_empty_clipboard_error(message: &str) -> bool {
+    // xclip: "Error: target UTF8_STRING not available"; wl-paste:
+    // "Nothing is copied" or "No selection" (wording varies by version),
+    // or "No suitable type of content copied" for non-text content.
+    [
+        "not available",
+        "Nothing is copied",
+        "No selection",
+        "No suitable type",
+    ]
+    .iter()
+    .any(|m| message.contains(m))
+}
+
 /// Read text from the system clipboard.
 pub fn read_from_clipboard() -> anyhow::Result<String> {
     #[cfg(target_os = "macos")]
@@ -109,11 +132,22 @@ pub fn read_from_clipboard() -> anyhow::Result<String> {
     #[cfg(target_os = "linux")]
     {
         use std::process::Command;
+        let mut commands = Vec::new();
+        if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+            let mut wl = Command::new("wl-paste");
+            wl.arg("--no-newline");
+            commands.push(wl);
+        }
         let mut xclip = Command::new("xclip");
         xclip.args(["-selection", "clipboard", "-o"]);
+        commands.push(xclip);
         let mut xsel = Command::new("xsel");
         xsel.args(["--clipboard", "--output"]);
-        let out = run_first_available(vec![xclip, xsel], None, "install xclip or xsel")?;
+        commands.push(xsel);
+        let out = match run_first_available(commands, None, LINUX_TEXT_TOOLS) {
+            Err(e) if is_empty_clipboard_error(&e.to_string()) => Vec::new(),
+            other => other?,
+        };
         Ok(String::from_utf8_lossy(&out).into_owned())
     }
 
@@ -140,15 +174,17 @@ pub fn copy_to_clipboard(text: &str) -> anyhow::Result<()> {
     #[cfg(target_os = "linux")]
     {
         use std::process::Command;
+        let mut commands = Vec::new();
+        if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+            commands.push(Command::new("wl-copy"));
+        }
         let mut xclip = Command::new("xclip");
         xclip.args(["-selection", "clipboard"]);
+        commands.push(xclip);
         let mut xsel = Command::new("xsel");
         xsel.arg("--clipboard").arg("--input");
-        run_first_available(
-            vec![xclip, xsel],
-            Some(text.as_bytes()),
-            "install xclip or xsel",
-        )?;
+        commands.push(xsel);
+        run_first_available(commands, Some(text.as_bytes()), LINUX_TEXT_TOOLS)?;
         Ok(())
     }
 
@@ -492,6 +528,24 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert_eq!(err, "No clipboard tool found (install xclip)");
+    }
+
+    #[test]
+    fn test_empty_clipboard_errors_read_as_empty() {
+        for msg in [
+            "xclip failed (exit status: 1): Error: target UTF8_STRING not available",
+            "wl-paste failed (exit status: 1): Nothing is copied",
+            "wl-paste failed (exit status: 1): No selection",
+            "wl-paste failed (exit status: 1): No suitable type of content copied",
+        ] {
+            assert!(is_empty_clipboard_error(msg), "{msg}");
+        }
+        assert!(!is_empty_clipboard_error(
+            "xclip failed (exit status: 1): Error: Can't open display: (null)"
+        ));
+        assert!(!is_empty_clipboard_error(
+            "wl-paste failed (exit status: 1): Failed to connect to a Wayland server"
+        ));
     }
 
     #[test]
