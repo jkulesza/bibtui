@@ -351,60 +351,118 @@ impl App {
 
     /// Apply the result of a metadata→DOI lookup to the entry it was
     /// started for, provided that entry is unchanged (see [`DoiLookup`]).
-    /// The DOI and URL changes form one undo step.
-    pub(super) fn handle_doi_fetch_result(
-        &mut self,
-        lookup: DoiLookup,
-        result: Result<(String, String), String>,
-    ) {
-        let (doi, url) = match result {
+    /// A lone strong match is assigned; weak or ambiguous matches are
+    /// offered in a picker, and nothing changes unless one is chosen.
+    pub(super) fn handle_doi_fetch_result(&mut self, lookup: DoiLookup, result: DoiFetchResult) {
+        let found = match result {
             Ok(found) => found,
             Err(e) => {
                 self.status_message = Some(format!("DOI lookup failed: {}", e));
                 return;
             }
         };
-        let entry_key = lookup.entry_key.clone();
-        let Some(entry) = self.database.entries.get(&entry_key) else {
-            self.status_message = Some(format!(
-                "DOI lookup result not applied: '{entry_key}' was renamed or deleted during the lookup (found {doi})"
-            ));
-            return;
+        let shown_doi = match &found {
+            crate::util::import::crossref::MetadataMatch::Unique(c) => c.doi.clone(),
+            crate::util::import::crossref::MetadataMatch::Choose { candidates, .. } => candidates
+                .iter()
+                .map(|c| c.doi.as_str())
+                .collect::<Vec<_>>()
+                .join(", "),
         };
-        if let Some(field) = lookup.changed_field(entry) {
+        if let Some(reason) = self.stale_doi_lookup(&lookup) {
             self.status_message = Some(format!(
-                "DOI lookup result not applied: the {field} of '{entry_key}' changed during the lookup (found {doi})"
+                "DOI lookup result not applied: {reason} during the lookup (found {shown_doi})"
             ));
             return;
         }
+        match found {
+            crate::util::import::crossref::MetadataMatch::Unique(c) => {
+                self.apply_found_doi(&lookup.entry_key, &c.doi, &c.url);
+            }
+            crate::util::import::crossref::MetadataMatch::Choose {
+                candidates,
+                ambiguous,
+            } => {
+                let mut options: Vec<String> = candidates.iter().map(|c| c.label()).collect();
+                options.push("None of these (assign no DOI)".to_string());
+                let title = if ambiguous {
+                    format!("Several works match '{}' — choose one", lookup.entry_key)
+                } else {
+                    format!("Possible matches for '{}' — confirm one", lookup.entry_key)
+                };
+                self.dialog_state = Some(DialogState::type_picker_titled(&title, options));
+                self.pending_action = Some(PendingAction::ChooseDoi { lookup, candidates });
+                self.mode = InputMode::Dialog;
+                self.status_message = Some(if ambiguous {
+                    "Crossref has several equally good matches; none was assigned yet".to_string()
+                } else {
+                    "No certain match on Crossref; confirm one or choose none".to_string()
+                });
+            }
+        }
+    }
 
+    /// The user picked row `selected` of a DOI candidate picker.
+    pub(super) fn choose_doi_candidate(
+        &mut self,
+        lookup: DoiLookup,
+        candidates: Vec<crate::util::import::crossref::DoiCandidate>,
+        selected: usize,
+    ) {
+        let Some(c) = candidates.get(selected) else {
+            self.status_message = Some("No DOI assigned".to_string());
+            return;
+        };
+        if let Some(reason) = self.stale_doi_lookup(&lookup) {
+            self.status_message = Some(format!("DOI not assigned: {reason}"));
+            return;
+        }
+        self.apply_found_doi(&lookup.entry_key, &c.doi, &c.url);
+    }
+
+    /// Why a lookup's answer no longer belongs to its entry, if it does not.
+    fn stale_doi_lookup(&self, lookup: &DoiLookup) -> Option<String> {
+        let key = &lookup.entry_key;
+        match self.database.entries.get(key) {
+            None => Some(format!("'{key}' was renamed or deleted")),
+            Some(entry) => lookup
+                .changed_field(entry)
+                .map(|field| format!("the {field} of '{key}' changed")),
+        }
+    }
+
+    /// Set `doi` (and `url`, when it says more than the DOI) on `entry_key`
+    /// as one undo step.
+    fn apply_found_doi(&mut self, entry_key: &str, doi: &str, url: &str) {
+        let Some(entry) = self.database.entries.get(entry_key) else {
+            return;
+        };
         // Only set url if it carries information beyond the DOI itself
         // (Crossref often returns https://doi.org/<doi> as the URL, which is redundant).
         let url_is_distinct = !url.is_empty()
-            && crate::util::import::crossref::CrossrefFetcher::extract_doi(&url)
+            && crate::util::import::crossref::CrossrefFetcher::extract_doi(url)
                 .is_none_or(|extracted| extracted != doi);
-        let effective_url = if url_is_distinct { url.as_str() } else { "" };
+        let effective_url = if url_is_distinct { url } else { "" };
 
-        let changes: Vec<(&str, &str, Option<String>)> =
-            [("doi", doi.as_str()), ("url", effective_url)]
-                .into_iter()
-                .filter(|(_, new_val)| !new_val.is_empty())
-                .filter_map(|(field, new_val)| {
-                    let old = entry.fields.get(field).cloned();
-                    (old.as_deref() != Some(new_val)).then_some((field, new_val, old))
-                })
-                .collect();
+        let changes: Vec<(&str, &str, Option<String>)> = [("doi", doi), ("url", effective_url)]
+            .into_iter()
+            .filter(|(_, new_val)| !new_val.is_empty())
+            .filter_map(|(field, new_val)| {
+                let old = entry.fields.get(field).cloned();
+                (old.as_deref() != Some(new_val)).then_some((field, new_val, old))
+            })
+            .collect();
         if changes.is_empty() {
             self.status_message = Some(format!("DOI already up-to-date: {}", doi));
             return;
         }
 
         let mut undo = Vec::with_capacity(changes.len());
-        if let Some(entry) = self.database.entries.get_mut(&entry_key) {
+        if let Some(entry) = self.database.entries.get_mut(entry_key) {
             for (field, new_val, old_value) in changes {
                 entry.fields.insert(field.to_string(), new_val.to_string());
                 undo.push(UndoItem::FieldChanged {
-                    entry_key: entry_key.clone(),
+                    entry_key: entry_key.to_string(),
                     field_name: field.to_string(),
                     old_value,
                 });
@@ -418,8 +476,8 @@ impl App {
         });
 
         // Refresh the detail view if this entry is still open
-        if self.detail_entry_key.as_deref() == Some(entry_key.as_str()) {
-            if let Some(entry) = self.database.entries.get(&entry_key) {
+        if self.detail_entry_key.as_deref() == Some(entry_key) {
+            if let Some(entry) = self.database.entries.get(entry_key) {
                 let entry_clone = entry.clone();
                 if let Some(ref mut detail) = self.detail_state {
                     detail.refresh(&entry_clone);

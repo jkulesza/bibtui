@@ -2771,6 +2771,12 @@ fn test_show_groups_respects_config() {
 
 // ── handle_doi_fetch_result ──────────────────────────────────────────────
 
+pub(super) fn unique_doi(doi: &str, url: &str) -> crate::util::import::crossref::MetadataMatch {
+    crate::util::import::crossref::MetadataMatch::Unique(
+        crate::util::import::crossref::DoiCandidate::for_test(doi, url),
+    )
+}
+
 fn doi_lookup(app: &App, key: &str) -> super::import::DoiLookup {
     super::import::DoiLookup::of(&app.database.entries[key])
 }
@@ -2784,10 +2790,7 @@ fn test_handle_doi_fetch_result_sets_doi_field() {
 
     app.handle_doi_fetch_result(
         doi_lookup(&app, &key),
-        Ok((
-            "10.1234/test".to_string(),
-            "https://doi.org/10.1234/test".to_string(),
-        )),
+        Ok(unique_doi("10.1234/test", "https://doi.org/10.1234/test")),
     );
 
     let entry = app.database.entries.get(&key).unwrap();
@@ -2810,9 +2813,9 @@ fn test_handle_doi_fetch_result_sets_distinct_url() {
 
     app.handle_doi_fetch_result(
         doi_lookup(&app, &key),
-        Ok((
-            "10.1234/test".to_string(),
-            "https://publisher.example.com/article/42".to_string(),
+        Ok(unique_doi(
+            "10.1234/test",
+            "https://publisher.example.com/article/42",
         )),
     );
 
@@ -2834,10 +2837,7 @@ fn test_handle_doi_fetch_result_marks_entry_dirty() {
     let key = app.detail_entry_key.clone().unwrap();
     assert!(!app.database.entries[&key].dirty);
 
-    app.handle_doi_fetch_result(
-        doi_lookup(&app, &key),
-        Ok(("10.5555/x".to_string(), String::new())),
-    );
+    app.handle_doi_fetch_result(doi_lookup(&app, &key), Ok(unique_doi("10.5555/x", "")));
 
     assert!(app.database.entries[&key].dirty);
     assert!(app.dirty);
@@ -2857,10 +2857,7 @@ fn test_handle_doi_fetch_result_already_up_to_date() {
         .fields
         .insert("doi".to_string(), "10.1234/test".to_string());
 
-    app.handle_doi_fetch_result(
-        doi_lookup(&app, &key),
-        Ok(("10.1234/test".to_string(), String::new())),
-    );
+    app.handle_doi_fetch_result(doi_lookup(&app, &key), Ok(unique_doi("10.1234/test", "")));
 
     // Should report already-up-to-date, not set dirty
     let msg = app.status_message.as_deref().unwrap_or("");
@@ -2897,10 +2894,7 @@ fn test_handle_doi_fetch_result_pushes_undo() {
     let key = app.detail_entry_key.clone().unwrap();
     let before = app.undo_stack.len();
 
-    app.handle_doi_fetch_result(
-        doi_lookup(&app, &key),
-        Ok(("10.9999/z".to_string(), String::new())),
-    );
+    app.handle_doi_fetch_result(doi_lookup(&app, &key), Ok(unique_doi("10.9999/z", "")));
 
     assert!(
         app.undo_stack.len() > before,

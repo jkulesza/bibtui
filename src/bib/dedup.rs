@@ -248,7 +248,18 @@ pub fn normalize_title(value: &str) -> String {
 
 /// Lowercase surname of the first author (or editor).
 fn first_surname(entry: &Entry) -> Option<String> {
-    let names = field(entry, "author").or_else(|| field(entry, "editor"))?;
+    first_surname_in(field(entry, "author").or_else(|| field(entry, "editor"))?)
+}
+
+/// Lowercase alphanumeric comparison key for one surname or organization
+/// name, with LaTeX rendered (`G{\"o}del` and `Gödel` agree).
+pub fn surname_key(name: &str) -> Option<String> {
+    alnum(name)
+}
+
+/// Comparison key ([`surname_key`]) of the first name in a BibTeX name list;
+/// a brace-protected organization counts as one name.
+pub fn first_surname_in(names: &str) -> Option<String> {
     let first = *crate::util::author::split_name_list(names).first()?;
     if let Some(literal) = crate::util::author::literal_name(first) {
         return alnum(literal);
@@ -368,6 +379,14 @@ fn match_pair(a: &Fingerprint, b: &Fingerprint, settings: &DedupSettings) -> Opt
     }
     let similarity = title_similarity(&a.title, &b.title, settings.title_threshold)?;
     Some(MatchReason::Title { similarity })
+}
+
+/// Normalized Levenshtein similarity of two [`normalize_title`]d titles, or
+/// `None` when it is below `threshold`.
+pub fn normalized_title_similarity(a: &str, b: &str, threshold: f64) -> Option<f64> {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    title_similarity(&a, &b, threshold)
 }
 
 /// Normalized Levenshtein similarity of two titles, or `None` when it is

@@ -1,3 +1,4 @@
+use super::tests::unique_doi;
 use super::*;
 use crate::config::defaults::default_config;
 
@@ -1852,10 +1853,7 @@ const BACKGROUND_BIB: &str =
 @Article{B, title={Second Study}, author={Jones, Bob}, year={2021}}\n";
 
 /// Start a DOI lookup for `key` whose answer the test controls.
-fn start_doi_lookup(
-    app: &mut App,
-    key: &str,
-) -> std::sync::mpsc::Sender<Result<(String, String), String>> {
+fn start_doi_lookup(app: &mut App, key: &str) -> std::sync::mpsc::Sender<DoiFetchResult> {
     let (tx, rx) = std::sync::mpsc::channel();
     let lookup = super::import::DoiLookup::of(&app.database.entries[key]);
     app.pending_doi_fetch = Some((lookup, rx));
@@ -1934,9 +1932,9 @@ fn doi_result_applies_to_unchanged_entry_as_one_undo_step() {
     let (mut app, _dir) = review_app(BACKGROUND_BIB);
     let tx = start_doi_lookup(&mut app, "A");
     let depth = app.undo_stack.len();
-    tx.send(Ok((
-        "10.1000/found".into(),
-        "https://publisher.example/a".into(),
+    tx.send(Ok(unique_doi(
+        "10.1000/found",
+        "https://publisher.example/a",
     )))
     .unwrap();
     assert!(app.poll_background_tasks());
@@ -1959,8 +1957,7 @@ fn doi_result_never_overwrites_a_manual_doi() {
     let tx = start_doi_lookup(&mut app, "A");
     review_edit(&mut app, "A", "doi", "10.1000/manual");
     let depth = app.undo_stack.len();
-    tx.send(Ok(("10.1000/stale".into(), String::new())))
-        .unwrap();
+    tx.send(Ok(unique_doi("10.1000/stale", ""))).unwrap();
     app.poll_background_tasks();
     assert_eq!(field(&app, "A", "doi").as_deref(), Some("10.1000/manual"));
     assert_eq!(app.undo_stack.len(), depth);
@@ -1983,8 +1980,7 @@ fn doi_result_discarded_after_title_or_author_change() {
         let (mut app, _dir) = review_app(BACKGROUND_BIB);
         let tx = start_doi_lookup(&mut app, "A");
         review_edit(&mut app, "A", name, value);
-        tx.send(Ok(("10.1000/stale".into(), String::new())))
-            .unwrap();
+        tx.send(Ok(unique_doi("10.1000/stale", ""))).unwrap();
         app.poll_background_tasks();
         assert_eq!(field(&app, "A", "doi"), None, "{name}");
         assert!(
@@ -2004,7 +2000,7 @@ fn doi_result_discarded_after_key_change_deletion_or_key_reuse() {
     entry.citation_key = "Smith2020".into();
     app.database.entries.insert("Smith2020".into(), entry);
     let depth = app.undo_stack.len();
-    tx.send(Ok(("10.1000/x".into(), String::new()))).unwrap();
+    tx.send(Ok(unique_doi("10.1000/x", ""))).unwrap();
     app.poll_background_tasks();
     assert_eq!(field(&app, "Smith2020", "doi"), None);
     assert_eq!(app.undo_stack.len(), depth);
@@ -2019,7 +2015,7 @@ fn doi_result_discarded_after_key_change_deletion_or_key_reuse() {
     let tx = start_doi_lookup(&mut app, "A");
     app.delete_entry("A");
     let depth = app.undo_stack.len();
-    tx.send(Ok(("10.1000/x".into(), String::new()))).unwrap();
+    tx.send(Ok(unique_doi("10.1000/x", ""))).unwrap();
     app.poll_background_tasks();
     assert!(!app.database.entries.contains_key("A"));
     assert_eq!(app.undo_stack.len(), depth);
@@ -2031,7 +2027,7 @@ fn doi_result_discarded_after_key_change_deletion_or_key_reuse() {
     let mut other = app.database.entries.shift_remove("A").unwrap();
     other.fields.insert("title".into(), "Unrelated Work".into());
     app.database.entries.insert("A".into(), other);
-    tx.send(Ok(("10.1000/x".into(), String::new()))).unwrap();
+    tx.send(Ok(unique_doi("10.1000/x", ""))).unwrap();
     app.poll_background_tasks();
     assert_eq!(field(&app, "A", "doi"), None);
     assert!(status(&app).contains("not applied"), "{}", status(&app));
@@ -2043,8 +2039,7 @@ fn doi_result_applies_after_change_is_undone() {
     let tx = start_doi_lookup(&mut app, "A");
     review_edit(&mut app, "A", "title", "Revised Study");
     app.handle_action(Action::Undo);
-    tx.send(Ok(("10.1000/found".into(), String::new())))
-        .unwrap();
+    tx.send(Ok(unique_doi("10.1000/found", ""))).unwrap();
     app.poll_background_tasks();
     assert_eq!(field(&app, "A", "doi").as_deref(), Some("10.1000/found"));
 }
@@ -2055,8 +2050,7 @@ fn doi_result_waits_for_open_editor_on_the_same_entry() {
     let a = key_with_title(&app, "First Study");
     edit_draft(&mut app, &a, "note", "draft text");
     let tx = start_doi_lookup(&mut app, &a);
-    tx.send(Ok(("10.1000/found".into(), String::new())))
-        .unwrap();
+    tx.send(Ok(unique_doi("10.1000/found", ""))).unwrap();
     app.poll_background_tasks();
     assert_eq!(app.mode, InputMode::Editing);
     assert_eq!(app.field_editor_state.as_ref().unwrap().value, "draft text");
@@ -2074,8 +2068,7 @@ fn second_doi_lookup_refused_while_a_result_waits() {
     let (mut app, _dir) = review_app(BACKGROUND_BIB);
     edit_draft(&mut app, "A", "note", "x");
     let tx = start_doi_lookup(&mut app, "A");
-    tx.send(Ok(("10.1000/found".into(), String::new())))
-        .unwrap();
+    tx.send(Ok(unique_doi("10.1000/found", ""))).unwrap();
     app.poll_background_tasks();
     assert!(app.finished_doi_fetch.is_some());
     app.handle_action(Action::CancelEdit);
@@ -2181,4 +2174,96 @@ fn second_import_refused_while_a_result_waits() {
     app.spawn_import("10.1000/next".into());
     assert_eq!(status(&app), "Import already in progress — please wait");
     assert!(app.pending_import.is_none(), "no second fetch started");
+}
+
+// ── N09: metadata DOI matches are checked before they are assigned ───────
+
+fn choose_doi_app() -> (App, tempfile::TempDir) {
+    review_app(BACKGROUND_BIB)
+}
+
+fn candidate(doi: &str) -> crate::util::import::crossref::DoiCandidate {
+    crate::util::import::crossref::DoiCandidate::for_test(doi, "")
+}
+
+fn weak_match(dois: &[&str]) -> crate::util::import::crossref::MetadataMatch {
+    crate::util::import::crossref::MetadataMatch::Choose {
+        candidates: dois.iter().map(|d| candidate(d)).collect(),
+        ambiguous: false,
+    }
+}
+
+#[test]
+fn weak_doi_matches_ask_and_assign_only_the_chosen_one() {
+    let (mut app, _dir) = choose_doi_app();
+    let tx = start_doi_lookup(&mut app, "A");
+    tx.send(Ok(weak_match(&["10.1000/one", "10.1000/two"])))
+        .unwrap();
+    app.poll_background_tasks();
+    assert_eq!(app.mode, InputMode::Dialog);
+    assert_eq!(
+        field(&app, "A", "doi"),
+        None,
+        "nothing assigned before choosing"
+    );
+    let options = match &app.dialog_state.as_ref().unwrap().kind {
+        DialogKind::TypePicker { options, .. } => options.clone(),
+        other => panic!("expected a picker, got {other:?}"),
+    };
+    assert_eq!(options.len(), 3);
+    assert!(options[1].ends_with("10.1000/two"), "{options:?}");
+    assert!(options[2].starts_with("None of these"));
+
+    app.dialog_state.as_mut().unwrap().select(1);
+    app.handle_action(Action::DialogConfirm);
+    assert_eq!(field(&app, "A", "doi").as_deref(), Some("10.1000/two"));
+    assert_eq!(status(&app), "Found DOI: 10.1000/two");
+}
+
+#[test]
+fn rejecting_doi_candidates_leaves_entry_unchanged() {
+    for how in ["none", "cancel"] {
+        let (mut app, _dir) = choose_doi_app();
+        let depth = app.undo_stack.len();
+        let tx = start_doi_lookup(&mut app, "A");
+        tx.send(Ok(weak_match(&["10.1000/one"]))).unwrap();
+        app.poll_background_tasks();
+        if how == "none" {
+            app.dialog_state.as_mut().unwrap().select(1);
+            app.handle_action(Action::DialogConfirm);
+            assert_eq!(status(&app), "No DOI assigned");
+        } else {
+            app.handle_action(Action::DialogCancel);
+        }
+        assert_eq!(field(&app, "A", "doi"), None, "{how}");
+        assert_eq!(app.undo_stack.len(), depth, "{how}");
+        assert!(!app.database.entries["A"].dirty, "{how}");
+    }
+}
+
+#[test]
+fn chosen_doi_rechecks_entry_before_assigning() {
+    let (mut app, _dir) = choose_doi_app();
+    let tx = start_doi_lookup(&mut app, "A");
+    tx.send(Ok(weak_match(&["10.1000/one"]))).unwrap();
+    app.poll_background_tasks();
+    // The entry changes while the picker is open (e.g. by another path).
+    review_edit(&mut app, "A", "doi", "10.1000/manual");
+    app.handle_action(Action::DialogConfirm);
+    assert_eq!(field(&app, "A", "doi").as_deref(), Some("10.1000/manual"));
+    assert!(
+        status(&app).starts_with("DOI not assigned"),
+        "{}",
+        status(&app)
+    );
+}
+
+#[test]
+fn unique_doi_match_is_assigned_without_asking() {
+    let (mut app, _dir) = choose_doi_app();
+    let tx = start_doi_lookup(&mut app, "A");
+    tx.send(Ok(unique_doi("10.1000/sure", ""))).unwrap();
+    app.poll_background_tasks();
+    assert_ne!(app.mode, InputMode::Dialog);
+    assert_eq!(field(&app, "A", "doi").as_deref(), Some("10.1000/sure"));
 }

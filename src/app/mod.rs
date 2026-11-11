@@ -66,8 +66,8 @@ use completions::*;
 use save::*;
 
 /// Channel for a background DOI-from-metadata lookup: Ok((doi, url)) or an error message.
-/// A metadata→DOI lookup's answer: (doi, url) or an error message.
-type DoiFetchResult = Result<(String, String), String>;
+/// A metadata→DOI lookup's answer: what Crossref matched, or an error message.
+type DoiFetchResult = Result<crate::util::import::crossref::MetadataMatch, String>;
 type DoiFetchReceiver = mpsc::Receiver<DoiFetchResult>;
 
 pub struct App {
@@ -2358,6 +2358,13 @@ impl App {
                         }
                     }
                 }
+            }
+            Some(PendingAction::ChooseDoi { lookup, candidates }) => {
+                let selected = dialog.as_ref().map(|d| d.selected()).unwrap_or(usize::MAX);
+                if self.detail_state.is_some() {
+                    self.mode = InputMode::Detail;
+                }
+                self.choose_doi_candidate(lookup, candidates, selected);
             }
             Some(PendingAction::OpenWeb(urls)) => {
                 if let Some(dialog) = dialog {

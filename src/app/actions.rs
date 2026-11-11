@@ -314,6 +314,12 @@ pub(super) enum PendingAction {
         entry_key: String,
     },
     /// Dismiss a non-interactive message popup (no side effect on confirm).
+    /// A metadata DOI lookup found only weak or several equally good
+    /// matches; the picker lists `candidates` plus "None of these".
+    ChooseDoi {
+        lookup: super::import::DoiLookup,
+        candidates: Vec<crate::util::import::crossref::DoiCandidate>,
+    },
     DismissMessage,
     /// Dismiss the retired-keys report after a merge.
     DismissMergeReport,
