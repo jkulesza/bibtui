@@ -374,11 +374,14 @@ a visible field or is cleared.
 When `save.sync_filenames` is enabled, saving with `:w` or `:wq` shows a scrollable
 preview of any file renames that will be performed, with `[y]es` / `[n]o` to proceed
 or cancel. The preview is built from the final normalized fields and generated keys,
-and confirming executes exactly that plan. Attachments that are missing from disk or
-are remote links (`https://…`) are never renamed; the save completes and the status
-line lists them. Case-only renames (`smith2020.pdf` → `Smith2020.pdf`) work on
+and confirming executes exactly that plan. Attachments that are missing from disk,
+remote links (`https://…`), and files that another entry also references (including
+through a symlink or hard link) are never renamed; the save completes and the status
+line lists them. `F` (one entry in the detail view, every entry from the list) and its
+preview follow the same rules, so a shared file is never moved out from under another entry.
+Case-only renames (`smith2020.pdf` → `Smith2020.pdf`) work on
 case-insensitive filesystems. A rename never overwrites an existing file, and
-shared attachments or occupied destinations are reported before any file is moved.
+occupied destinations are reported before any file is moved.
 If saving fails, completed attachment moves are reversed.
 
 A failed save keeps the application open and the library marked unsaved, including

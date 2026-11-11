@@ -1,6 +1,7 @@
 //! Save pipeline: filename sync, save actions, violations, and
 //! raw-file synchronization.
 
+use super::attachments::{describe_owners, AttachmentOwners, FileId};
 use super::*;
 
 #[derive(Debug, thiserror::Error)]
@@ -150,7 +151,9 @@ impl App {
             self.database.jabref_meta.file_directory.as_deref(),
         );
         let mut files = parse_file_field(&old_file_value);
-        let (plans, skipped) = plan_filename_renames(&entry.citation_key, &files, &file_dir);
+        let owners = self.attachment_owners();
+        let (plans, skipped) =
+            plan_filename_renames(key, &entry.citation_key, &files, &file_dir, &owners);
         let mut renames = Vec::new();
         let mut errors: Vec<String> = skipped
             .into_iter()
@@ -268,8 +271,9 @@ impl App {
         );
 
         let mut renames = Vec::new();
+        let owners = self.attachment_owners();
 
-        for (_, entry) in &self.database.entries {
+        for (key, entry) in &self.database.entries {
             let file_val = match entry.fields.get("file") {
                 Some(v) => v,
                 None => continue,
@@ -277,7 +281,8 @@ impl App {
             let parsed = parse_file_field(file_val);
             // Share planning with the actual sync so the preview omits the
             // same remote and missing attachments.
-            let (plans, _) = plan_filename_renames(&entry.citation_key, &parsed, &file_dir);
+            let (plans, _) =
+                plan_filename_renames(key, &entry.citation_key, &parsed, &file_dir, &owners);
             for plan in plans {
                 let pf = &parsed[plan.index];
                 let old_rel = PathBuf::from(&pf.path);
@@ -437,13 +442,14 @@ impl App {
         let mut skipped = Vec::new();
         let mut undo = Vec::new();
         if self.config.save.sync_filenames {
+            let owners = self.attachment_owners();
             for (key, entry) in &mut self.database.entries {
                 let Some(old_value) = entry.fields.get("file").cloned() else {
                     continue;
                 };
                 let mut files = parse_file_field(&old_value);
                 let (plans, entry_skipped) =
-                    plan_filename_renames(&entry.citation_key, &files, &file_dir);
+                    plan_filename_renames(key, &entry.citation_key, &files, &file_dir, &owners);
                 skipped.extend(entry_skipped);
                 if plans.is_empty() {
                     continue;
@@ -502,37 +508,22 @@ impl App {
     }
 
     fn validate_save_renames(&self, plan: &SavePlan) -> std::result::Result<(), SaveError> {
-        use std::collections::{HashMap, HashSet};
+        use std::collections::HashSet;
         if plan.renames.is_empty() {
             return Ok(());
         }
-        let file_dir = effective_file_dir(
-            &self.bib_path,
-            self.database.jabref_meta.file_directory.as_deref(),
-        );
-        let mut owners: HashMap<PathBuf, usize> = HashMap::new();
-        for entry in self.database.entries.values() {
-            if let Some(value) = entry.fields.get("file") {
-                for file in parse_file_field(value) {
-                    let path = crate::util::open::resolve_file_path(&file.path, &file_dir);
-                    let path = path.canonicalize().unwrap_or(path);
-                    *owners.entry(path).or_default() += 1;
-                }
-            }
-        }
+        // Shared sources were already excluded by plan_filename_renames;
+        // re-check against the current library in case it changed since.
+        let owners = self.attachment_owners();
         let mut targets = HashSet::new();
         for rename in &plan.renames {
-            let source = rename.old_abs.canonicalize().map_err(|error| {
-                SaveError::Plan(format!(
-                    "attachment {}: {}",
-                    rename.old_abs.display(),
-                    error
-                ))
-            })?;
-            if owners.get(&source).copied().unwrap_or(0) > 1 {
+            let shared = owners
+                .get(&FileId::of(&rename.old_abs))
+                .is_some_and(|keys| keys.len() > 1);
+            if shared {
                 return Err(SaveError::Plan(format!(
-                    "shared attachment {} cannot be renamed to multiple citation keys",
-                    source.display()
+                    "shared attachment {} cannot be renamed to one citation key",
+                    rename.old_abs.display()
                 )));
             }
             // An existing target is acceptable only when it is the source
@@ -1214,13 +1205,17 @@ struct PlannedRename {
 /// target conflicts atomically when creating the destination) and keep
 /// their own undo/status handling.
 ///
-/// Remote links (`https://…`) and attachments missing from disk are never
-/// renamed; they are returned as human-readable notes so that one broken link
-/// cannot block a save.
+/// Remote links (`https://…`), attachments missing from disk, and files that
+/// another entry also references (per `owners`) are never renamed; the
+/// latter two are returned as human-readable notes so that one broken or
+/// shared link cannot block a save. Save, manual `F`, bulk sync and their
+/// previews all plan through here, so they agree on what is renamed.
 fn plan_filename_renames(
+    entry_key: &str,
     citekey: &str,
     parsed: &[crate::util::open::ParsedFile],
     file_dir: &std::path::Path,
+    owners: &AttachmentOwners,
 ) -> (Vec<PlannedRename>, Vec<String>) {
     let multi = parsed.len() > 1;
     let safe_stem = crate::util::import::sanitize_filename_stem(citekey);
@@ -1257,6 +1252,20 @@ fn plan_filename_renames(
         };
         if !old_abs.exists() {
             skipped.push(format!("{} (file not found)", old_abs.display()));
+            continue;
+        }
+        // A file another entry also references cannot follow this entry's
+        // key without breaking the other entry: never rename it.
+        let others: Vec<String> = owners
+            .get(&FileId::of(&old_abs))
+            .map(|keys| keys.iter().filter(|k| *k != entry_key).cloned().collect())
+            .unwrap_or_default();
+        if !others.is_empty() {
+            skipped.push(format!(
+                "{} (also used by {})",
+                old_abs.display(),
+                describe_owners(&others)
+            ));
             continue;
         }
         let new_abs = old_abs

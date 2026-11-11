@@ -492,12 +492,15 @@ fn shared_attachments_and_changed_previews_are_rejected_before_moves() {
         review_app("@Misc{A, file={:old.pdf:PDF}}\n@Misc{B, file={:old.pdf:PDF}}\n");
     std::fs::write(dir.path().join("old.pdf"), "attachment").unwrap();
     app.config.save.sync_filenames = true;
-    assert!(!app.save());
-    assert!(app
-        .status_message
-        .as_deref()
-        .unwrap()
-        .contains("shared attachment"));
+    // A shared attachment is not renamed (and is named in the status), but
+    // it no longer blocks saving the library.
+    assert!(app.save());
+    let status = app.status_message.clone().unwrap();
+    assert!(status.contains("not renamed"), "{status}");
+    assert!(status.contains("also used by"), "{status}");
+    assert!(dir.path().join("old.pdf").exists());
+    assert!(!dir.path().join("A.pdf").exists());
+    assert!(!dir.path().join("B.pdf").exists());
     // Detach B's copy (marked dirty, as a real field deletion is).
     let b = app.database.entries.get_mut("B").unwrap();
     b.fields.shift_remove("file");
@@ -1768,4 +1771,76 @@ fn single_unshared_attachment_option_names_permanence() {
         }
         other => panic!("{other:?}"),
     }
+}
+
+// ── N06: shared attachments and manual / bulk filename sync ──────────────
+
+const SHARED_BIB: &str = "@Misc{A, file={:shared.pdf:PDF}}\n@Misc{B, file={:shared.pdf:PDF}}\n";
+
+#[test]
+fn manual_sync_does_not_move_a_shared_attachment() {
+    let (mut app, dir) = review_app(SHARED_BIB);
+    let shared = dir.path().join("shared.pdf");
+    std::fs::write(&shared, "attachment").unwrap();
+    app.detail_entry_key = Some("A".into());
+    app.sync_entry_filename();
+    let status = app.status_message.clone().unwrap();
+    assert!(status.contains("not renamed"), "{status}");
+    assert!(status.contains("also used by B"), "{status}");
+    assert!(shared.exists());
+    assert!(!dir.path().join("A.pdf").exists());
+    for key in ["A", "B"] {
+        assert_eq!(app.database.entries[key].fields["file"], ":shared.pdf:PDF");
+        assert!(!app.database.entries[key].dirty);
+    }
+}
+
+#[test]
+fn bulk_sync_and_preview_skip_shared_attachments_but_rename_others() {
+    let (mut app, dir) =
+        review_app("@Misc{A, file={:shared.pdf:PDF}}\n@Misc{B, file={:shared.pdf:PDF}}\n@Misc{C, file={:own.pdf:PDF}}\n");
+    std::fs::write(dir.path().join("shared.pdf"), "attachment").unwrap();
+    std::fs::write(dir.path().join("own.pdf"), "attachment").unwrap();
+    // The preview lists only the rename that will actually happen.
+    assert_eq!(
+        app.compute_sync_renames(true),
+        vec![("own.pdf".to_string(), "C.pdf".to_string())]
+    );
+    app.sync_filenames(true);
+    assert!(dir.path().join("shared.pdf").exists());
+    assert!(dir.path().join("C.pdf").exists());
+    assert_eq!(app.database.entries["C"].fields["file"], ":C.pdf:PDF");
+    assert_eq!(app.database.entries["B"].fields["file"], ":shared.pdf:PDF");
+    let status = app.status_message.clone().unwrap();
+    assert!(status.contains("also used by"), "{status}");
+}
+
+#[cfg(unix)]
+#[test]
+fn manual_sync_recognizes_a_hard_linked_shared_attachment() {
+    let (mut app, dir) =
+        review_app("@Misc{A, file={:shared.pdf:PDF}}\n@Misc{B, file={:link.pdf:PDF}}\n");
+    let shared = dir.path().join("shared.pdf");
+    std::fs::write(&shared, "attachment").unwrap();
+    std::fs::hard_link(&shared, dir.path().join("link.pdf")).unwrap();
+    app.detail_entry_key = Some("A".into());
+    app.sync_entry_filename();
+    assert!(shared.exists());
+    assert!(!dir.path().join("A.pdf").exists());
+}
+
+#[test]
+fn manual_sync_renames_once_the_file_is_no_longer_shared() {
+    let (mut app, dir) = review_app(SHARED_BIB);
+    std::fs::write(dir.path().join("shared.pdf"), "attachment").unwrap();
+    let b = app.database.entries.get_mut("B").unwrap();
+    b.fields.shift_remove("file");
+    b.dirty = true;
+    app.detail_entry_key = Some("A".into());
+    app.sync_entry_filename();
+    assert_eq!(
+        app.status_message.as_deref(),
+        Some("File renamed to match citation key")
+    );
+    assert!(dir.path().join("A.pdf").exists());
 }

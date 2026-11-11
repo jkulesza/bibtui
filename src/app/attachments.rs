@@ -32,6 +32,9 @@ impl FileId {
     }
 }
 
+/// Each attachment's identity mapped to the keys of the entries using it.
+pub(super) type AttachmentOwners = HashMap<FileId, BTreeSet<String>>;
+
 impl App {
     /// Absolute paths of the files listed in an entry's `file` field.
     pub(super) fn entry_attachment_paths(&self, key: &str) -> Vec<PathBuf> {
@@ -55,8 +58,8 @@ impl App {
 
     /// Every attachment in the library, mapped to the keys of the entries
     /// that reference it.
-    pub(super) fn attachment_owners(&self) -> HashMap<FileId, BTreeSet<String>> {
-        let mut owners: HashMap<FileId, BTreeSet<String>> = HashMap::new();
+    pub(super) fn attachment_owners(&self) -> AttachmentOwners {
+        let mut owners = AttachmentOwners::new();
         for key in self.database.entries.keys() {
             for path in self.entry_attachment_paths(key) {
                 owners
@@ -71,7 +74,7 @@ impl App {
     /// Entries other than `key` that reference the file at `path`.
     pub(super) fn other_attachment_owners(
         &self,
-        owners: &HashMap<FileId, BTreeSet<String>>,
+        owners: &AttachmentOwners,
         key: &str,
         path: &Path,
     ) -> Vec<String> {
