@@ -470,6 +470,18 @@ pub fn build_database(raw: RawBibFile) -> Database {
     let mut jabref_meta = JabRefMeta::default();
     let mut duplicate_keys = Vec::new();
 
+    // Every key that appears in the file is reserved up front, so a repair
+    // suffix never takes a key owned by a later entry (which would silently
+    // retarget crossrefs and other references to that key).
+    let original_keys: std::collections::HashSet<&str> = raw
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            RawItem::Entry(e) => Some(e.citation_key.as_str()),
+            _ => None,
+        })
+        .collect();
+
     for (idx, item) in raw.items.iter().enumerate() {
         match item {
             RawItem::Entry(raw_entry) => {
@@ -502,7 +514,9 @@ pub fn build_database(raw: RawBibFile) -> Database {
                     let mut n = 2usize;
                     loop {
                         let candidate = format!("{}_dup{}", raw_entry.citation_key, n);
-                        if !entries.contains_key(&candidate) {
+                        if !entries.contains_key(&candidate)
+                            && !original_keys.contains(candidate.as_str())
+                        {
                             citation_key = candidate;
                             break;
                         }
@@ -785,6 +799,38 @@ mod tests {
         assert_eq!(db.entries.len(), 3);
         assert_eq!(db.entries["k1_dup2"].fields["title"], "X");
         assert_eq!(db.entries["k1_dup3"].fields["title"], "B");
+    }
+
+    #[test]
+    fn test_build_database_dup_suffix_skips_later_original_key() {
+        // A later entry that already owns k1_dup2 keeps it; the duplicate k1
+        // is repaired to a key nobody owns, and a crossref to k1_dup2 still
+        // resolves to the entry it was written for.
+        let input = "@Article{k1,\n  title = {A},\n}\n\n@Article{k1,\n  title = {Duplicate},\n}\n\n@Article{k1_dup2,\n  title = {Reserved},\n}\n\n@InBook{child,\n  crossref = {k1_dup2},\n}\n";
+        let raw = parse_bib_file(input).unwrap();
+        let db = build_database(raw);
+        assert_eq!(db.entries.len(), 4);
+        assert_eq!(db.duplicate_keys, vec!["k1".to_string()]);
+        assert_eq!(db.entries["k1"].fields["title"], "A");
+        assert_eq!(db.entries["k1_dup2"].fields["title"], "Reserved");
+        assert!(!db.entries["k1_dup2"].dirty);
+        assert_eq!(db.entries["k1_dup3"].fields["title"], "Duplicate");
+        assert!(db.entries["k1_dup3"].dirty);
+        let target = &db.entries["child"].fields["crossref"];
+        assert_eq!(db.entries[target.as_str()].fields["title"], "Reserved");
+    }
+
+    #[test]
+    fn test_build_database_dup_suffix_skips_multiple_reserved_keys() {
+        // Several collisions with several reserved suffixes later in the file.
+        let input = "@Misc{k,\n  title = {1},\n}\n\n@Misc{k,\n  title = {2},\n}\n\n@Misc{k,\n  title = {3},\n}\n\n@Misc{k_dup2,\n  title = {R2},\n}\n\n@Misc{k_dup4,\n  title = {R4},\n}\n";
+        let db = build_database(parse_bib_file(input).unwrap());
+        assert_eq!(db.entries.len(), 5);
+        assert_eq!(db.entries["k"].fields["title"], "1");
+        assert_eq!(db.entries["k_dup2"].fields["title"], "R2");
+        assert_eq!(db.entries["k_dup4"].fields["title"], "R4");
+        assert_eq!(db.entries["k_dup3"].fields["title"], "2");
+        assert_eq!(db.entries["k_dup5"].fields["title"], "3");
     }
 
     #[test]

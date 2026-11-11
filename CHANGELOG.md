@@ -1,5 +1,9 @@
 # Changelog
 
+### Unreleased
+
+- **Fix: duplicate-key repair no longer takes another entry's key** (review N04): when a file contains a duplicated key `A` and, later, an entry already named `A_dup2`, the duplicate used to be renamed to `A_dup2`, pushing the real `A_dup2` to `A_dup2_dup2` and silently retargeting any `crossref = {A_dup2}` to the wrong entry. Every key in the file is now reserved before repairs are assigned, so a duplicate gets the first `_dupN` suffix nobody owns and existing keys never move.
+
 ### 0.69.0
 
 - **Help dialog sized to its content**: the `?` help popups (entry list and detail view) widen to show every key and description untruncated when the terminal allows, instead of capping at 100 columns. Each column's key field fits its widest key, so long commands such as `:import <doi/isbn/url>` no longer run into their descriptions, and descriptions within a column line up. In narrow terminals the columns share the space in proportion to their content and only descriptions are truncated.
