@@ -2524,6 +2524,13 @@ impl App {
                         self.base_config = cfg;
                         let warnings = self.recompute_config();
                         let mut message = format!("Settings imported from {}", path);
+                        let color_warnings = self.config.theme.invalid_color_warnings();
+                        if !color_warnings.is_empty() {
+                            message.push_str(&format!(
+                                " | Config warning: {}",
+                                color_warnings.join("; ")
+                            ));
+                        }
                         if !warnings.is_empty() {
                             message
                                 .push_str(&format!(" | Library settings: {}", warnings.join("; ")));

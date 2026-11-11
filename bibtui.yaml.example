@@ -194,7 +194,9 @@ save:
   save_action_unicode_to_latex: true
 
 theme:
-  # Tokyo Night dark palette (hex colours)
+  # Tokyo Night dark palette. Each colour must be "#rrggbb" (six hex
+  # digits, any case); an invalid value is reported at startup and that
+  # colour falls back to its default.
   selected_bg: "#3b4261"
   selected_fg: "#c0caf5"
   header_bg:   "#1a1b26"

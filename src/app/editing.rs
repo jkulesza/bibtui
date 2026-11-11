@@ -201,6 +201,19 @@ impl App {
             .unwrap_or_default();
         self.field_editor_state = None;
         self.mode = InputMode::Settings;
+        if let Some(name) = setting_id.strip_prefix("theme.") {
+            if crate::config::schema::parse_hex_color(new_val.trim()).is_none() {
+                self.status_message = Some(format!(
+                    "Invalid color for {name}: '{new_val}' (expected #rrggbb); unchanged"
+                ));
+                return;
+            }
+        }
+        let new_val = if setting_id.starts_with("theme.") {
+            new_val.trim().to_string()
+        } else {
+            new_val
+        };
         if let Some(ref mut s) = self.settings_state {
             s.set_value(&setting_id, SettingValue::Str(new_val));
             s.apply_to_config(&mut self.config);

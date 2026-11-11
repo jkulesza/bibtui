@@ -520,6 +520,52 @@ fn confirm_edit_setting_updates_config() {
     );
 }
 
+#[test]
+fn confirm_edit_setting_rejects_invalid_theme_color() {
+    let (mut app, _d) = make_app();
+    open_settings(&mut app);
+    let before = app.config.theme.selected_bg.clone();
+    confirm_with(
+        &mut app,
+        PendingAction::EditSetting {
+            setting_id: "theme.selected_bg".to_string(),
+        },
+        "#aéabc",
+    );
+    assert_eq!(app.mode, InputMode::Settings);
+    assert_eq!(app.config.theme.selected_bg, before);
+    assert!(app
+        .status_message
+        .as_deref()
+        .unwrap()
+        .contains("Invalid color"));
+
+    // A valid (uppercase, padded) color is accepted and trimmed.
+    confirm_with(
+        &mut app,
+        PendingAction::EditSetting {
+            setting_id: "theme.selected_bg".to_string(),
+        },
+        " #ABCDEF ",
+    );
+    assert_eq!(app.config.theme.selected_bg, "#ABCDEF");
+}
+
+#[test]
+fn confirm_import_settings_with_invalid_color_warns_without_panicking() {
+    let (mut app, d) = make_app();
+    let path = d.path().join("bad_theme.yaml");
+    std::fs::write(&path, "theme:\n  selected_bg: '#aéabc'\n").unwrap();
+    confirm_with(
+        &mut app,
+        PendingAction::ImportSettings,
+        path.to_str().unwrap(),
+    );
+    let status = app.status_message.as_deref().unwrap();
+    assert!(status.contains("Settings imported"), "{status}");
+    assert!(status.contains("theme.selected_bg"), "{status}");
+}
+
 // ── confirm_edit dispatch: groups ───────────────────────────────────────
 
 #[test]

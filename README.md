@@ -539,7 +539,7 @@ duplicates:                               # duplicate detection (U / :dups)
   check_on_load: true                     # status-bar note when a file is opened
   check_on_import: true                   # offer to merge an imported / added duplicate
 
-theme:
+theme:                                    # each color is "#rrggbb"; invalid ones warn and use the default
   selected_bg: "#3b4261"
   selected_fg: "#c0caf5"
   header_bg:   "#1a1b26"

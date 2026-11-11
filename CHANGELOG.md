@@ -2,6 +2,7 @@
 
 ### Unreleased
 
+- **Fix: malformed theme colors no longer crash** (review N13): a color such as `#aéabc` (seven bytes, but not six hex digits) panicked at startup. Colors must now be `#rrggbb` (any case); an invalid one falls back to that color's default and is reported as a config warning at startup and after `:import`-ing settings, and the settings editor refuses it with a message instead of applying it.
 - **Fix: duplicate-key repair no longer takes another entry's key** (review N04): when a file contains a duplicated key `A` and, later, an entry already named `A_dup2`, the duplicate used to be renamed to `A_dup2`, pushing the real `A_dup2` to `A_dup2_dup2` and silently retargeting any `crossref = {A_dup2}` to the wrong entry. Every key in the file is now reserved before repairs are assigned, so a duplicate gets the first `_dupN` suffix nobody owns and existing keys never move.
 
 ### 0.69.0

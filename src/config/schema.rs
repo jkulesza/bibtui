@@ -64,6 +64,8 @@ impl Config {
             ));
         }
 
+        warnings.extend(self.theme.invalid_color_warnings());
+
         warnings
     }
 }
@@ -359,6 +361,45 @@ impl Default for ThemeConfig {
     }
 }
 
+impl ThemeConfig {
+    /// `(name, value)` for every color slot, in settings order.
+    pub fn colors(&self) -> [(&'static str, &str); 6] {
+        [
+            ("selected_bg", &self.selected_bg),
+            ("selected_fg", &self.selected_fg),
+            ("header_bg", &self.header_bg),
+            ("header_fg", &self.header_fg),
+            ("search_match", &self.search_match),
+            ("border_color", &self.border_color),
+        ]
+    }
+
+    /// One warning per color that is not a `#rrggbb` hex string.
+    pub fn invalid_color_warnings(&self) -> Vec<String> {
+        self.colors()
+            .iter()
+            .filter(|(_, value)| parse_hex_color(value).is_none())
+            .map(|(name, value)| {
+                format!("theme.{name} '{value}' is not a #rrggbb color; using the default")
+            })
+            .collect()
+    }
+}
+
+/// Parse a `#rrggbb` color (case-insensitive). Anything else, including
+/// non-ASCII input of the right byte length, is rejected.
+pub fn parse_hex_color(hex: &str) -> Option<(u8, u8, u8)> {
+    let digits = hex.strip_prefix('#')?.as_bytes();
+    if digits.len() != 6 || !digits.iter().all(u8::is_ascii_hexdigit) {
+        return None;
+    }
+    let channel = |i: usize| {
+        let pair = std::str::from_utf8(&digits[i..i + 2]).ok()?;
+        u8::from_str_radix(pair, 16).ok()
+    };
+    Some((channel(0)?, channel(2)?, channel(4)?))
+}
+
 /// Configuration for the citation preview popup (Space in entry list).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -392,6 +433,17 @@ mod tests {
     #[test]
     fn test_default_field_order_is_jabref() {
         assert_eq!(Config::default().save.field_order, "jabref");
+    }
+
+    #[test]
+    fn test_validation_warnings_flag_invalid_theme_colors() {
+        let mut cfg = Config::default();
+        cfg.theme.selected_bg = "#aéabc".into();
+        cfg.theme.header_fg = "#12345".into();
+        let warnings = cfg.validation_warnings();
+        assert_eq!(warnings.len(), 2, "{warnings:?}");
+        assert!(warnings[0].contains("theme.selected_bg"));
+        assert!(warnings[1].contains("theme.header_fg"));
     }
 
     #[test]
