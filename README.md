@@ -24,7 +24,7 @@ A terminal UI BibTeX manager written in Rust. Designed as a lightweight, keyboar
 - Assigned groups shown in the entry detail header alongside the entry type
 - ISO 4 journal abbreviation: the Journal column always shows the abbreviated form; a save action syncs `journal_full` and `journal_abbrev` companion fields
 - Configurable columns, sort, theme, citekey templates, and **keybinding overrides** via YAML
-- Export entries to **CSL-JSON** (Zotero/Pandoc compatible) or **RIS** via `:export-json` / `:export-ris`
+- Export entries to **CSL-JSON** (Zotero/Pandoc compatible) or **RIS** via `:export-json` / `:export-ris`. Exports (including settings exports) never write over the open `.bib` file or a link to it, ask before replacing an existing file, and are written atomically, so a failed export leaves any previous file intact
 - In-TUI settings editor (`S`) with live config import/export, `Tab`-completion path dialogs, and field group management
 - Validate command (`v`) dry-runs all save actions and shows which fields would change, without modifying the file
 - Context-sensitive help modal (`?`): entry-list view shows navigation, search, command-palette, and **Quality** (C / M / U / v) keys in dedicated sections; detail view shows field editing and vim modal editor keys

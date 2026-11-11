@@ -59,7 +59,7 @@ mod name_disambig;
 mod save;
 mod yank;
 pub use actions::Action;
-use actions::{PendingAction, UndoItem, MAX_UNDO};
+use actions::{ExportKind, PendingAction, UndoItem, MAX_UNDO};
 use completions::*;
 use save::*;
 
@@ -2261,6 +2261,12 @@ impl App {
             Some(PendingAction::DeleteEntry(key)) => {
                 self.delete_entry(&key);
             }
+            Some(PendingAction::OverwriteExport { kind, path }) => {
+                if kind == ExportKind::Settings && self.settings_state.is_some() {
+                    self.mode = InputMode::Settings;
+                }
+                self.write_export(kind, &path, true);
+            }
             Some(PendingAction::ApplyLibrarySettings { changes }) => {
                 if self.settings_state.is_some() {
                     self.mode = InputMode::Settings;
@@ -2436,63 +2442,122 @@ impl App {
     /// Export the YAML layer. Settings stored in the library are not
     /// included, so a library's overrides never leak into a global config.
     fn export_settings(&mut self, path: &str) {
-        let path = expand_tilde(path);
-        match serde_yaml::to_string(&self.base_config) {
-            Ok(yaml) => match std::fs::write(&path, yaml) {
-                Ok(()) => {
+        self.start_export(ExportKind::Settings, path);
+    }
+
+    fn do_export_json(&mut self, path: &str) {
+        self.start_export(ExportKind::Json, path);
+    }
+
+    fn do_export_ris(&mut self, path: &str) {
+        self.start_export(ExportKind::Ris, path);
+    }
+
+    /// True when `path` is (or aliases, via a symlink or hard link) the open
+    /// bibliography, including a not-yet-created new bibliography's path.
+    fn is_open_bibliography(&self, path: &std::path::Path) -> bool {
+        if crate::util::persistence::same_file(path, &self.bib_path) {
+            return true;
+        }
+        // Neither file need exist yet: compare the resolved locations.
+        let resolve = |p: &std::path::Path| -> Option<std::path::PathBuf> {
+            if let Ok(canonical) = std::fs::canonicalize(p) {
+                return Some(canonical);
+            }
+            let name = p.file_name()?;
+            let parent = p.parent().filter(|d| !d.as_os_str().is_empty());
+            let parent = std::fs::canonicalize(parent.unwrap_or(std::path::Path::new("."))).ok()?;
+            Some(parent.join(name))
+        };
+        matches!((resolve(path), resolve(&self.bib_path)), (Some(a), Some(b)) if a == b)
+    }
+
+    /// Validate an export destination, asking before replacing an existing
+    /// file. The open bibliography is never an acceptable destination.
+    fn start_export(&mut self, kind: ExportKind, path: &str) {
+        let path = std::path::PathBuf::from(expand_tilde(path));
+        if self.is_open_bibliography(&path) {
+            self.status_message = Some(format!(
+                "Export refused: {} is the open bibliography",
+                path.display()
+            ));
+            return;
+        }
+        if std::fs::symlink_metadata(&path).is_ok() {
+            self.dialog_state = Some(DialogState::confirm(
+                "Overwrite File",
+                &format!("{} exists. Replace it?", path.display()),
+            ));
+            self.pending_action = Some(PendingAction::OverwriteExport { kind, path });
+            self.mode = InputMode::Dialog;
+            return;
+        }
+        self.write_export(kind, &path, false);
+    }
+
+    /// Serialize and write an export. With `replace`, an existing file is
+    /// replaced atomically; otherwise the write fails if a file appeared at
+    /// `path` since the destination was checked. Either way a failed write
+    /// leaves any previous file intact.
+    fn write_export(&mut self, kind: ExportKind, path: &std::path::Path, replace: bool) {
+        // Re-check at write time: the destination may have changed since the
+        // prompt (e.g. replaced by a link to the bibliography).
+        if self.is_open_bibliography(path) {
+            self.status_message = Some(format!(
+                "Export refused: {} is the open bibliography",
+                path.display()
+            ));
+            return;
+        }
+        let contents = match kind {
+            ExportKind::Settings => serde_yaml::to_string(&self.base_config)
+                .map_err(|e| format!("Serialise failed: {}", e)),
+            ExportKind::Json => export_csl_json(&self.database)
+                .map_err(|e| format!("CSL-JSON serialisation failed: {}", e)),
+            ExportKind::Ris => Ok(export_ris(&self.database)),
+        };
+        let contents = match contents {
+            Ok(contents) => contents,
+            Err(message) => {
+                self.status_message = Some(message);
+                return;
+            }
+        };
+        let result = if replace {
+            self.save_io.persist(path, contents.as_bytes())
+        } else {
+            self.save_io.persist_new(path, contents.as_bytes())
+        };
+        let path = path.display();
+        self.status_message = Some(match result {
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                format!(
+                    "Export failed: {} was created meanwhile; not replaced",
+                    path
+                )
+            }
+            Err(e) => format!("Export failed: {}", e),
+            Ok(()) => match kind {
+                ExportKind::Settings => {
                     let note = if self.library.overrides().is_empty() {
                         ""
                     } else {
                         " (library settings not included; B writes them to the .bib)"
                     };
-                    self.status_message = Some(format!("Settings exported to {}{}", path, note));
+                    format!("Settings exported to {}{}", path, note)
                 }
-                Err(e) => {
-                    self.status_message = Some(format!("Export failed: {}", e));
-                }
-            },
-            Err(e) => {
-                self.status_message = Some(format!("Serialise failed: {}", e));
-            }
-        }
-    }
-
-    fn do_export_json(&mut self, path: &str) {
-        let path = expand_tilde(path);
-        match export_csl_json(&self.database) {
-            Ok(json) => match std::fs::write(&path, json) {
-                Ok(()) => {
-                    self.status_message = Some(format!(
-                        "Exported {} entries as CSL-JSON to {}",
-                        self.database.entries.len(),
-                        path
-                    ));
-                }
-                Err(e) => {
-                    self.status_message = Some(format!("Export failed: {}", e));
-                }
-            },
-            Err(e) => {
-                self.status_message = Some(format!("CSL-JSON serialisation failed: {}", e));
-            }
-        }
-    }
-
-    fn do_export_ris(&mut self, path: &str) {
-        let path = expand_tilde(path);
-        let ris = export_ris(&self.database);
-        match std::fs::write(&path, ris) {
-            Ok(()) => {
-                self.status_message = Some(format!(
+                ExportKind::Json => format!(
+                    "Exported {} entries as CSL-JSON to {}",
+                    self.database.entries.len(),
+                    path
+                ),
+                ExportKind::Ris => format!(
                     "Exported {} entries as RIS to {}",
                     self.database.entries.len(),
                     path
-                ));
-            }
-            Err(e) => {
-                self.status_message = Some(format!("Export failed: {}", e));
-            }
-        }
+                ),
+            },
+        });
     }
 
     /// Sync all runtime fields that shadow config values, and rebuild the theme.

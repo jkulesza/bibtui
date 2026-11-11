@@ -232,6 +232,9 @@ impl crate::util::persistence::SaveIo for FailingSaveIo {
     fn persist(&self, _path: &std::path::Path, _contents: &[u8]) -> std::io::Result<()> {
         Err(std::io::Error::other("injected write/replacement failure"))
     }
+    fn persist_new(&self, _path: &std::path::Path, _contents: &[u8]) -> std::io::Result<()> {
+        Err(std::io::Error::other("injected write failure"))
+    }
 }
 
 #[test]
@@ -1458,4 +1461,194 @@ fn background_search_sees_edits_made_without_the_undo_stack() {
     app.refresh_view();
     finish_review_search(&mut app);
     assert_eq!(app.selected_entry_key().as_deref(), Some("Key00500"));
+}
+
+// ── N02: export destinations ─────────────────────────────────────────────
+
+const EXPORT_BIB: &str = "@Misc{A, title={Alpha}}\n";
+
+fn export_to(app: &mut App, kind: ExportKind, path: &std::path::Path) {
+    let path = path.to_str().unwrap();
+    match kind {
+        ExportKind::Settings => app.export_settings(path),
+        ExportKind::Json => app.do_export_json(path),
+        ExportKind::Ris => app.do_export_ris(path),
+    }
+}
+
+const ALL_EXPORTS: [ExportKind; 3] = [ExportKind::Settings, ExportKind::Json, ExportKind::Ris];
+
+#[test]
+fn export_refuses_the_open_bibliography() {
+    let (mut app, dir) = review_app(EXPORT_BIB);
+    let bib = app.bib_path.clone();
+    // The ordinary path, and the same file spelled through `.`.
+    let dotted = dir.path().join(".").join("library.bib");
+    for kind in ALL_EXPORTS {
+        for target in [&bib, &dotted] {
+            export_to(&mut app, kind, target);
+            assert!(
+                app.status_message
+                    .as_deref()
+                    .unwrap()
+                    .contains("open bibliography"),
+                "{kind:?} {target:?}: {:?}",
+                app.status_message
+            );
+            assert!(app.dialog_state.is_none(), "no overwrite prompt is offered");
+        }
+    }
+    assert_eq!(std::fs::read_to_string(&bib).unwrap(), EXPORT_BIB);
+}
+
+#[cfg(unix)]
+#[test]
+fn export_refuses_symlink_and_hard_link_aliases_of_the_bibliography() {
+    let (mut app, dir) = review_app(EXPORT_BIB);
+    let bib = app.bib_path.clone();
+    let soft = dir.path().join("soft.json");
+    let hard = dir.path().join("hard.json");
+    std::os::unix::fs::symlink(&bib, &soft).unwrap();
+    std::fs::hard_link(&bib, &hard).unwrap();
+    for kind in ALL_EXPORTS {
+        for alias in [&soft, &hard] {
+            export_to(&mut app, kind, alias);
+            assert!(
+                app.status_message
+                    .as_deref()
+                    .unwrap()
+                    .contains("open bibliography"),
+                "{kind:?} {alias:?}: {:?}",
+                app.status_message
+            );
+        }
+    }
+    assert_eq!(std::fs::read_to_string(&bib).unwrap(), EXPORT_BIB);
+}
+
+#[test]
+fn export_refuses_a_new_bibliography_path_before_it_exists() {
+    let dir = tempfile::tempdir().unwrap();
+    let bib = dir.path().join("new.bib");
+    let mut app = App::new(bib.clone(), default_config()).unwrap();
+    app.do_export_json(bib.to_str().unwrap());
+    assert!(app
+        .status_message
+        .as_deref()
+        .unwrap()
+        .contains("open bibliography"));
+    assert!(!bib.exists());
+}
+
+#[test]
+fn export_to_new_file_writes_readable_output() {
+    let (mut app, dir) = review_app(EXPORT_BIB);
+    let json = dir.path().join("out.json");
+    let ris = dir.path().join("out.ris");
+    let yaml = dir.path().join("out.yaml");
+    export_to(&mut app, ExportKind::Json, &json);
+    assert!(app
+        .status_message
+        .as_deref()
+        .unwrap()
+        .starts_with("Exported 1 entries as CSL-JSON"));
+    let parsed: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&json).unwrap()).unwrap();
+    assert_eq!(parsed[0]["id"], "A");
+    export_to(&mut app, ExportKind::Ris, &ris);
+    assert!(std::fs::read_to_string(&ris).unwrap().contains("ID  - A"));
+    export_to(&mut app, ExportKind::Settings, &yaml);
+    let _: crate::config::schema::Config =
+        serde_yaml::from_str(&std::fs::read_to_string(&yaml).unwrap()).unwrap();
+    // No temporary files are left beside the exports.
+    let names: Vec<String> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert!(
+        names.iter().all(|n| !n.starts_with(".bibtui-")),
+        "{names:?}"
+    );
+}
+
+#[test]
+fn export_over_existing_file_asks_first() {
+    let (mut app, dir) = review_app(EXPORT_BIB);
+    let out = dir.path().join("out.json");
+    std::fs::write(&out, "previous").unwrap();
+
+    // Cancelling keeps the previous file.
+    app.do_export_json(out.to_str().unwrap());
+    assert_eq!(app.mode, InputMode::Dialog);
+    assert!(matches!(
+        app.pending_action,
+        Some(PendingAction::OverwriteExport {
+            kind: ExportKind::Json,
+            ..
+        })
+    ));
+    app.handle_action(Action::DialogCancel);
+    assert_eq!(std::fs::read_to_string(&out).unwrap(), "previous");
+
+    // Confirming replaces it.
+    app.do_export_json(out.to_str().unwrap());
+    app.handle_dialog_confirm();
+    assert!(std::fs::read_to_string(&out)
+        .unwrap()
+        .contains("\"id\": \"A\""));
+    assert!(app
+        .status_message
+        .as_deref()
+        .unwrap()
+        .starts_with("Exported 1 entries"));
+}
+
+#[test]
+fn failed_export_preserves_the_previous_file() {
+    let (mut app, dir) = review_app(EXPORT_BIB);
+    let out = dir.path().join("out.ris");
+    std::fs::write(&out, "previous").unwrap();
+    app.save_io = Box::new(FailingSaveIo);
+    app.do_export_ris(out.to_str().unwrap());
+    app.handle_dialog_confirm();
+    assert_eq!(std::fs::read_to_string(&out).unwrap(), "previous");
+    assert!(app
+        .status_message
+        .as_deref()
+        .unwrap()
+        .starts_with("Export failed"));
+}
+
+#[test]
+fn export_does_not_replace_a_file_created_after_the_check() {
+    let (mut app, dir) = review_app(EXPORT_BIB);
+    let out = dir.path().join("late.json");
+    // The destination did not exist when chosen, then appeared.
+    std::fs::write(&out, "someone else's").unwrap();
+    app.write_export(ExportKind::Json, &out, false);
+    assert_eq!(std::fs::read_to_string(&out).unwrap(), "someone else's");
+    assert!(app
+        .status_message
+        .as_deref()
+        .unwrap()
+        .contains("created meanwhile"));
+}
+
+#[cfg(unix)]
+#[test]
+fn confirmed_overwrite_rechecks_for_a_bibliography_alias() {
+    let (mut app, dir) = review_app(EXPORT_BIB);
+    let out = dir.path().join("out.json");
+    std::fs::write(&out, "previous").unwrap();
+    app.do_export_json(out.to_str().unwrap());
+    // Before confirming, the destination becomes a link to the library.
+    std::fs::remove_file(&out).unwrap();
+    std::os::unix::fs::symlink(&app.bib_path, &out).unwrap();
+    app.handle_dialog_confirm();
+    assert!(app
+        .status_message
+        .as_deref()
+        .unwrap()
+        .contains("open bibliography"));
+    assert_eq!(std::fs::read_to_string(&app.bib_path).unwrap(), EXPORT_BIB);
 }

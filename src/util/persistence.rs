@@ -38,6 +38,25 @@ pub(crate) trait SaveIo {
     }
 
     fn persist(&self, path: &Path, contents: &[u8]) -> io::Result<()>;
+
+    /// Write a file that must not already exist: the contents go to a sibling
+    /// temporary file that is then renamed into place without replacing, so a
+    /// file created at `path` in the meantime is never overwritten
+    /// (`AlreadyExists`) and a failed write never leaves a partial file.
+    fn persist_new(&self, path: &Path, contents: &[u8]) -> io::Result<()> {
+        let parent = path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or(Path::new("."));
+        let mut temporary = new_file_builder(".bibtui-").tempfile_in(parent)?;
+        temporary.write_all(contents)?;
+        temporary.flush()?;
+        temporary.as_file().sync_all()?;
+        let temporary = temporary.into_temp_path();
+        rename_no_replace(&temporary, path)?;
+        let _ = temporary.keep();
+        Ok(())
+    }
 }
 
 pub(crate) struct FileSaveIo;
@@ -207,6 +226,19 @@ fn native_rename_no_replace(_: &Path, _: &Path) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn persist_new_writes_new_file_and_refuses_existing_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("out.json");
+        FileSaveIo.persist_new(&path, b"first").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"first");
+        let error = FileSaveIo.persist_new(&path, b"second").unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(fs::read(&path).unwrap(), b"first");
+        // No temporary files are left behind.
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
 
     #[test]
     fn rename_no_replace_moves_file_and_refuses_existing_destination() {

@@ -238,9 +238,22 @@ pub(super) enum UndoItem {
 
 pub(super) const MAX_UNDO: usize = 100;
 
+/// What an export command writes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ExportKind {
+    Settings,
+    Json,
+    Ris,
+}
+
 #[derive(Debug)]
 pub(super) enum PendingAction {
     DeleteEntry(String),
+    /// Replace an existing file with an export, after confirmation.
+    OverwriteExport {
+        kind: ExportKind,
+        path: std::path::PathBuf,
+    },
     AddEntryType,
     OpenFile(Vec<crate::util::open::ParsedFile>),
     OpenWeb(Vec<String>),
