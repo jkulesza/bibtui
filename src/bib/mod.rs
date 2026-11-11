@@ -5,4 +5,5 @@ pub mod jabref;
 pub mod model;
 pub mod normalize;
 pub mod parser;
+pub mod validate;
 pub mod writer;

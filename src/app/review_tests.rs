@@ -498,12 +498,10 @@ fn shared_attachments_and_changed_previews_are_rejected_before_moves() {
         .as_deref()
         .unwrap()
         .contains("shared attachment"));
-    app.database
-        .entries
-        .get_mut("B")
-        .unwrap()
-        .fields
-        .shift_remove("file");
+    // Detach B's copy (marked dirty, as a real field deletion is).
+    let b = app.database.entries.get_mut("B").unwrap();
+    b.fields.shift_remove("file");
+    b.dirty = true;
     app.request_save(false);
     review_edit(&mut app, "A", "title", "Arrived during preview");
     app.handle_dialog_confirm();

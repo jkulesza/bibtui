@@ -489,6 +489,15 @@ impl App {
             overrides_external,
         };
         self.validate_save_renames(&plan)?;
+        // The output must parse back to the staged entries; otherwise an edit
+        // (or save action) would be reported as saved but lost on reload.
+        crate::bib::validate::verify_reload(&plan.output, &plan.staged.database).map_err(
+            |problem| {
+                SaveError::Plan(format!(
+                    "{problem}; nothing was written (fix the entry and save again)"
+                ))
+            },
+        )?;
         Ok(plan)
     }
 

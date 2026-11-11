@@ -161,6 +161,116 @@ fn new_field_with_empty_name_is_aborted() {
     assert_eq!(before, after);
 }
 
+// ── N03: syntax validation of edits ─────────────────────────────────────
+
+#[test]
+fn edit_with_unbalanced_brace_keeps_editor_open_and_entry_unchanged() {
+    let (mut app, _d) = make_app();
+    open_detail(&mut app);
+    select_field(&mut app, "note");
+    app.handle_action(Action::EditField);
+    for bad in ["Unclosed {", "stray }", r"trailing \"] {
+        set_editor_value(&mut app, bad);
+        app.handle_action(Action::ConfirmEdit);
+        assert_eq!(app.mode, InputMode::Editing, "{bad:?}");
+        assert_eq!(app.field_editor_state.as_ref().unwrap().value, bad);
+        assert_eq!(entry_field(&app, "note").as_deref(), Some("draft"));
+        assert!(
+            app.status_message
+                .as_deref()
+                .unwrap()
+                .starts_with("Not saved"),
+            "{:?}",
+            app.status_message
+        );
+    }
+    // The draft can then be fixed and committed.
+    set_editor_value(&mut app, r"{Fixed} \{literal\}");
+    app.handle_action(Action::ConfirmEdit);
+    assert_eq!(app.mode, InputMode::Detail);
+    assert_eq!(
+        entry_field(&app, "note").as_deref(),
+        Some(r"{Fixed} \{literal\}")
+    );
+}
+
+#[test]
+fn new_field_name_is_validated_and_lowercased() {
+    let (mut app, _d) = make_app();
+    open_detail(&mut app);
+    app.field_editor_state = Some(FieldEditorState::new_field());
+    app.mode = InputMode::Editing;
+    for bad in ["two words", "a=b", "x,y", "{t}"] {
+        {
+            let e = app.field_editor_state.as_mut().unwrap();
+            e.field_name = bad.to_string();
+            e.name_cursor = bad.len();
+        }
+        app.handle_action(Action::ConfirmEdit);
+        let e = app.field_editor_state.as_ref().unwrap();
+        assert!(e.editing_name, "{bad:?} must stay in the name phase");
+        assert!(app
+            .status_message
+            .as_deref()
+            .unwrap()
+            .starts_with("Invalid field name"));
+    }
+    {
+        let e = app.field_editor_state.as_mut().unwrap();
+        e.field_name = "Annote".to_string();
+        e.name_cursor = 6;
+    }
+    app.handle_action(Action::ConfirmEdit);
+    set_editor_value(&mut app, "text");
+    app.handle_action(Action::ConfirmEdit);
+    assert_eq!(entry_field(&app, "annote").as_deref(), Some("text"));
+}
+
+#[test]
+fn edit_save_reload_preserves_entries_and_values() {
+    let (mut app, _d) = make_app();
+    open_detail(&mut app);
+    select_field(&mut app, "note");
+    app.handle_action(Action::EditField);
+    set_editor_value(&mut app, r"{DNA} {a {nested} group} 50\% \{x\}");
+    app.handle_action(Action::ConfirmEdit);
+    assert!(app.save(), "{:?}", app.status_message);
+    let expected = app.database.entries.clone();
+    let reloaded = App::new(app.bib_path.clone(), app.config.clone()).unwrap();
+    assert_eq!(
+        reloaded.database.entries.keys().collect::<Vec<_>>(),
+        expected.keys().collect::<Vec<_>>()
+    );
+    for (key, entry) in &expected {
+        assert_eq!(reloaded.database.entries[key].fields, entry.fields, "{key}");
+    }
+}
+
+#[test]
+fn save_refuses_output_that_would_not_reload() {
+    let (mut app, _d) = make_app();
+    let before = std::fs::read(&app.bib_path).unwrap();
+    // A value that bypasses the editor (e.g. a programmatic change).
+    let key = app.database.entries.keys().next().unwrap().clone();
+    let entry = app.database.entries.get_mut(&key).unwrap();
+    entry.fields.insert("note".into(), "Unclosed {".into());
+    entry.dirty = true;
+    app.dirty = true;
+    assert!(!app.save());
+    assert!(
+        app.status_message
+            .as_deref()
+            .unwrap()
+            .contains("nothing was written"),
+        "{:?}",
+        app.status_message
+    );
+    assert_eq!(std::fs::read(&app.bib_path).unwrap(), before);
+    assert!(app.dirty);
+    assert!(app.database.entries[&key].dirty);
+    assert_eq!(app.database.entries[&key].fields["note"], "Unclosed {");
+}
+
 #[test]
 fn delete_field_removes_it_and_undo_restores() {
     let (mut app, _d) = make_app();

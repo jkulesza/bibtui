@@ -166,7 +166,7 @@ The detail header shows the entry type and its currently assigned groups.
 | `G` | Jump to last field |
 | `Ctrl-F` / `Ctrl-B` | Page down / up |
 | `e` / `i` / `Enter` | Edit selected field (vim-style: `i` enters insert mode) |
-| `A` | Add new field |
+| `A` | Add new field (names are letters, digits, `_` or `-`, stored lowercase) |
 | `f` | Add file attachment |
 | `F` | Sync attached filename(s) to current citation key (undoable) |
 | `d` | Delete selected field |
@@ -382,7 +382,13 @@ shared attachments or occupied destinations are reported before any file is move
 If saving fails, completed attachment moves are reversed.
 
 A failed save keeps the application open and the library marked unsaved, including
-with `:wq`; correct the error and retry. Saves write an exclusive temporary file in
+with `:wq`; correct the error and retry. Before anything is written, the new file
+contents are parsed back and must reproduce every entry's key and field values; if an
+entry would be lost or changed on reload, the save is refused and names the entry and
+field. Field edits are checked as you confirm them: a value with unbalanced braces or
+a trailing unescaped backslash, or a new field name with characters other than
+letters, digits, `_` and `-`, is refused and the editor stays open with your text.
+New field names are stored lowercase, as BibTeX reads them. Saves write an exclusive temporary file in
 the destination directory, keep the existing file's permissions (new files get
 normal permissions for your umask), and follow symlinks without replacing the link.
 

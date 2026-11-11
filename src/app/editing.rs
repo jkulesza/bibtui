@@ -477,6 +477,19 @@ impl App {
     fn confirm_field_edit(&mut self) {
         // Two-phase for new fields: first confirm name, then enter value.
         if let Some(ref mut editor) = self.field_editor_state {
+            if editor.is_new && editor.editing_name && !editor.field_name.is_empty() {
+                // BibTeX field names are case-insensitive and the parser
+                // lowercases them; store them the way they will reload.
+                editor.field_name = editor.field_name.trim().to_lowercase();
+                editor.name_cursor = editor.field_name.len();
+                if let Some(problem) = crate::bib::validate::field_name_error(&editor.field_name) {
+                    self.status_message = Some(format!(
+                        "Invalid field name '{}': {} (use letters, digits, _ or -)",
+                        editor.field_name, problem
+                    ));
+                    return;
+                }
+            }
             if editor.advance_phase() {
                 // Now that the field name is confirmed, enable month mode if applicable.
                 if editor.field_name.eq_ignore_ascii_case("month") {
@@ -507,6 +520,15 @@ impl App {
                 } else {
                     editor.value.clone()
                 };
+                if let Some(problem) = crate::bib::validate::value_syntax_error(&save_value) {
+                    // Keep the editor open with the draft so it can be fixed.
+                    self.status_message = Some(format!(
+                        "Not saved: the {} value {}",
+                        editor.field_name, problem
+                    ));
+                    self.field_editor_state = Some(editor);
+                    return;
+                }
                 if save_value != existing_str {
                     self.push_undo(UndoItem::FieldChanged {
                         entry_key: key.clone(),
