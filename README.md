@@ -106,7 +106,7 @@ repeat deletions, confirmations, or custom bindings.
 | `Ctrl-F` / `Ctrl-B` | Page down / up |
 | `Enter` | Open entry detail (list focus) / select group (sidebar focus) |
 | `a` | Add new entry |
-| `dd` | Delete selected entry |
+| `dd` | Delete selected entry. If it has attached files, choose which to delete too; a file another entry also uses starts unchecked and names that entry. Deleted files are removed permanently (undo restores only the entry), and any file that cannot be deleted is reported |
 | `D` | Duplicate selected entry |
 | `yy` | Yank to clipboard (see `general.yank_format`). In the picker, `f` formatted citation, `b` BibTeX entry, `a` associated file(s), `c` citation key |
 | `/` | Start fuzzy search |

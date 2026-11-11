@@ -49,6 +49,7 @@ use crate::util::open::{
 use yank::{YankChoice, YankUsage};
 
 mod actions;
+mod attachments;
 mod completions;
 mod dedup;
 mod editing;
@@ -60,6 +61,7 @@ mod save;
 mod yank;
 pub use actions::Action;
 use actions::{ExportKind, PendingAction, UndoItem, MAX_UNDO};
+use attachments::describe_owners;
 use completions::*;
 use save::*;
 
@@ -1716,61 +1718,102 @@ impl App {
         };
 
         let local_files = self.resolve_entry_local_files(&key);
+        let owners = self.attachment_owners();
+        let shared: Vec<Vec<String>> = local_files
+            .iter()
+            .map(|path| self.other_attachment_owners(&owners, &key, path))
+            .collect();
 
-        match local_files.len() {
-            0 => {
-                // No local files — simple yes/no confirm (existing behaviour).
-                self.dialog_state = Some(DialogState::confirm(
-                    "Delete Entry",
-                    &format!("Delete '{}'?", key),
-                ));
-                self.pending_action = Some(PendingAction::DeleteEntry(key));
-            }
-            1 => {
-                // One local file — TypePicker with three clear choices.
-                let file = local_files.into_iter().next().unwrap();
-                let fname = file
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("file")
-                    .to_string();
-                self.dialog_state = Some(DialogState::type_picker_titled(
-                    &format!("Delete '{}'", key),
-                    vec![
-                        format!("Delete entry + {}", fname),
-                        "Delete entry only".to_string(),
-                        "Cancel".to_string(),
-                    ],
-                ));
-                self.pending_action = Some(PendingAction::DeleteEntryWithFile {
-                    entry_key: key,
-                    file,
-                });
-            }
-            _ => {
-                // Multiple local files — checkbox multi-select (default: all checked).
-                let labels: Vec<(String, bool)> = local_files
-                    .iter()
-                    .map(|p| {
-                        let name = p
-                            .file_name()
-                            .and_then(|n| n.to_str())
-                            .unwrap_or("?")
-                            .to_string();
+        if local_files.is_empty() {
+            // No local files — simple yes/no confirm (existing behaviour).
+            self.dialog_state = Some(DialogState::confirm(
+                "Delete Entry",
+                &format!("Delete '{}'?", key),
+            ));
+            self.pending_action = Some(PendingAction::DeleteEntry(key));
+        } else if local_files.len() == 1 && shared[0].is_empty() {
+            // One unshared local file — TypePicker with three clear choices.
+            let file = local_files.into_iter().next().unwrap_or_default();
+            let fname = file
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("file")
+                .to_string();
+            self.dialog_state = Some(DialogState::type_picker_titled(
+                &format!("Delete '{}'", key),
+                vec![
+                    format!(
+                        "Delete entry + {} (permanent; undo restores only the entry)",
+                        fname
+                    ),
+                    "Delete entry only".to_string(),
+                    "Cancel".to_string(),
+                ],
+            ));
+            self.pending_action = Some(PendingAction::DeleteEntryWithFile {
+                entry_key: key,
+                file,
+            });
+        } else {
+            // Several files, or any file another entry also uses: a checkbox
+            // list. Files used by other entries start unchecked and name
+            // those entries, so deleting one is a deliberate choice.
+            let labels: Vec<(String, bool)> = local_files
+                .iter()
+                .zip(&shared)
+                .map(|(p, others)| {
+                    let name = p
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("?")
+                        .to_string();
+                    if others.is_empty() {
                         (name, true)
-                    })
-                    .collect();
-                self.dialog_state = Some(DialogState::file_delete_select(
-                    &format!("Delete '{}'", key),
-                    labels,
-                ));
-                self.pending_action = Some(PendingAction::DeleteEntryWithFileSelect {
-                    entry_key: key,
-                    files: local_files,
-                });
-            }
+                    } else {
+                        (
+                            format!("{} (also used by {})", name, describe_owners(others)),
+                            false,
+                        )
+                    }
+                })
+                .collect();
+            self.dialog_state = Some(DialogState::file_delete_select(
+                &format!("Delete '{}' — checked files are deleted permanently", key),
+                labels,
+            ));
+            self.pending_action = Some(PendingAction::DeleteEntryWithFileSelect {
+                entry_key: key,
+                files: local_files,
+            });
         }
         self.mode = InputMode::Dialog;
+    }
+
+    /// Delete an entry and the given attachment files, then report the
+    /// outcome. File deletion is permanent and outside undo; a file that
+    /// cannot be deleted is named in the status line.
+    fn delete_entry_and_files(&mut self, key: &str, files: &[std::path::PathBuf]) {
+        let mut deleted = 0usize;
+        let mut failures = Vec::new();
+        for path in files {
+            match std::fs::remove_file(path) {
+                Ok(()) => deleted += 1,
+                Err(e) => failures.push(format!("{}: {}", path.display(), e)),
+            }
+        }
+        self.delete_entry(key);
+        let mut message = format!("Deleted '{}'", key);
+        if deleted > 0 {
+            message.push_str(&format!(
+                " and {} file{} (file deletion cannot be undone)",
+                deleted,
+                if deleted == 1 { "" } else { "s" }
+            ));
+        }
+        if !failures.is_empty() {
+            message.push_str(&format!("; could not delete {}", failures.join("; ")));
+        }
+        self.status_message = Some(message);
     }
 
     /// Collect paths of locally-existing files referenced in the entry's `file` field.
@@ -2278,8 +2321,7 @@ impl App {
                 match selected {
                     0 => {
                         // Delete entry and the one attached file.
-                        let _ = std::fs::remove_file(&file);
-                        self.delete_entry(&entry_key);
+                        self.delete_entry_and_files(&entry_key, &[file]);
                     }
                     1 => {
                         // Delete entry, keep file.
@@ -2292,6 +2334,7 @@ impl App {
             }
             Some(PendingAction::DeleteEntryWithFileSelect { entry_key, files }) => {
                 // Delete the entry unconditionally; delete only the checked files.
+                let mut checked = Vec::new();
                 if let Some(ref d) = dialog {
                     if let DialogKind::FileDeleteSelect {
                         files: ref labels, ..
@@ -2299,12 +2342,12 @@ impl App {
                     {
                         for (path, (_, delete)) in files.iter().zip(labels.iter()) {
                             if *delete {
-                                let _ = std::fs::remove_file(path);
+                                checked.push(path.clone());
                             }
                         }
                     }
                 }
-                self.delete_entry(&entry_key);
+                self.delete_entry_and_files(&entry_key, &checked);
             }
             Some(PendingAction::AddEntryType) => {
                 if let Some(dialog) = dialog {

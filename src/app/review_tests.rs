@@ -1650,3 +1650,122 @@ fn confirmed_overwrite_rechecks_for_a_bibliography_alias() {
         .contains("open bibliography"));
     assert_eq!(std::fs::read_to_string(&app.bib_path).unwrap(), EXPORT_BIB);
 }
+
+// ── N05: shared attachments during entry deletion ────────────────────────
+
+fn select_entry(app: &mut App, key: &str) {
+    let idx = app.sorted_keys.iter().position(|k| k == key).unwrap();
+    app.entry_list_state.select(idx);
+    assert_eq!(app.selected_entry_key().as_deref(), Some(key));
+}
+
+fn delete_dialog_files(app: &App) -> Vec<(String, bool)> {
+    match &app.dialog_state.as_ref().unwrap().kind {
+        crate::tui::components::dialog::DialogKind::FileDeleteSelect { files, .. } => files.clone(),
+        other => panic!("expected a file checklist, got {other:?}"),
+    }
+}
+
+#[test]
+fn deleting_one_owner_preserves_a_shared_attachment_by_default() {
+    let (mut app, dir) =
+        review_app("@Misc{A, file={:shared.pdf:PDF}}\n@Misc{B, file={:shared.pdf:PDF}}\n");
+    let shared = dir.path().join("shared.pdf");
+    std::fs::write(&shared, "attachment").unwrap();
+    select_entry(&mut app, "A");
+    app.handle_action(Action::DeleteEntry);
+    assert_eq!(
+        delete_dialog_files(&app),
+        vec![("shared.pdf (also used by B)".to_string(), false)]
+    );
+    app.handle_action(Action::DialogConfirm);
+    assert!(!app.database.entries.contains_key("A"));
+    assert!(shared.exists(), "B still needs the file");
+    assert_eq!(app.status_message.as_deref(), Some("Deleted 'A'"));
+}
+
+#[test]
+fn shared_attachment_is_deleted_only_when_deliberately_checked() {
+    let (mut app, dir) =
+        review_app("@Misc{A, file={:shared.pdf:PDF}}\n@Misc{B, file={:shared.pdf:PDF}}\n");
+    let shared = dir.path().join("shared.pdf");
+    std::fs::write(&shared, "attachment").unwrap();
+    select_entry(&mut app, "A");
+    app.handle_action(Action::DeleteEntry);
+    app.handle_action(Action::DialogToggle);
+    app.handle_action(Action::DialogConfirm);
+    assert!(!shared.exists());
+    assert!(app
+        .status_message
+        .as_deref()
+        .unwrap()
+        .contains("and 1 file (file deletion cannot be undone)"));
+}
+
+#[cfg(unix)]
+#[test]
+fn shared_attachment_is_recognized_through_aliases() {
+    let (mut app, dir) = review_app(
+        "@Misc{A, file={:shared.pdf:PDF}}\n\
+         @Misc{B, file={:sub/../shared.pdf:PDF}}\n\
+         @Misc{C, file={:hard.pdf:PDF}}\n\
+         @Misc{D, file={:soft.pdf:PDF}}\n",
+    );
+    let shared = dir.path().join("shared.pdf");
+    std::fs::write(&shared, "attachment").unwrap();
+    std::fs::create_dir(dir.path().join("sub")).unwrap();
+    std::fs::hard_link(&shared, dir.path().join("hard.pdf")).unwrap();
+    std::os::unix::fs::symlink(&shared, dir.path().join("soft.pdf")).unwrap();
+    select_entry(&mut app, "A");
+    app.handle_action(Action::DeleteEntry);
+    assert_eq!(
+        delete_dialog_files(&app),
+        vec![(
+            "shared.pdf (also used by B, C and 1 more)".to_string(),
+            false
+        )]
+    );
+}
+
+#[test]
+fn unshared_attachment_deletion_reports_permanence_and_failures() {
+    let (mut app, dir) =
+        review_app("@Misc{A, file={:a.pdf:PDF;:folder.pdf:PDF}}\n@Misc{B, title={Other}}\n");
+    std::fs::write(dir.path().join("a.pdf"), "attachment").unwrap();
+    // A directory cannot be removed with remove_file: an injected failure.
+    std::fs::create_dir(dir.path().join("folder.pdf")).unwrap();
+    select_entry(&mut app, "A");
+    app.handle_action(Action::DeleteEntry);
+    let title = match &app.dialog_state.as_ref().unwrap().kind {
+        crate::tui::components::dialog::DialogKind::FileDeleteSelect { title, .. } => title.clone(),
+        _ => unreachable!(),
+    };
+    assert!(title.contains("deleted permanently"), "{title}");
+    app.handle_action(Action::DialogConfirm);
+    let status = app.status_message.clone().unwrap();
+    assert!(!app.database.entries.contains_key("A"));
+    assert!(!dir.path().join("a.pdf").exists());
+    assert!(status.starts_with("Deleted 'A' and 1 file"), "{status}");
+    assert!(status.contains("could not delete"), "{status}");
+    assert!(status.contains("folder.pdf"), "{status}");
+
+    // Undo restores the entry (as the dialog says), not the deleted bytes.
+    app.undo();
+    assert!(app.database.entries.contains_key("A"));
+    assert!(!dir.path().join("a.pdf").exists());
+}
+
+#[test]
+fn single_unshared_attachment_option_names_permanence() {
+    let (mut app, dir) = review_app("@Misc{A, file={:a.pdf:PDF}}\n");
+    std::fs::write(dir.path().join("a.pdf"), "attachment").unwrap();
+    app.handle_action(Action::DeleteEntry);
+    match &app.dialog_state.as_ref().unwrap().kind {
+        crate::tui::components::dialog::DialogKind::TypePicker { options, .. } => {
+            assert!(options[0].contains("a.pdf"));
+            assert!(options[0].contains("undo restores only the entry"));
+            assert_eq!(options[1], "Delete entry only");
+        }
+        other => panic!("{other:?}"),
+    }
+}
