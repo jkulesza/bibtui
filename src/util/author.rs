@@ -2,13 +2,83 @@
 //!
 //! BibTeX separates multiple authors with ` and ` (case-sensitive).
 //! Individual names may be in "First Last" or canonical "Last, First" form.
+//! An `and` inside braces is part of a name, not a separator, so a
+//! brace-protected corporate author such as
+//! `{National Aeronautics and Space Administration}` is one name; use
+//! [`split_name_list`] rather than splitting on `" and "` directly.
 
 use regex::Regex;
 use std::sync::OnceLock;
 
+/// Split a BibTeX name list into individual names.
+///
+/// A separator is the word `and` surrounded by whitespace (spaces, tabs or
+/// newlines) at brace depth 0; an `and` inside `{...}` belongs to the name.
+/// A backslash escapes the following character (matching the parser), so
+/// `\{` and `\}` do not change the depth. Names are trimmed and empty
+/// names are dropped.
+pub fn split_name_list(s: &str) -> Vec<&str> {
+    let bytes = s.as_bytes();
+    let mut names = Vec::new();
+    let mut depth = 0usize;
+    let mut start = 0usize;
+    let mut i = 0usize;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\\' => {
+                i += 2;
+                continue;
+            }
+            b'{' => depth += 1,
+            b'}' => depth = depth.saturating_sub(1),
+            b if depth == 0 && b.is_ascii_whitespace() => {
+                // Whitespace run, `and`, whitespace run.
+                let mut j = i;
+                while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+                    j += 1;
+                }
+                if bytes[j..].starts_with(b"and") {
+                    let mut k = j + 3;
+                    let after = k;
+                    while k < bytes.len() && bytes[k].is_ascii_whitespace() {
+                        k += 1;
+                    }
+                    if k > after && k < bytes.len() {
+                        names.push(&s[start..i]);
+                        start = k;
+                        i = k;
+                        continue;
+                    }
+                }
+                i = j;
+                continue;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    names.push(&s[start..]);
+    names
+        .into_iter()
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+        .collect()
+}
+
+/// The text of a name written as a single brace group (a corporate or
+/// otherwise literal name), without the outer braces: `{World Health
+/// Organization}` → `World Health Organization`. `None` for personal names.
+pub fn literal_name(name: &str) -> Option<&str> {
+    let name = name.trim();
+    is_single_brace_group(name).then(|| &name[1..name.len() - 1])
+}
+
 /// Extract the last name from a single BibTeX author name.
 fn last_name(author: &str) -> &str {
     let author = author.trim();
+    if let Some(literal) = literal_name(author) {
+        return literal;
+    }
     if let Some(comma) = author.find(',') {
         // "Last, First" form — last name is everything before the comma
         author[..comma].trim()
@@ -27,7 +97,7 @@ pub fn abbreviate_authors(s: &str) -> String {
     if s.is_empty() {
         return String::new();
     }
-    let names: Vec<&str> = s.split(" and ").collect();
+    let names = split_name_list(s);
     match names.len() {
         0 => String::new(),
         1 => last_name(names[0]).to_string(),
@@ -52,8 +122,9 @@ pub fn normalize_author_names(s: &str) -> String {
     if s.is_empty() {
         return String::new();
     }
-    s.split(" and ")
-        .map(|name| normalize_one(name.trim()))
+    split_name_list(s)
+        .into_iter()
+        .map(normalize_one)
         .collect::<Vec<_>>()
         .join(" and ")
 }
@@ -226,6 +297,89 @@ fn normalize_one(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── split_name_list / literal_name ──────────────────────────────────
+
+    #[test]
+    fn split_name_list_keeps_braced_and_inside_one_name() {
+        assert_eq!(
+            split_name_list("{National Aeronautics and Space Administration}"),
+            vec!["{National Aeronautics and Space Administration}"]
+        );
+    }
+
+    #[test]
+    fn split_name_list_mixes_organizations_and_people() {
+        assert_eq!(
+            split_name_list("Smith, Jane and {Bell and Howell} and John Doe"),
+            vec!["Smith, Jane", "{Bell and Howell}", "John Doe"]
+        );
+    }
+
+    #[test]
+    fn split_name_list_handles_nested_groups_and_escapes() {
+        assert_eq!(
+            split_name_list("{A {and} B and C} and D"),
+            vec!["{A {and} B and C}", "D"]
+        );
+        // An escaped brace does not open a group.
+        assert_eq!(split_name_list(r"A\{ and B"), vec![r"A\{", "B"]);
+    }
+
+    #[test]
+    fn split_name_list_accepts_any_whitespace_around_and() {
+        assert_eq!(
+            split_name_list("Smith, J.\n  and\tDoe, J."),
+            vec!["Smith, J.", "Doe, J."]
+        );
+        // "and" inside a word, or at the edges, is not a separator.
+        assert_eq!(
+            split_name_list("Anderson and Sandberg"),
+            vec!["Anderson", "Sandberg"]
+        );
+        assert_eq!(split_name_list("Smith and"), vec!["Smith and"]);
+        assert_eq!(split_name_list(""), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn literal_name_detects_single_brace_group() {
+        assert_eq!(
+            literal_name("{World Health Organization}"),
+            Some("World Health Organization")
+        );
+        assert_eq!(literal_name(" {CERN} "), Some("CERN"));
+        assert_eq!(literal_name("{McConn Jr.}, R. J."), None);
+        assert_eq!(literal_name("{A} {B}"), None);
+        assert_eq!(literal_name("Jane Smith"), None);
+    }
+
+    #[test]
+    fn normalize_preserves_corporate_author_with_and() {
+        let org = "{National Aeronautics and Space Administration}";
+        assert_eq!(normalize_author_names(org), org);
+        let mixed = "Jane Smith and {Bell and Howell} and van Rossum, Guido";
+        let once = normalize_author_names(mixed);
+        assert_eq!(
+            once,
+            "Smith, Jane and {Bell and Howell} and van Rossum, Guido"
+        );
+        assert_eq!(normalize_author_names(&once), once, "idempotent");
+    }
+
+    #[test]
+    fn normalize_keeps_suffix_names_and_braced_surnames() {
+        let s = "{Rockwell, III}, Theodore and John Doe Jr. and {Williams III}, R. G.";
+        assert_eq!(normalize_author_names(s), s);
+    }
+
+    #[test]
+    fn abbreviate_corporate_author_is_whole_name() {
+        assert_eq!(
+            abbreviate_authors("{National Aeronautics and Space Administration}"),
+            "National Aeronautics and Space Administration"
+        );
+        assert_eq!(abbreviate_authors("{CERN} and Smith, J."), "CERN and Smith");
+    }
 
     #[test]
     fn test_abbreviate_single() {

@@ -204,11 +204,7 @@ fn short_names(entry: &Entry) -> String {
 
 /// Returns the formatted surname list and the number of names.
 fn surnames(raw: &str) -> (String, usize) {
-    let names: Vec<&str> = raw
-        .split(" and ")
-        .map(str::trim)
-        .filter(|n| !n.is_empty())
-        .collect();
+    let names = crate::util::author::split_name_list(raw);
     let has_others = names.iter().any(|n| n.eq_ignore_ascii_case("others"));
     let real: Vec<String> = names
         .iter()

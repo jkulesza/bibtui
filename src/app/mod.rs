@@ -1049,8 +1049,9 @@ impl App {
                         for (key, entry) in &self.database.entries {
                             for &field in Self::NAME_FIELDS {
                                 if let Some(val) = entry.fields.get(field) {
-                                    let has_name =
-                                        val.split(" and ").any(|n| n.trim() == variant_name);
+                                    let has_name = crate::util::author::split_name_list(val)
+                                        .into_iter()
+                                        .any(|n| n == variant_name);
                                     if has_name {
                                         let title =
                                             entry.fields.get("title").cloned().unwrap_or_default();

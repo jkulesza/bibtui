@@ -1,6 +1,8 @@
 use indexmap::IndexMap;
 use regex::Regex;
 
+use crate::util::author::{literal_name, split_name_list};
+
 /// Generate a citation key from a template string and entry fields.
 ///
 /// Two syntaxes are supported and may be freely mixed in one template:
@@ -437,9 +439,9 @@ fn resolve_auth_token(name: &str, author_field: Option<&String>) -> String {
             return parse_forename_initial(author_str, 0);
         }
         "authorLastForeIni" => {
-            let parts: Vec<&str> = author_str.split(" and ").collect();
+            let parts = split_name_list(author_str);
             if let Some(last) = parts.last() {
-                return forename_initial_of(last.trim());
+                return forename_initial_of(last);
             }
             return String::new();
         }
@@ -694,15 +696,22 @@ fn resolve_legacy_token(token: &str, fields: &IndexMap<String, String>) -> Strin
 
 /// Extract the forename initial of the Nth author (0-indexed).
 fn parse_forename_initial(author_str: &str, idx: usize) -> String {
-    let parts: Vec<&str> = author_str.split(" and ").collect();
-    parts
+    split_name_list(author_str)
         .get(idx)
-        .map(|a| forename_initial_of(a.trim()))
+        .map(|a| forename_initial_of(a))
         .unwrap_or_default()
 }
 
-/// Extract the forename initial from a single author name.
+/// Extract the forename initial from a single author name. A literal
+/// (brace-protected) name has no forename; its first letter is used.
 fn forename_initial_of(name: &str) -> String {
+    if let Some(literal) = literal_name(name) {
+        return literal
+            .chars()
+            .find(|c| c.is_alphanumeric())
+            .map(|c| c.to_uppercase().to_string())
+            .unwrap_or_default();
+    }
     if name.contains(',') {
         // "Last, First Middle" → first char of "First"
         name.split(',')
@@ -779,11 +788,15 @@ fn capitalize_word(w: &str) -> String {
 /// Parse an author string into a vec of last names.
 ///
 /// Handles both "First Last" and "Last, First" formats separated by " and ".
+/// A brace-protected name (an organization) is one name, and its whole text
+/// is used as the "last name".
 pub fn parse_authors(author: &str) -> Vec<String> {
-    author
-        .split(" and ")
+    split_name_list(author)
+        .into_iter()
         .map(|a| {
-            let a = a.trim();
+            if let Some(literal) = literal_name(a) {
+                return literal.to_string();
+            }
             if a.contains(',') {
                 a.split(',').next().unwrap_or("").trim().to_string()
             } else {
@@ -919,6 +932,23 @@ mod tests {
             m.insert(k.to_string(), v.to_string());
         }
         m
+    }
+
+    #[test]
+    fn test_auth_corporate_author_is_one_name() {
+        let f = fields(&[
+            (
+                "author",
+                "{National Aeronautics and Space Administration} and Smith, Jane",
+            ),
+            ("year", "2001"),
+        ]);
+        assert_eq!(
+            parse_authors(&f["author"]),
+            vec!["National Aeronautics and Space Administration", "Smith"]
+        );
+        assert_eq!(generate_citekey("[authForeIni]", &f), "N");
+        assert_eq!(generate_citekey("[authorLastForeIni]", &f), "J");
     }
 
     // ── title tokens (JabRef semantics) ──────────────────────────────────

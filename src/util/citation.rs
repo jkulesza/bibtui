@@ -51,8 +51,11 @@ fn field(entry: &Entry, name: &str) -> String {
 // ── IEEEtranN ───────────────────────────────────────────────────────────────
 
 fn format_ieeetran(entry: &Entry) -> String {
-    let authors = format_authors_ieee(&field(entry, "author"));
-    let editor = field(entry, "editor");
+    // Name lists are split on the raw value: display rendering strips the
+    // braces that mark a corporate author as a single name.
+    let raw_field = |name: &str| entry.fields.get(name).cloned().unwrap_or_default();
+    let authors = format_authors_ieee(&raw_field("author"));
+    let editor = raw_field("editor");
     let title = field(entry, "title");
     let year = field(entry, "year");
 
@@ -308,19 +311,20 @@ fn terminate(s: &mut String) {
 
 // ── Author formatting ────────────────────────────────────────────────────────
 
+/// Format a raw BibTeX name list. A brace-protected name (an organization)
+/// is shown whole rather than reduced to initials and a surname.
 fn format_authors_ieee(raw: &str) -> String {
-    let raw = disp(raw);
-    if raw.trim().is_empty() {
-        return String::new();
-    }
-
-    let authors: Vec<&str> = raw.split(" and ").map(str::trim).collect();
+    let authors = crate::util::author::split_name_list(raw);
+    let one = |a: &str| match crate::util::author::literal_name(a) {
+        Some(literal) => disp(literal),
+        None => format_single_ieee(a),
+    };
 
     if authors.len() > 6 {
-        return format!("{} et al.", format_single_ieee(authors[0]));
+        return format!("{} et al.", one(authors[0]));
     }
 
-    let fmt: Vec<String> = authors.iter().map(|a| format_single_ieee(a)).collect();
+    let fmt: Vec<String> = authors.iter().map(|a| one(a)).collect();
 
     match fmt.len() {
         0 => String::new(),
@@ -534,6 +538,33 @@ mod tests {
         let result = format_citation(&entry, "ieee");
         assert!(result.contains("Jones"), "result: {}", result);
         assert!(result.contains("Ed."), "result: {}", result);
+    }
+
+    #[test]
+    fn test_ieee_corporate_author_shown_whole() {
+        assert_eq!(
+            format_authors_ieee("{National Aeronautics and Space Administration}"),
+            "National Aeronautics and Space Administration"
+        );
+        assert_eq!(
+            format_authors_ieee("{Bell and Howell} and Smith, John A."),
+            "Bell and Howell and J. A. Smith"
+        );
+        let entry = make_entry(
+            EntryType::TechReport,
+            &[
+                ("author", "{National Aeronautics and Space Administration}"),
+                ("title", "Report"),
+                ("institution", "NASA"),
+                ("year", "2000"),
+            ],
+        );
+        let result = format_citation(&entry, "ieee");
+        assert!(
+            result.contains("National Aeronautics and Space Administration"),
+            "result: {}",
+            result
+        );
     }
 
     #[test]

@@ -3813,6 +3813,34 @@ fn test_save_writes_dirty_entry_and_preserves_clean_bytes() {
     assert!(!app.dirty);
 }
 
+/// Review N01: default save actions normalize every entry's names, and must
+/// leave a brace-protected corporate author (which contains " and ") intact.
+#[test]
+fn test_default_save_preserves_corporate_author() {
+    const ORG_BIB: &str = "@TechReport{NASA2001,\n  \
+        author      = {{National Aeronautics and Space Administration} and Jane Smith},\n  \
+        title       = {A Report},\n  \
+        institution = {NASA},\n  \
+        year        = {2001},\n}\n";
+    let mut tmp = NamedTempFile::new().unwrap();
+    write!(tmp, "{}", ORG_BIB).unwrap();
+    tmp.flush().unwrap();
+    let mut app = App::new(tmp.path().to_path_buf(), default_config()).unwrap();
+    // Force the entry through the save pipeline's re-serialization.
+    for e in app.database.entries.values_mut() {
+        e.dirty = true;
+    }
+    app.dirty = true;
+    app.save();
+
+    let reloaded = App::new(tmp.path().to_path_buf(), default_config()).unwrap();
+    let entry = reloaded.database.entries.values().next().unwrap();
+    assert_eq!(
+        entry.fields["author"],
+        "{National Aeronautics and Space Administration} and Smith, Jane"
+    );
+}
+
 /// Regression: re-serializing a dirty entry must not destroy `#` concatenation
 /// or bare @String references in fields the user did not change.
 #[test]

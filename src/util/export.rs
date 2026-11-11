@@ -7,6 +7,7 @@
 //! BibTeX export is handled by `bib::writer`.
 
 use crate::bib::model::{Database, Entry, EntryType};
+use crate::util::author::{literal_name, split_name_list};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -63,20 +64,68 @@ fn split_pages(pages: &str) -> (String, String) {
     (stripped.clone(), stripped)
 }
 
-/// Parse a BibTeX author string into `(family, given)` pairs.
-fn parse_authors(author_str: &str) -> Vec<(String, String)> {
-    author_str
-        .split(" and ")
+/// One name from a BibTeX name list, as exported.
+#[derive(Debug, Clone, PartialEq)]
+enum ExportName {
+    /// A personal name split into family and given parts.
+    Person { family: String, given: String },
+    /// A brace-protected name (e.g. an organization), kept whole.
+    Literal(String),
+}
+
+impl ExportName {
+    #[cfg(test)]
+    fn person(family: &str, given: &str) -> Self {
+        ExportName::Person {
+            family: family.to_string(),
+            given: given.to_string(),
+        }
+    }
+
+    /// The JSON object CSL-JSON uses for this name.
+    fn to_csl(&self) -> serde_json::Value {
+        let mut a = serde_json::Map::new();
+        match self {
+            ExportName::Person { family, given } => {
+                a.insert("family".into(), serde_json::Value::String(family.clone()));
+                if !given.is_empty() {
+                    a.insert("given".into(), serde_json::Value::String(given.clone()));
+                }
+            }
+            ExportName::Literal(name) => {
+                a.insert("literal".into(), serde_json::Value::String(name.clone()));
+            }
+        }
+        serde_json::Value::Object(a)
+    }
+
+    /// The value of a RIS `AU`/`ED` line for this name.
+    fn to_ris(&self) -> String {
+        match self {
+            ExportName::Person { family, given } if given.is_empty() => family.clone(),
+            ExportName::Person { family, given } => format!("{family}, {given}"),
+            ExportName::Literal(name) => name.clone(),
+        }
+    }
+}
+
+/// Parse a BibTeX name list. Separators inside braces are part of a name, and
+/// a name that is one brace group is exported as a literal.
+fn parse_authors(author_str: &str) -> Vec<ExportName> {
+    split_name_list(author_str)
+        .into_iter()
         .map(|a| {
-            let a = a.trim();
+            if let Some(literal) = literal_name(a) {
+                return ExportName::Literal(strip_braces(literal));
+            }
             if let Some(comma) = a.find(',') {
                 let family = strip_braces(a[..comma].trim());
                 let given = strip_braces(a[comma + 1..].trim());
-                (family, given)
+                ExportName::Person { family, given }
             } else {
                 // "First Last" form — last token is family name
                 let parts: Vec<&str> = a.split_whitespace().collect();
-                match parts.len() {
+                let (family, given) = match parts.len() {
                     0 => (String::new(), String::new()),
                     1 => (strip_braces(parts[0]), String::new()),
                     _ => {
@@ -84,10 +133,14 @@ fn parse_authors(author_str: &str) -> Vec<(String, String)> {
                         let given = parts[..parts.len() - 1].join(" ");
                         (family, strip_braces(&given))
                     }
-                }
+                };
+                ExportName::Person { family, given }
             }
         })
-        .filter(|(f, _)| !f.is_empty())
+        .filter(|name| match name {
+            ExportName::Person { family, .. } => !family.is_empty(),
+            ExportName::Literal(name) => !name.is_empty(),
+        })
         .collect()
 }
 
@@ -124,15 +177,8 @@ fn entry_to_csl_json(entry: &Entry) -> serde_json::Value {
     // Authors
     if let Some(author_str) = entry.fields.get("author") {
         let authors: Vec<serde_json::Value> = parse_authors(author_str)
-            .into_iter()
-            .map(|(family, given)| {
-                let mut a = serde_json::Map::new();
-                a.insert("family".to_string(), serde_json::Value::String(family));
-                if !given.is_empty() {
-                    a.insert("given".to_string(), serde_json::Value::String(given));
-                }
-                serde_json::Value::Object(a)
-            })
+            .iter()
+            .map(ExportName::to_csl)
             .collect();
         obj.insert("author".to_string(), serde_json::Value::Array(authors));
     }
@@ -140,15 +186,8 @@ fn entry_to_csl_json(entry: &Entry) -> serde_json::Value {
     // Editors
     if let Some(editor_str) = entry.fields.get("editor") {
         let editors: Vec<serde_json::Value> = parse_authors(editor_str)
-            .into_iter()
-            .map(|(family, given)| {
-                let mut a = serde_json::Map::new();
-                a.insert("family".to_string(), serde_json::Value::String(family));
-                if !given.is_empty() {
-                    a.insert("given".to_string(), serde_json::Value::String(given));
-                }
-                serde_json::Value::Object(a)
-            })
+            .iter()
+            .map(ExportName::to_csl)
             .collect();
         obj.insert("editor".to_string(), serde_json::Value::Array(editors));
     }
@@ -256,23 +295,15 @@ fn entry_to_ris(entry: &Entry) -> String {
 
     // Authors: one AU line per author
     if let Some(author_str) = entry.fields.get("author") {
-        for (family, given) in parse_authors(author_str) {
-            if given.is_empty() {
-                lines.push(format!("AU  - {}", family));
-            } else {
-                lines.push(format!("AU  - {}, {}", family, given));
-            }
+        for name in parse_authors(author_str) {
+            lines.push(format!("AU  - {}", name.to_ris()));
         }
     }
 
     // Editors
     if let Some(editor_str) = entry.fields.get("editor") {
-        for (family, given) in parse_authors(editor_str) {
-            if given.is_empty() {
-                lines.push(format!("ED  - {}", family));
-            } else {
-                lines.push(format!("ED  - {}, {}", family, given));
-            }
+        for name in parse_authors(editor_str) {
+            lines.push(format!("ED  - {}", name.to_ris()));
         }
     }
 
@@ -375,6 +406,65 @@ mod tests {
         }
     }
 
+    fn corporate_entry() -> Entry {
+        let mut fields = IndexMap::new();
+        fields.insert(
+            "author".to_string(),
+            "{National Aeronautics and Space Administration} and Smith, Jane".to_string(),
+        );
+        fields.insert("title".to_string(), "T".to_string());
+        Entry {
+            entry_type: EntryType::TechReport,
+            citation_key: "nasa".to_string(),
+            fields,
+            group_memberships: vec![],
+            raw_index: 0,
+            dirty: false,
+        }
+    }
+
+    #[test]
+    fn test_parse_authors_corporate_is_one_literal() {
+        let names = parse_authors("{National Aeronautics and Space Administration}");
+        assert_eq!(
+            names,
+            vec![ExportName::Literal(
+                "National Aeronautics and Space Administration".into()
+            )]
+        );
+    }
+
+    #[test]
+    fn test_csl_json_corporate_author_is_literal() {
+        let db = make_db_with(corporate_entry());
+        let parsed: serde_json::Value =
+            serde_json::from_str(&export_csl_json(&db).unwrap()).unwrap();
+        let authors = parsed[0]["author"].as_array().unwrap();
+        assert_eq!(authors.len(), 2);
+        assert_eq!(
+            authors[0],
+            serde_json::json!({"literal": "National Aeronautics and Space Administration"})
+        );
+        assert_eq!(
+            authors[1],
+            serde_json::json!({"family": "Smith", "given": "Jane"})
+        );
+    }
+
+    #[test]
+    fn test_ris_corporate_author_is_one_line() {
+        let db = make_db_with(corporate_entry());
+        let ris = export_ris(&db);
+        let au: Vec<&str> = ris.lines().filter(|l| l.starts_with("AU  - ")).collect();
+        assert_eq!(
+            au,
+            vec![
+                "AU  - National Aeronautics and Space Administration",
+                "AU  - Smith, Jane"
+            ]
+        );
+    }
+
     #[test]
     fn test_strip_braces_single() {
         assert_eq!(strip_braces("{hello}"), "hello");
@@ -415,15 +505,15 @@ mod tests {
     #[test]
     fn test_parse_authors_comma_form() {
         let authors = parse_authors("Smith, Jane and Jones, Bob");
-        assert_eq!(authors[0], ("Smith".to_string(), "Jane".to_string()));
-        assert_eq!(authors[1], ("Jones".to_string(), "Bob".to_string()));
+        assert_eq!(authors[0], ExportName::person("Smith", "Jane"));
+        assert_eq!(authors[1], ExportName::person("Jones", "Bob"));
     }
 
     #[test]
     fn test_parse_authors_natural_form() {
         let authors = parse_authors("Jane Smith and Bob Jones");
-        assert_eq!(authors[0], ("Smith".to_string(), "Jane".to_string()));
-        assert_eq!(authors[1], ("Jones".to_string(), "Bob".to_string()));
+        assert_eq!(authors[0], ExportName::person("Smith", "Jane"));
+        assert_eq!(authors[1], ExportName::person("Jones", "Bob"));
     }
 
     #[test]
@@ -572,8 +662,7 @@ mod tests {
     fn test_parse_authors_single_word() {
         let authors = parse_authors("Einstein");
         assert_eq!(authors.len(), 1);
-        assert_eq!(authors[0].0, "Einstein");
-        assert_eq!(authors[0].1, "");
+        assert_eq!(authors[0], ExportName::person("Einstein", ""));
     }
 
     #[test]
@@ -587,8 +676,8 @@ mod tests {
         // single name with no comma and no spaces
         let authors = parse_authors("Plato and Socrates");
         assert_eq!(authors.len(), 2);
-        assert_eq!(authors[0], ("Plato".to_string(), "".to_string()));
-        assert_eq!(authors[1], ("Socrates".to_string(), "".to_string()));
+        assert_eq!(authors[0], ExportName::person("Plato", ""));
+        assert_eq!(authors[1], ExportName::person("Socrates", ""));
     }
 
     // ── RIS edge cases ────────────────────────────────────────────────────────

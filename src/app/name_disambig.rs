@@ -26,8 +26,7 @@ impl App {
         for entry in self.database.entries.values() {
             for &field in Self::NAME_FIELDS {
                 if let Some(val) = entry.fields.get(field) {
-                    for name in val.split(" and ") {
-                        let name = name.trim();
+                    for name in crate::util::author::split_name_list(val) {
                         if !name.is_empty() {
                             *name_counts.entry(name.to_string()).or_insert(0) += 1;
                         }
@@ -211,7 +210,7 @@ impl App {
                     Some(v) => v,
                     None => continue,
                 };
-                let names: Vec<&str> = val.split(" and ").collect();
+                let names = crate::util::author::split_name_list(val);
                 let mut changed = false;
                 let new_names: Vec<String> = names
                     .iter()

@@ -249,7 +249,10 @@ pub fn normalize_title(value: &str) -> String {
 /// Lowercase surname of the first author (or editor).
 fn first_surname(entry: &Entry) -> Option<String> {
     let names = field(entry, "author").or_else(|| field(entry, "editor"))?;
-    let first = names.split(" and ").next()?.trim();
+    let first = *crate::util::author::split_name_list(names).first()?;
+    if let Some(literal) = crate::util::author::literal_name(first) {
+        return alnum(literal);
+    }
     let surname = match first.split_once(',') {
         Some((last, _)) => last.trim(),
         None => first.split_whitespace().next_back().unwrap_or(first),
