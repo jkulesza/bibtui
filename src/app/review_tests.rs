@@ -7,6 +7,9 @@ fn review_app(input: &str) -> (App, tempfile::TempDir) {
     let path = dir.path().join("library.bib");
     std::fs::write(&path, input).unwrap();
     let mut cfg = default_config();
+    // Fixtures (such as the 10,000-entry viewport test) don't need the
+    // background duplicate check on load.
+    cfg.duplicates.check_on_load = false;
     cfg.general.backup_on_save = false;
     cfg.save.entry_sort_order = "none".into();
     cfg.save.save_action_regenerate_citekeys = false;
@@ -2145,6 +2148,7 @@ fn import_waits_for_confirm_dialog_merge_review_and_settings() {
     // Duplicate review stays open.
     let (mut app, _dir) = review_app(BACKGROUND_BIB);
     app.open_duplicate_review();
+    app.wait_for_duplicate_scan();
     finish_import(&mut app, background_import());
     assert_eq!(app.mode, InputMode::DedupReview);
     assert_eq!(app.database.entries.len(), 2);
@@ -2169,6 +2173,7 @@ fn import_waits_for_confirm_dialog_merge_review_and_settings() {
 fn second_import_refused_while_a_result_waits() {
     let (mut app, _dir) = review_app(BACKGROUND_BIB);
     app.open_duplicate_review();
+    app.wait_for_duplicate_scan();
     finish_import(&mut app, background_import());
     assert!(app.finished_import.is_some());
     app.spawn_import("10.1000/next".into());
@@ -2437,6 +2442,8 @@ fn bridged_marked_pair_is_not_offered_as_one_merge() {
     assert_eq!(clusters[0].keys, vec!["A".to_string(), "B".to_string()]);
 
     app.open_duplicate_review();
+
+    app.wait_for_duplicate_scan();
     let cluster = app
         .dedup_review_state
         .as_ref()

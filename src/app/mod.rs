@@ -155,6 +155,8 @@ pub struct App {
     pending_doi_fetch: Option<(import::DoiLookup, DoiFetchReceiver)>,
     /// A finished DOI lookup waiting, like `finished_import`, to be applied.
     finished_doi_fetch: Option<(import::DoiLookup, DoiFetchResult)>,
+    /// Duplicate scan running in the background (the load check or `U`).
+    duplicate_scan: Option<dedup::DuplicateScan>,
 
     /// Compiled user keybinding overrides from config.  Checked before
     /// built-in defaults in `handle_key`.
@@ -343,6 +345,7 @@ impl App {
             finished_import: None,
             pending_doi_fetch: None,
             finished_doi_fetch: None,
+            duplicate_scan: None,
             user_bindings,
         };
         app.report_duplicates_on_load();
@@ -436,6 +439,7 @@ impl App {
             finished_import: None,
             pending_doi_fetch: None,
             finished_doi_fetch: None,
+            duplicate_scan: None,
             user_bindings,
         };
 
@@ -702,7 +706,9 @@ impl App {
                 }
             }
             Action::ResetSort => {
-                if self.filtered_indices.is_some() {
+                if self.cancel_duplicate_review() {
+                    // Esc while `U` is still searching cancels the search.
+                } else if self.filtered_indices.is_some() {
                     // Active search filter: ESC clears it and returns to full list
                     self.group_tree_state.active_group = None;
                     self.group_tree_state.active_path = None;

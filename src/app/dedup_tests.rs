@@ -84,7 +84,8 @@ fn snapshot(app: &App) -> std::collections::BTreeMap<String, EntryShape> {
 
 #[test]
 fn load_reports_duplicates_in_status_bar() {
-    let (app, _tmp) = make_app();
+    let (mut app, _tmp) = make_app();
+    app.wait_for_duplicate_scan();
     let status = app.status_message.as_deref().unwrap_or("");
     assert!(
         status.contains("1 possible duplicate cluster — press U"),
@@ -99,6 +100,7 @@ fn load_check_can_be_disabled() {
     let mut cfg = default_config();
     cfg.duplicates.check_on_load = false;
     let app = App::new(tmp.path().to_path_buf(), cfg).unwrap();
+    assert!(app.duplicate_scan.is_none());
     assert!(app.status_message.is_none());
 }
 
@@ -106,6 +108,7 @@ fn load_check_can_be_disabled() {
 fn review_lists_cluster_with_reasons() {
     let (mut app, _tmp) = make_app();
     app.handle_action(Action::FindDuplicates);
+    app.wait_for_duplicate_scan();
     assert_eq!(app.mode, InputMode::DedupReview);
     let review = app.dedup_review_state.as_ref().unwrap();
     assert_eq!(review.clusters.len(), 1);
@@ -118,6 +121,7 @@ fn review_lists_cluster_with_reasons() {
     assert_eq!(app.mode, InputMode::Normal);
     app.command_palette_state.input = "dups".into();
     app.execute_command();
+    app.wait_for_duplicate_scan();
     assert_eq!(app.mode, InputMode::DedupReview);
 }
 
@@ -125,6 +129,7 @@ fn review_lists_cluster_with_reasons() {
 fn merge_combines_fields_groups_files_and_crossrefs() {
     let (mut app, _tmp) = make_app();
     app.handle_action(Action::FindDuplicates);
+    app.wait_for_duplicate_scan();
     app.handle_action(Action::DedupReconcile);
     assert_eq!(app.mode, InputMode::DedupMerge);
     {
@@ -175,6 +180,7 @@ fn merge_is_a_single_undo_step() {
     let (mut app, _tmp) = make_app();
     let before = snapshot(&app);
     app.handle_action(Action::FindDuplicates);
+    app.wait_for_duplicate_scan();
     app.handle_action(Action::DedupReconcile);
     app.handle_action(Action::DedupCycleSurvivor); // keep Smith2020's key
     app.handle_action(Action::ApplyMerge);
@@ -191,6 +197,7 @@ fn merge_is_a_single_undo_step() {
 fn keeping_other_member_and_regenerating_key() {
     let (mut app, _tmp) = make_app();
     app.handle_action(Action::FindDuplicates);
+    app.wait_for_duplicate_scan();
     app.handle_action(Action::DedupReconcile);
     app.handle_action(Action::DedupCycleSurvivor);
     assert_eq!(
@@ -222,6 +229,7 @@ fn keeping_other_member_and_regenerating_key() {
 fn escape_from_merge_returns_to_review() {
     let (mut app, _tmp) = make_app();
     app.handle_action(Action::FindDuplicates);
+    app.wait_for_duplicate_scan();
     app.handle_action(Action::DedupReconcile);
     app.handle_action(Action::CloseDedup);
     assert_eq!(app.mode, InputMode::DedupReview);
@@ -233,6 +241,7 @@ fn escape_from_merge_returns_to_review() {
 fn save_after_merge_keeps_untouched_entries_byte_exact() {
     let (mut app, tmp) = make_app();
     app.handle_action(Action::FindDuplicates);
+    app.wait_for_duplicate_scan();
     app.handle_action(Action::DedupReconcile);
     app.handle_action(Action::ApplyMerge);
     app.handle_action(Action::DialogConfirm);
@@ -253,6 +262,7 @@ fn save_after_merge_keeps_untouched_entries_byte_exact() {
 fn not_duplicate_marks_persist_and_undo() {
     let (mut app, tmp) = make_app();
     app.handle_action(Action::FindDuplicates);
+    app.wait_for_duplicate_scan();
     app.handle_action(Action::DedupIgnore);
     assert_eq!(app.mode, InputMode::DedupReview);
     assert!(app.dedup_review_state.as_ref().unwrap().clusters.is_empty());
@@ -269,6 +279,7 @@ fn not_duplicate_marks_persist_and_undo() {
 
     // Mark again, save, and reload: the mark survives and nothing is reported.
     app.handle_action(Action::FindDuplicates);
+    app.wait_for_duplicate_scan();
     app.handle_action(Action::DedupIgnore);
     app.save();
     let out = std::fs::read_to_string(tmp.path()).unwrap();
@@ -406,4 +417,81 @@ fn manually_added_entry_is_checked_when_its_detail_view_closes() {
     app.open_detail();
     app.handle_action(Action::CloseDetail);
     assert!(app.dialog_state.is_none());
+}
+
+// ── Background scans (review N15) ───────────────────────────────────────────
+
+#[test]
+fn load_check_result_for_a_changed_library_is_dropped() {
+    let (mut app, _tmp) = make_app();
+    assert!(
+        app.duplicate_scan.is_some(),
+        "the load check runs in the background"
+    );
+    app.delete_entry("Smith2020a");
+    app.wait_for_duplicate_scan();
+    // The count described the library as opened, not as it is now.
+    assert_eq!(app.status_message.as_deref(), Some("Deleted 'Smith2020a'"));
+}
+
+#[test]
+fn review_search_for_a_changed_library_starts_again() {
+    let (mut app, _tmp) = make_app();
+    app.wait_for_duplicate_scan();
+    app.handle_action(Action::FindDuplicates);
+    assert_eq!(
+        app.mode,
+        InputMode::Normal,
+        "the list opens when the search ends"
+    );
+    app.delete_entry("Smith2020a");
+    app.wait_for_duplicate_scan();
+    assert_eq!(app.mode, InputMode::DedupReview);
+    let review = app.dedup_review_state.as_ref().unwrap();
+    assert!(review.clusters.is_empty(), "scanned the current library");
+}
+
+#[test]
+fn review_search_can_be_cancelled_with_esc() {
+    let (mut app, _tmp) = make_app();
+    app.wait_for_duplicate_scan();
+    app.handle_action(Action::FindDuplicates);
+    app.handle_action(Action::FindDuplicates);
+    assert_eq!(
+        app.status_message.as_deref(),
+        Some("Still looking for duplicates… (Esc cancels)")
+    );
+    app.handle_action(Action::ResetSort);
+    assert!(app.duplicate_scan.is_none());
+    assert_eq!(
+        app.status_message.as_deref(),
+        Some("Duplicate search cancelled")
+    );
+    // Esc does its usual job again once nothing is searching.
+    assert!(!app.cancel_duplicate_review());
+}
+
+#[test]
+fn review_list_waits_until_the_user_is_idle() {
+    let (mut app, _tmp) = make_app();
+    app.wait_for_duplicate_scan();
+    app.handle_action(Action::FindDuplicates);
+    app.start_import_entry();
+    // However long the worker takes, nothing opens over the prompt.
+    for _ in 0..20 {
+        assert!(!app.poll_duplicate_scan());
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert_eq!(app.mode, InputMode::Editing);
+    app.handle_action(Action::CancelEdit);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !app.poll_duplicate_scan() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "search never finished"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert_eq!(app.mode, InputMode::DedupReview);
+    assert_eq!(app.dedup_review_state.as_ref().unwrap().clusters.len(), 1);
 }

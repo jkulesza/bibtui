@@ -18,6 +18,7 @@
 //! as a related candidate.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use indexmap::IndexMap;
 
@@ -486,6 +487,34 @@ pub fn is_ignored(a: &str, b: &str, ignored: &[Vec<String>]) -> bool {
         .any(|set| set.iter().any(|k| k == a) && set.iter().any(|k| k == b))
 }
 
+/// "Not duplicates" sets indexed by key, for constant-time pair lookups.
+struct Marks<'a> {
+    sets_of: HashMap<&'a str, Vec<usize>>,
+}
+
+impl<'a> Marks<'a> {
+    fn new(ignored: &'a [Vec<String>]) -> Self {
+        let mut sets_of: HashMap<&str, Vec<usize>> = HashMap::new();
+        for (n, set) in ignored.iter().enumerate() {
+            for key in set {
+                let sets = sets_of.entry(key.as_str()).or_default();
+                if sets.last() != Some(&n) {
+                    sets.push(n);
+                }
+            }
+        }
+        Marks { sets_of }
+    }
+
+    /// True when one marked set contains both keys.
+    fn contains(&self, a: &str, b: &str) -> bool {
+        match (self.sets_of.get(a), self.sets_of.get(b)) {
+            (Some(x), Some(y)) => x.iter().any(|n| y.contains(n)),
+            _ => false,
+        }
+    }
+}
+
 /// Fingerprints for every entry, with generic (widely shared) URLs dropped.
 fn fingerprints(entries: &IndexMap<String, Entry>) -> Vec<Fingerprint> {
     let mut prints: Vec<Fingerprint> = entries.values().map(fingerprint).collect();
@@ -505,6 +534,298 @@ fn fingerprints(entries: &IndexMap<String, Entry>) -> Vec<Fingerprint> {
         }
     }
     prints
+}
+
+/// Most deletion variants a title may generate for the deletion index.
+const DELETION_CAP: usize = 256;
+
+/// Call `emit(i, j)` for every pair of entries that [`match_pair`] could
+/// accept (and possibly others; a pair may be emitted more than once, but
+/// always with `i < j`): pairs sharing a DOI, eprint, ISBN or URL, and pairs
+/// whose titles could be `title_threshold` similar. The comparison itself
+/// (including the year, author and distinct-work checks) is left to
+/// `match_pair`, so a missing year or author still allows a title match.
+/// Nothing is collected, so memory stays linear in the library size.
+/// Stops early once `cancel` is set.
+fn for_each_candidate(
+    prints: &[Fingerprint],
+    settings: &DedupSettings,
+    cancel: &AtomicBool,
+    emit: &mut dyn FnMut(usize, usize),
+) {
+    let mut by_identifier: HashMap<(u8, &str), Vec<usize>> = HashMap::new();
+    for (i, print) in prints.iter().enumerate() {
+        let ids = [(0, &print.doi), (1, &print.eprint), (2, &print.url)];
+        for (kind, id) in ids {
+            if let Some(id) = id {
+                by_identifier
+                    .entry((kind, id.as_str()))
+                    .or_default()
+                    .push(i);
+            }
+        }
+        for isbn in &print.isbns {
+            by_identifier.entry((3, isbn.as_str())).or_default().push(i);
+        }
+    }
+    for bucket in by_identifier.values() {
+        if cancelled(cancel) {
+            return;
+        }
+        for (n, &i) in bucket.iter().enumerate() {
+            for &j in &bucket[n + 1..] {
+                emit(i, j);
+            }
+        }
+    }
+
+    title_candidates(prints, settings.title_threshold, cancel, emit);
+}
+
+fn cancelled(cancel: &AtomicBool) -> bool {
+    cancel.load(Ordering::Relaxed)
+}
+
+/// Most edits a title of `len` characters can be from a `threshold`-similar
+/// title (whose length is at most `len / threshold`).
+fn max_title_edits(len: usize, threshold: f64) -> usize {
+    ((1.0 - threshold) * len as f64 / threshold + 1e-9).floor() as usize
+}
+
+/// Number of ways to delete at most `k` (≤ 2) of `len` characters.
+fn deletion_variants(len: usize, k: usize) -> usize {
+    match k {
+        0 => 1,
+        1 => 1 + len,
+        _ => 1 + len + len * len.saturating_sub(1) / 2,
+    }
+}
+
+/// Hashes of `title` with every choice of at most `k` (≤ 2) characters
+/// deleted, tagged with `entry`. Hash collisions only add candidates.
+fn push_deletion_hashes(title: &[char], k: usize, entry: u32, out: &mut Vec<(u64, u32)>) {
+    let hash = |skip: [usize; 2]| {
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        for (n, &c) in title.iter().enumerate() {
+            if n != skip[0] && n != skip[1] {
+                h = (h ^ c as u64).wrapping_mul(0x0000_0100_0000_01b3);
+            }
+        }
+        h
+    };
+    let none = usize::MAX;
+    out.push((hash([none, none]), entry));
+    if k >= 1 {
+        for p in 0..title.len() {
+            out.push((hash([p, none]), entry));
+            if k >= 2 {
+                out.extend((p + 1..title.len()).map(|q| (hash([p, q]), entry)));
+            }
+        }
+    }
+}
+
+/// Emit the title pairs that pass the title filters (see
+/// [`for_each_candidate`]). Pairs of entries that both have a DOI are
+/// skipped: equal DOIs are already paired, and different ones never match.
+///
+/// Two titles may match only within `e` edits, where `e` is at most each
+/// title's own bound `k` ([`max_title_edits`]), and are then found without
+/// false negatives:
+///
+/// - Titles with `k ≤ 2` and few variants go in a deletion index: titles
+///   within `e` edits share a variant with at most `e` characters deleted
+///   from each. Other titles close enough in length to one of those add
+///   variants too (up to that title's `k`), so those pairs meet there.
+/// - Other titles are cut into `k + 1` segments (segment partitioning, as in
+///   PassJoin). `e ≤ k` edits leave at least one segment untouched, and it
+///   appears in the other title shifted by at most `k` places (and, from the
+///   end, by at most `k` from the length difference). Each title looks up
+///   those substrings in the segment index of every compatible length.
+/// - A title too short for `k + 1` non-empty segments (very low thresholds)
+///   is compared with every title.
+fn title_candidates(
+    prints: &[Fingerprint],
+    threshold: f64,
+    cancel: &AtomicBool,
+    emit: &mut dyn FnMut(usize, usize),
+) {
+    let titled: Vec<usize> = (0..prints.len())
+        .filter(|&i| !prints[i].title.is_empty())
+        .collect();
+    let threshold = threshold.clamp(0.0, 1.0);
+    let edits = |len: usize| {
+        if threshold > 0.0 {
+            max_title_edits(len, threshold)
+        } else {
+            len
+        }
+    };
+    let has_doi = |i: usize| prints[i].doi.is_some();
+    let mut emit = |i: usize, j: usize| {
+        if i != j && !(has_doi(i) && has_doi(j)) {
+            emit(i.min(j), i.max(j));
+        }
+    };
+
+    let mut variants: Vec<(u64, u32)> = Vec::new();
+    // Largest deletion budget of an indexed title, by title length.
+    let mut indexed_k: HashMap<usize, usize> = HashMap::new();
+    let mut others: Vec<usize> = Vec::new();
+    for &i in &titled {
+        let len = prints[i].title.len();
+        let k = edits(len);
+        if k <= 2 && deletion_variants(len, k) <= DELETION_CAP {
+            push_deletion_hashes(&prints[i].title, k, i as u32, &mut variants);
+            let best = indexed_k.entry(len).or_default();
+            *best = (*best).max(k);
+        } else {
+            others.push(i);
+        }
+    }
+
+    let mut segmented: Vec<usize> = Vec::new();
+    let mut unfiltered: Vec<usize> = Vec::new();
+    for &i in &others {
+        let title = &prints[i].title;
+        let len = title.len();
+        // A partner in the deletion index has length within its own budget.
+        let partner_k = (len.saturating_sub(2)..=len + 2)
+            .filter_map(|l| indexed_k.get(&l).filter(|&&k| l.abs_diff(len) <= k))
+            .max();
+        if let Some(&k) = partner_k {
+            push_deletion_hashes(title, k, i as u32, &mut variants);
+        }
+        if edits(len) < len {
+            segmented.push(i);
+        } else {
+            unfiltered.push(i);
+        }
+    }
+
+    variants.sort_unstable();
+    variants.dedup();
+    for group in variants.chunk_by(|a, b| a.0 == b.0) {
+        if cancelled(cancel) {
+            return;
+        }
+        for (n, &(_, i)) in group.iter().enumerate() {
+            for &(_, j) in &group[n + 1..] {
+                emit(i as usize, j as usize);
+            }
+        }
+    }
+
+    // Segment index of titles without a DOI, keyed by (title length,
+    // segment number, segment hash). Every segmented title probes it, so
+    // each pair with at most one DOI is found: when neither has one, by the
+    // later entry probing the earlier one's segments.
+    let hashes: HashMap<usize, PrefixHash> = segmented
+        .iter()
+        .map(|&i| (i, PrefixHash::new(&prints[i].title)))
+        .collect();
+    let mut index: HashMap<(usize, usize, u64), Vec<usize>> = HashMap::new();
+    let mut lengths: Vec<usize> = Vec::new();
+    for &i in &segmented {
+        if has_doi(i) {
+            continue;
+        }
+        let len = prints[i].title.len();
+        lengths.push(len);
+        for (n, (start, seg_len)) in segments(len, edits(len)).enumerate() {
+            let hash = hashes[&i].substring(start, seg_len);
+            index.entry((len, n, hash)).or_default().push(i);
+        }
+    }
+    lengths.sort_unstable();
+    lengths.dedup();
+
+    let mut last_paired = vec![usize::MAX; prints.len()];
+    for &i in &segmented {
+        if cancelled(cancel) {
+            return;
+        }
+        let probe = &hashes[&i];
+        let len = prints[i].title.len();
+        // Indexed lengths `l` whose own budget allows the length difference.
+        let low = lengths.partition_point(|&l| l + edits(l) < len);
+        for &l in &lengths[low..] {
+            if l > len + edits(l) {
+                // `l - edits(l)` grows with `l`, so no longer length fits.
+                break;
+            }
+            let k = edits(l) as isize;
+            let delta = len as isize - l as isize;
+            for (n, (start, seg_len)) in segments(l, edits(l)).enumerate() {
+                let shift_lo = (-k).max(delta - k);
+                let shift_hi = k.min(delta + k);
+                for shift in shift_lo..=shift_hi {
+                    let at = start as isize + shift;
+                    if at < 0 || at as usize + seg_len > len {
+                        continue;
+                    }
+                    let hash = probe.substring(at as usize, seg_len);
+                    let Some(found) = index.get(&(l, n, hash)) else {
+                        continue;
+                    };
+                    for &j in found {
+                        if (has_doi(i) || j < i) && last_paired[j] != i {
+                            last_paired[j] = i;
+                            emit(j, i);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    for &i in &unfiltered {
+        if cancelled(cancel) {
+            return;
+        }
+        for &j in &titled {
+            emit(i, j);
+        }
+    }
+}
+
+/// `(start, length)` of the `k + 1` segments of a title of `len` (> `k`)
+/// characters; the last `len % (k + 1)` segments are one longer.
+fn segments(len: usize, k: usize) -> impl Iterator<Item = (usize, usize)> {
+    let count = k + 1;
+    let base = len / count;
+    let longer_from = count - len % count;
+    (0..count).map(move |n| {
+        let start = n * base + n.saturating_sub(longer_from);
+        (start, base + usize::from(n >= longer_from))
+    })
+}
+
+/// Polynomial prefix hashes of a title, for O(1) substring hashes.
+struct PrefixHash {
+    prefix: Vec<u64>,
+    power: Vec<u64>,
+}
+
+impl PrefixHash {
+    const BASE: u64 = 0x0000_0100_0000_01b3;
+
+    fn new(title: &[char]) -> Self {
+        let mut prefix = Vec::with_capacity(title.len() + 1);
+        let mut power = Vec::with_capacity(title.len() + 1);
+        prefix.push(0u64);
+        power.push(1u64);
+        for &c in title {
+            let last = prefix[prefix.len() - 1];
+            prefix.push(last.wrapping_mul(Self::BASE).wrapping_add(c as u64 + 1));
+            power.push(power[power.len() - 1].wrapping_mul(Self::BASE));
+        }
+        PrefixHash { prefix, power }
+    }
+
+    fn substring(&self, start: usize, len: usize) -> u64 {
+        self.prefix[start + len].wrapping_sub(self.prefix[start].wrapping_mul(self.power[len]))
+    }
 }
 
 /// Why two entries that did not match each other are evidently different
@@ -560,33 +881,51 @@ fn strength(reason: &MatchReason) -> (u8, std::cmp::Reverse<u64>) {
 /// works (see [`conflict`]), into one cluster, so every cluster is safe to
 /// merge as a whole. A refused match is reported in
 /// [`DuplicateCluster::related`] of the cluster(s) of its entries.
+///
+/// Only plausible pairs are compared (see [`for_each_candidate`]), so this
+/// is not quadratic in the library size for ordinary libraries.
 pub fn find_duplicates(
     entries: &IndexMap<String, Entry>,
     settings: &DedupSettings,
     ignored: &[Vec<String>],
 ) -> Vec<DuplicateCluster> {
+    find_duplicates_cancellable(entries, settings, ignored, &AtomicBool::new(false))
+        .unwrap_or_default()
+}
+
+/// [`find_duplicates`], giving up with `None` soon after `cancel` is set
+/// (from another thread).
+pub fn find_duplicates_cancellable(
+    entries: &IndexMap<String, Entry>,
+    settings: &DedupSettings,
+    ignored: &[Vec<String>],
+    cancel: &AtomicBool,
+) -> Option<Vec<DuplicateCluster>> {
     let keys: Vec<&String> = entries.keys().collect();
     let prints = fingerprints(entries);
     let n = keys.len();
 
+    let marks = Marks::new(ignored);
     let mut matches: Vec<(usize, usize, MatchReason)> = Vec::new();
-    for i in 0..n {
-        for j in (i + 1)..n {
-            let Some(reason) = match_pair(&prints[i], &prints[j], settings) else {
-                continue;
-            };
-            if is_ignored(keys[i], keys[j], ignored) {
-                continue;
+    for_each_candidate(&prints, settings, cancel, &mut |i, j| {
+        if !marks.contains(keys[i], keys[j]) {
+            if let Some(reason) = match_pair(&prints[i], &prints[j], settings) {
+                matches.push((i, j, reason));
             }
-            matches.push((i, j, reason));
         }
+    });
+    if cancelled(cancel) {
+        return None;
     }
+    // A pair found by several indexes is the same match.
+    matches.sort_by_key(|(i, j, _)| (*i, *j));
+    matches.dedup_by_key(|(i, j, _)| (*i, *j));
     matches.sort_by_key(|(i, j, reason)| (strength(reason), *i, *j));
 
     // Why `x` and `y` may not share a cluster, or `None`.
     let separation = |x: usize, y: usize| -> Option<Separation> {
         let (a, b) = if x < y { (x, y) } else { (y, x) };
-        if is_ignored(keys[a], keys[b], ignored) {
+        if marks.contains(keys[a], keys[b]) {
             return Some(Separation::MarkedDistinct {
                 a: keys[a].clone(),
                 b: keys[b].clone(),
@@ -607,6 +946,9 @@ pub fn find_duplicates(
     let mut linked: Vec<(usize, usize, MatchReason)> = Vec::new();
     let mut refused: Vec<(usize, usize, MatchReason, Separation)> = Vec::new();
     for (i, j, reason) in matches {
+        if cancelled(cancel) {
+            return None;
+        }
         let (ci, cj) = (cluster_of[i], cluster_of[j]);
         if ci != cj {
             let blocker = members[ci]
@@ -663,7 +1005,7 @@ pub fn find_duplicates(
         })
         .collect();
     clusters.sort_by_key(|c| c.keys[0].to_lowercase());
-    clusters
+    Some(clusters)
 }
 
 /// Existing entries that look like duplicates of the entry stored at `key`
@@ -946,8 +1288,136 @@ mod tests {
         );
     }
 
+    /// Distinct candidate pairs, sorted.
+    fn candidate_pairs(prints: &[Fingerprint], settings: &DedupSettings) -> Vec<(usize, usize)> {
+        let mut pairs = Vec::new();
+        for_each_candidate(prints, settings, &AtomicBool::new(false), &mut |i, j| {
+            assert!(i < j, "candidates are emitted in order");
+            pairs.push((i, j));
+        });
+        pairs.sort_unstable();
+        pairs.dedup();
+        pairs
+    }
+
+    #[test]
+    fn a_cancelled_scan_returns_nothing() {
+        let lib = library(vec![
+            entry("A", &[("title", "T"), ("doi", "10.1/a")]),
+            entry("B", &[("title", "T"), ("doi", "10.1/a")]),
+        ]);
+        let settings = DedupSettings::default();
+        let cancel = AtomicBool::new(false);
+        assert_eq!(
+            find_duplicates_cancellable(&lib, &settings, &[], &cancel).map(|c| c.len()),
+            Some(1)
+        );
+        cancel.store(true, Ordering::Relaxed);
+        assert_eq!(
+            find_duplicates_cancellable(&lib, &settings, &[], &cancel),
+            None
+        );
+    }
+
     fn keys(list: &[&str]) -> Vec<String> {
         list.iter().map(|k| k.to_string()).collect()
+    }
+
+    /// Pairs `match_pair` accepts, by comparing every pair.
+    fn brute_force_matches(
+        prints: &[Fingerprint],
+        settings: &DedupSettings,
+    ) -> Vec<(usize, usize)> {
+        let mut out = Vec::new();
+        for i in 0..prints.len() {
+            for j in (i + 1)..prints.len() {
+                if match_pair(&prints[i], &prints[j], settings).is_some() {
+                    out.push((i, j));
+                }
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn candidate_index_finds_every_match() {
+        // Deterministic pseudo-random titles: variants of a few base titles
+        // with random edits, short titles, repeats and shared identifiers.
+        let mut seed: u64 = 0x2545_f491_4f6c_dd1d;
+        let mut next = move |n: u64| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed % n
+        };
+        let bases = [
+            "Monte Carlo methods for neutron transport",
+            "aaaa aaaa aaaa aaaa",
+            "Ab",
+            "A Primer",
+            "On the theory of the the the the",
+            "Variance reduction",
+        ];
+        let alphabet: Vec<char> = "abc ae".chars().collect();
+        let mut entries = Vec::new();
+        for n in 0..300 {
+            let mut title: Vec<char> = bases[next(bases.len() as u64) as usize].chars().collect();
+            for _ in 0..next(5) {
+                let at = next(title.len() as u64 + 1) as usize;
+                let c = alphabet[next(alphabet.len() as u64) as usize];
+                match next(3) {
+                    0 if at < title.len() => title[at] = c,
+                    1 if at < title.len() => {
+                        title.remove(at);
+                    }
+                    _ => title.insert(at, c),
+                }
+            }
+            let title: String = title.into_iter().collect();
+            let key = format!("K{n}");
+            let mut fields = vec![("title", title)];
+            if next(4) == 0 {
+                fields.push(("doi", format!("10.1/{}", next(20))));
+            }
+            if next(6) == 0 {
+                fields.push(("year", format!("{}", 2000 + next(2))));
+            }
+            let fields: Vec<(&str, &str)> = fields.iter().map(|(k, v)| (*k, v.as_str())).collect();
+            entries.push(entry(&key, &fields));
+        }
+        let prints = fingerprints(&library(entries));
+        for threshold in [0.0, 0.3, 0.6, 0.75, 0.85, 0.9, 0.95, 1.0] {
+            let settings = DedupSettings {
+                title_threshold: threshold,
+                ..DedupSettings::default()
+            };
+            let indexed: Vec<(usize, usize)> = candidate_pairs(&prints, &settings)
+                .into_iter()
+                .filter(|&(i, j)| match_pair(&prints[i], &prints[j], &settings).is_some())
+                .collect();
+            let expected = brute_force_matches(&prints, &settings);
+            assert!(
+                !expected.is_empty(),
+                "threshold {threshold}: fixture has matches"
+            );
+            assert_eq!(indexed, expected, "threshold {threshold}");
+        }
+    }
+
+    #[test]
+    fn candidate_index_skips_dissimilar_titles() {
+        let entries: Vec<Entry> = (0..200)
+            .map(|i| entry(&format!("K{i}"), &[("title", &format!("Row {i:05}"))]))
+            .collect();
+        let prints = fingerprints(&library(entries));
+        let candidates = candidate_pairs(&prints, &DedupSettings::default());
+        // Rows one digit apart are one edit apart and stay candidates; the
+        // rest of the 19,900 pairs must not be compared.
+        assert!(
+            candidates.len() < 200 * 199 / 2 / 4,
+            "{} candidate pairs",
+            candidates.len()
+        );
     }
 
     #[test]

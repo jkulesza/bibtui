@@ -309,6 +309,15 @@ matches an existing entry, bibtui offers to merge it, keep both (marking them
 as not duplicates), or discard it. When a file is opened, the status bar
 reports how many possible duplicate clusters it has.
 
+The search runs in the background, so a large library opens and stays usable
+while it runs: the count appears when it finishes (and is skipped if you
+change the library first), and `U` shows "Looking for duplicates…" until the
+list opens (`Esc` cancels; a change to the library meanwhile restarts the
+search). Only plausible pairs are compared — entries sharing an identifier,
+and titles close enough to be within the similarity threshold, found through
+an index without missing any — so a 20,000-entry library takes well under a
+second in typical cases instead of comparing 200 million pairs.
+
 "Not duplicates" marks are stored as
 a JabRef metadata comment with one set of keys per line, which JabRef keeps:
 

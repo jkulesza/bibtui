@@ -93,6 +93,9 @@ impl App {
                 }
             }
         }
+        if self.poll_duplicate_scan() {
+            changed = true;
+        }
         // Showing an import can itself open a dialog (a duplicate offer), so
         // check again before applying a DOI result.
         if self.is_idle_for_background() {

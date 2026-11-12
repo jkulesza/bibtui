@@ -3,7 +3,12 @@
 //! and the duplicate check after importing or adding an entry.
 
 use super::*;
-use crate::bib::dedup::{find_duplicates, find_matches_for, DuplicateCluster};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
+use crate::bib::dedup::{
+    find_duplicates_cancellable, find_matches_for, DedupSettings, DuplicateCluster,
+};
 use crate::bib::jabref::{escape_meta, split_meta_list};
 use crate::config::library::MetaChange;
 use crate::tui::components::dedup::{
@@ -31,6 +36,44 @@ fn not_duplicates_comment(sets: &[Vec<String>]) -> Option<String> {
     Some(format!(
         "@Comment{{jabref-meta: {NOT_DUPLICATES_META}:\n{body}}}"
     ))
+}
+
+/// What a background duplicate scan is for.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) enum ScanPurpose {
+    /// The status-bar count when a file is opened (`duplicates.check_on_load`).
+    OnLoad,
+    /// The review list (`U` / `:dups`).
+    Review,
+}
+
+/// A duplicate scan running on a worker thread over a snapshot of the
+/// library. Its result is used only if the library, marks and settings still
+/// equal the snapshot. Dropping it (replacing or cancelling the scan) tells
+/// the worker to stop.
+pub(super) struct DuplicateScan {
+    purpose: ScanPurpose,
+    entries: Arc<IndexMap<String, Entry>>,
+    ignored: Vec<Vec<String>>,
+    settings: DedupSettings,
+    cancel: Arc<AtomicBool>,
+    /// `None` when the worker was cancelled.
+    rx: mpsc::Receiver<Option<Vec<DuplicateCluster>>>,
+}
+
+impl Drop for DuplicateScan {
+    fn drop(&mut self) {
+        self.cancel.store(true, Ordering::Relaxed);
+    }
+}
+
+impl DuplicateScan {
+    /// Whether the library has changed since the scan's snapshot.
+    fn is_stale(&self, app: &App) -> bool {
+        *self.entries != app.database.entries
+            || self.ignored != app.not_duplicate_sets()
+            || self.settings != app.config.duplicates.settings()
+    }
 }
 
 impl App {
@@ -115,20 +158,117 @@ impl App {
 
     // ── Detection ───────────────────────────────────────────────────────────
 
+    /// Scan for duplicates on a worker thread, replacing (and so
+    /// cancelling) any scan already running.
+    fn start_duplicate_scan(&mut self, purpose: ScanPurpose) {
+        let entries = Arc::new(self.database.entries.clone());
+        let ignored = self.not_duplicate_sets();
+        let settings = self.config.duplicates.settings();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let (tx, rx) = mpsc::channel();
+        {
+            let (entries, ignored, cancel) = (entries.clone(), ignored.clone(), cancel.clone());
+            std::thread::spawn(move || {
+                let clusters = find_duplicates_cancellable(&entries, &settings, &ignored, &cancel);
+                // The receiver is gone if the scan was cancelled or replaced.
+                let _ = tx.send(clusters);
+            });
+        }
+        self.duplicate_scan = Some(DuplicateScan {
+            purpose,
+            entries,
+            ignored,
+            settings,
+            cancel,
+            rx,
+        });
+    }
+
+    /// Collect a finished duplicate scan. A review list opens only once
+    /// [`is_idle_for_background`](Self::is_idle_for_background). Returns
+    /// whether anything visible changed.
+    pub(super) fn poll_duplicate_scan(&mut self) -> bool {
+        let Some(scan) = &self.duplicate_scan else {
+            return false;
+        };
+        if scan.purpose == ScanPurpose::Review && !self.is_idle_for_background() {
+            return false;
+        }
+        let result = match scan.rx.try_recv() {
+            Ok(result) => result,
+            Err(mpsc::TryRecvError::Empty) => return false,
+            Err(mpsc::TryRecvError::Disconnected) => None,
+        };
+        match self.duplicate_scan.take() {
+            Some(scan) => self.finish_duplicate_scan(scan, result),
+            None => false,
+        }
+    }
+
+    /// Apply a scan's `result` (`None`: the worker failed), unless the
+    /// library changed meanwhile: a stale load check is dropped, a stale
+    /// review search starts again on the current library.
+    fn finish_duplicate_scan(
+        &mut self,
+        scan: DuplicateScan,
+        result: Option<Vec<DuplicateCluster>>,
+    ) -> bool {
+        let Some(clusters) = result else {
+            if scan.purpose == ScanPurpose::Review {
+                self.status_message = Some("Duplicate search failed".to_string());
+                return true;
+            }
+            return false;
+        };
+        let stale = scan.is_stale(self);
+        match (scan.purpose, stale) {
+            (ScanPurpose::OnLoad, true) => false,
+            (ScanPurpose::OnLoad, false) => {
+                self.report_duplicate_count(clusters.len());
+                true
+            }
+            (ScanPurpose::Review, true) => {
+                self.start_duplicate_scan(ScanPurpose::Review);
+                false
+            }
+            (ScanPurpose::Review, false) => {
+                self.show_duplicate_review(clusters);
+                true
+            }
+        }
+    }
+
+    /// The clusters a scan of the current library would find.
+    #[cfg(test)]
     pub(super) fn duplicate_clusters(&self) -> Vec<DuplicateCluster> {
-        find_duplicates(
+        crate::bib::dedup::find_duplicates(
             &self.database.entries,
             &self.config.duplicates.settings(),
             &self.not_duplicate_sets(),
         )
     }
 
-    /// Status-bar note for a freshly opened file (`duplicates.check_on_load`).
+    /// Wait for the running duplicate scan and apply it, as the event loop
+    /// would once idle.
+    #[cfg(test)]
+    pub(super) fn wait_for_duplicate_scan(&mut self) {
+        while let Some(scan) = self.duplicate_scan.take() {
+            let result = scan.rx.recv().ok().flatten();
+            self.finish_duplicate_scan(scan, result);
+        }
+    }
+
+    /// Start the status-bar count for a freshly opened file
+    /// (`duplicates.check_on_load`) in the background, so a large library
+    /// opens without waiting for it.
     pub(super) fn report_duplicates_on_load(&mut self) {
         if !self.config.duplicates.check_on_load || self.database.entries.len() < 2 {
             return;
         }
-        let count = self.duplicate_clusters().len();
+        self.start_duplicate_scan(ScanPurpose::OnLoad);
+    }
+
+    fn report_duplicate_count(&mut self, count: usize) {
         if count == 0 {
             return;
         }
@@ -197,9 +337,37 @@ impl App {
 
     // ── Review list ─────────────────────────────────────────────────────────
 
+    /// `U` / `:dups`: search for duplicates in the background; the review
+    /// list opens when the search finishes (Esc cancels it).
     pub(super) fn open_duplicate_review(&mut self) {
-        let clusters: Vec<ReviewCluster> = self
-            .duplicate_clusters()
+        if self
+            .duplicate_scan
+            .as_ref()
+            .is_some_and(|s| s.purpose == ScanPurpose::Review)
+        {
+            self.status_message = Some("Still looking for duplicates… (Esc cancels)".to_string());
+            return;
+        }
+        self.start_duplicate_scan(ScanPurpose::Review);
+        self.status_message = Some("Looking for duplicates… (Esc cancels)".to_string());
+    }
+
+    /// Cancel a running `U` search. Returns whether there was one.
+    pub(super) fn cancel_duplicate_review(&mut self) -> bool {
+        if !self
+            .duplicate_scan
+            .as_ref()
+            .is_some_and(|s| s.purpose == ScanPurpose::Review)
+        {
+            return false;
+        }
+        self.duplicate_scan = None;
+        self.status_message = Some("Duplicate search cancelled".to_string());
+        true
+    }
+
+    fn show_duplicate_review(&mut self, clusters: Vec<DuplicateCluster>) {
+        let clusters: Vec<ReviewCluster> = clusters
             .into_iter()
             .map(|c| self.review_cluster(c))
             .collect();
