@@ -1,5 +1,10 @@
 # Changelog
 
+### Unreleased
+
+- **Fix: a clipboard tool that fails at once reports its own error**: copying text with a helper that exits before reading it (for example `xclip` with no X display) could report "Broken pipe" instead of the helper's message, depending on timing. bibtui now waits for the helper and reports its exit status and error; a helper that exits successfully without reading all the text is reported too.
+- **Tests fixed for CI**: three tests from 0.70.0 failed in CI. On Linux, the clipboard test above hit the broken-pipe race. On Windows, a test expected `/` in a path where Windows uses `\`. A DOI-lookup test raced with the background duplicate check on load. The v0.70.0 release workflow failed as a result and published no binaries.
+
 ### 0.70.0
 
 - **Fix: every matching value is offered for completion**: value completion (for example `address`) took the 50 most used values first, alphabetically among equally used ones, and only then kept those matching what you typed. In a library with more than 50 different values for a field, a value used by a single entry, such as one just entered, could never complete. It only appeared once a second entry used it (for example after typing it again and restarting). The typed prefix is now applied first, so any matching value is offered, still at most 50 and most used first.

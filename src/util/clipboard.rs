@@ -58,11 +58,24 @@ fn run_clipboard_command(
         .stderr(Stdio::from(stderr_file.try_clone()?))
         .spawn()
         .map_err(|e| anyhow::Error::new(e).context(format!("could not run {program}")))?;
+    // A helper that fails at once (xclip with no display) may exit before
+    // reading its input, so the write fails with a broken pipe. Wait for it
+    // anyway and report its own exit status and message, which explain the
+    // failure; the write error matters only if the helper claims success.
+    let mut write_error = None;
     if let (Some(data), Some(mut pipe)) = (input, child.stdin.take()) {
-        pipe.write_all(data)?;
+        if let Err(error) = pipe.write_all(data) {
+            write_error = Some(error);
+        }
         // Dropping the pipe closes it so the helper sees end of input.
     }
     let output = child.wait_with_output()?;
+    if output.status.success() {
+        if let Some(error) = write_error {
+            return Err(anyhow::Error::new(error)
+                .context(format!("{program} exited before reading all the text")));
+        }
+    }
     if !output.status.success() {
         let mut stderr = String::new();
         stderr_file.rewind()?;
@@ -502,6 +515,28 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn test_clipboard_helper_failing_before_reading_input_reports_its_error() {
+        // More than a pipe buffer holds, so the write always outlives the
+        // helper and fails with a broken pipe (a race with small input).
+        let text = vec![b'x'; 1024 * 1024];
+        let err = run_clipboard_command(
+            &mut sh("echo 'Error: Can not open display' >&2; exit 1"),
+            Some(&text),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.starts_with("sh failed ("), "{err}");
+        assert!(err.ends_with(": Error: Can not open display"), "{err}");
+
+        // A helper that exits successfully without reading is still an error.
+        let err = run_clipboard_command(&mut sh("exit 0"), Some(&text))
+            .unwrap_err()
+            .to_string();
+        assert_eq!(err, "sh exited before reading all the text");
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn test_clipboard_command_does_not_wait_for_background_server() {
         // Like xclip: the helper exits at once but leaves a child running
         // that still holds the inherited output handles.
@@ -551,7 +586,8 @@ mod tests {
     #[test]
     fn test_windows_file_list_is_absolute() {
         let list = windows_file_list(&[PathBuf::from("PDF/a b.pdf")]).unwrap();
-        let expected = std::env::current_dir().unwrap().join("PDF/a b.pdf");
+        // Built from components: on Windows the result uses `\` throughout.
+        let expected = std::env::current_dir().unwrap().join("PDF").join("a b.pdf");
         assert_eq!(list, vec![expected.to_string_lossy().into_owned()]);
         assert!(std::path::Path::new(&list[0]).is_absolute());
     }

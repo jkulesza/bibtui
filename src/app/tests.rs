@@ -2934,7 +2934,9 @@ fn test_start_fetch_doi_queues_a_metadata_lookup() {
             year: entry.fields["year"].clone(),
         }]
     );
-    // Nothing happens until the lookup finishes.
+    // Nothing happens until the lookup finishes. (Let the load-time
+    // duplicate check finish first: it is the only other background task.)
+    app.wait_for_duplicate_scan();
     assert!(!app.poll_background_tasks());
     assert!(app.pending_doi_fetch.is_some());
 }
