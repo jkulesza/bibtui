@@ -1,3 +1,6 @@
 # Byte-exact fixtures: files as JabRef wrote them, compared byte for byte in
 # tests. Never convert their line endings (e.g. to CRLF on Windows checkouts).
 tests/fixtures/jabref_meta_*.bib -text
+# Expected values in tests/string_resolution.rs (from reference BibTeX)
+# assume LF line endings inside multi-line values.
+tests/fixtures/string_resolution.bib -text
