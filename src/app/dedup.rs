@@ -170,10 +170,28 @@ impl App {
                 reasons.push(reason);
             }
         }
+        let related = cluster
+            .related
+            .iter()
+            .map(|r| {
+                // Name the outside entry first, then the member it matched.
+                let (member, other) = if cluster.keys.contains(&r.pair.a) {
+                    (&r.pair.a, &r.pair.b)
+                } else {
+                    (&r.pair.b, &r.pair.a)
+                };
+                format!(
+                    "{other} ~ {member} ({}) — kept apart: {}",
+                    r.pair.reason.describe(),
+                    r.separation.describe()
+                )
+            })
+            .collect();
         ReviewCluster {
             summaries: cluster.keys.iter().map(|k| self.entry_summary(k)).collect(),
             keys: cluster.keys,
             reasons,
+            related,
         }
     }
 

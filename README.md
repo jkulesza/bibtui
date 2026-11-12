@@ -272,7 +272,12 @@ case, and punctuation ignored) are at least `duplicates.title_threshold` similar
 and the year and first-author surname agree (each check can be turned off).
 Differing DOIs, ISBNs, eprints, editions, volumes, or report numbers mark
 distinct works and never match; chapters of one book sharing its ISBN do not
-match either. Matches chain, so A~B and B~C form one cluster.
+match either. Matches chain, so A~B and B~C form one cluster, unless that
+would put two entries you marked **not duplicates**, or two of those distinct
+works, in one cluster: every cluster is safe to merge as a whole. Matches are
+joined strongest first (DOI, eprint, ISBN, URL, then title similarity), and a
+match kept out is listed under the cluster as `not merged: C ~ B (same DOI) —
+kept apart: A and C are marked not duplicates`, for you to look at separately.
 
 | Key | Review list |
 |-----|-------------|

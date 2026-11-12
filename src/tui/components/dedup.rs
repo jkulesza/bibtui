@@ -25,6 +25,10 @@ pub struct ReviewCluster {
     pub reasons: Vec<String>,
     /// One "title (year)" line per member, aligned with `keys`.
     pub summaries: Vec<String>,
+    /// Matches with entries outside the cluster that were kept out of it,
+    /// one note each, e.g. "C ~ B (same DOI) — kept apart: A and C are
+    /// marked not duplicates". Not part of the merge.
+    pub related: Vec<String>,
 }
 
 pub struct DedupReviewState {
@@ -466,6 +470,15 @@ pub fn render_dedup_review(f: &mut Frame, area: Rect, state: &mut DedupReviewSta
                 ),
             ]));
         }
+        for note in &cluster.related {
+            lines.push(Line::from(vec![
+                Span::styled("    not merged: ", reason_style),
+                Span::styled(
+                    truncate(note, max_w.saturating_sub("not merged: ".len())),
+                    theme.label,
+                ),
+            ]));
+        }
         lines.push(Line::from(""));
     }
 
@@ -745,6 +758,7 @@ mod tests {
             keys: vec!["A".into(), "B".into()],
             reasons: vec!["same DOI".into()],
             summaries: vec!["T".into(), "T".into()],
+            related: Vec::new(),
         };
         let mut state = DedupReviewState::new(vec![cluster.clone(), cluster]);
         state.move_down();
@@ -763,6 +777,9 @@ mod tests {
             keys: vec!["A".into(), "B".into()],
             reasons: vec!["same DOI".into()],
             summaries: vec!["Same Title (2020)".into(), "Same Title".into()],
+            related: vec![
+                "C ~ B (same DOI) — kept apart: A and C are marked not duplicates".into(),
+            ],
         }]);
         let theme = Theme::default();
         for (w, h) in [(120, 40), (20, 8)] {

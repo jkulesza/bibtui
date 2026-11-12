@@ -2420,3 +2420,51 @@ fn deleting_a_marked_entry_keeps_the_mark_for_undo() {
     app.handle_action(Action::Undo);
     assert!(app.duplicate_clusters().is_empty());
 }
+
+// ── N12: clusters never contain marked or conflicting pairs ─────────────────
+
+/// A and C were marked distinct; B shares their DOI and bridges them.
+const BRIDGE_BIB: &str = "@Article{A, title={First Record}, doi={10.1/x}}\n\
+@Article{B, title={Second Record}, doi={10.1/x}}\n\
+@Article{C, title={Third Record}, doi={10.1/x}}\n";
+
+#[test]
+fn bridged_marked_pair_is_not_offered_as_one_merge() {
+    let (mut app, _dir) = review_app(BRIDGE_BIB);
+    app.mark_not_duplicates(&["A".to_string(), "C".to_string()]);
+    let clusters = app.duplicate_clusters();
+    assert_eq!(clusters.len(), 1);
+    assert_eq!(clusters[0].keys, vec!["A".to_string(), "B".to_string()]);
+
+    app.open_duplicate_review();
+    let cluster = app
+        .dedup_review_state
+        .as_ref()
+        .and_then(|s| s.current())
+        .cloned()
+        .expect("one cluster");
+    assert_eq!(
+        cluster.related,
+        vec!["C ~ B (same DOI) — kept apart: A and C are marked not duplicates".to_string()]
+    );
+    app.reconcile_duplicate_cluster();
+    let merge = app.dedup_merge_state.as_ref().expect("merge view");
+    assert_eq!(merge.keys, vec!["A".to_string(), "B".to_string()]);
+}
+
+#[test]
+fn bridge_between_different_dois_is_not_offered_as_one_merge() {
+    let (app, _dir) = review_app(
+        "@Article{A, title={Neutron Transport Methods}, year={2020}, doi={10.1/a}}\n\
+@Article{B, title={Neutron Transport Methods}, year={2020}}\n\
+@Article{C, title={Neutron Transport Methods}, year={2020}, doi={10.1/c}}\n",
+    );
+    let clusters = app.duplicate_clusters();
+    assert_eq!(clusters.len(), 1);
+    assert_eq!(clusters[0].keys, vec!["A".to_string(), "B".to_string()]);
+    assert_eq!(clusters[0].related.len(), 1);
+    assert_eq!(
+        clusters[0].related[0].separation.describe(),
+        "A and C have different DOIs"
+    );
+}

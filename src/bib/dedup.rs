@@ -10,10 +10,14 @@
 //! edition or a different volume is not flagged.
 //!
 //! Matching pairs are grouped into clusters transitively (A~B and B~C put
-//! A, B, and C in one cluster). Pairs the user marked "not a duplicate" are
-//! never linked.
+//! A, B, and C in one cluster), strongest reason first, unless that would
+//! put two entries the user marked "not duplicates", or two evidently
+//! different works (different DOIs, ISBNs, eprints, editions, volumes,
+//! numbers, or parts of one book), into one cluster. Every cluster can
+//! therefore be merged as a whole; a match kept out is reported alongside
+//! as a related candidate.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use indexmap::IndexMap;
 
@@ -86,8 +90,45 @@ pub struct DuplicatePair {
 pub struct DuplicateCluster {
     /// Member citation keys, in library order.
     pub keys: Vec<String>,
-    /// The pairwise matches that linked the members.
+    /// The pairwise matches between members.
     pub pairs: Vec<DuplicatePair>,
+    /// Matches between a member and an entry outside the cluster that were
+    /// found but not joined, with what kept them apart. These are candidates
+    /// to look at, not part of the all-members merge.
+    pub related: Vec<RelatedMatch>,
+}
+
+/// Why a match was not joined into a cluster: joining it would have put
+/// `a` and `b` (in library order) into one cluster.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Separation {
+    /// The user marked `a` and `b` "not duplicates".
+    MarkedDistinct { a: String, b: String },
+    /// `a` and `b` are evidently different works; `why` completes
+    /// "a and b …", e.g. "have different DOIs".
+    Conflict {
+        a: String,
+        b: String,
+        why: &'static str,
+    },
+}
+
+impl Separation {
+    pub fn describe(&self) -> String {
+        match self {
+            Separation::MarkedDistinct { a, b } => {
+                format!("{a} and {b} are marked not duplicates")
+            }
+            Separation::Conflict { a, b, why } => format!("{a} and {b} {why}"),
+        }
+    }
+}
+
+/// A match found but kept out of a cluster.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RelatedMatch {
+    pub pair: DuplicatePair,
+    pub separation: Separation,
 }
 
 /// Comparison data extracted once per entry.
@@ -466,7 +507,59 @@ fn fingerprints(entries: &IndexMap<String, Entry>) -> Vec<Fingerprint> {
     prints
 }
 
+/// Why two entries that did not match each other are evidently different
+/// works, so no cluster may contain both, or `None`. Only identifiers and
+/// numbering count: a different year or author alone does not, since
+/// preprints and corrected records legitimately differ there.
+fn conflict(a: &Fingerprint, b: &Fingerprint) -> Option<&'static str> {
+    if agree(&a.doi, &b.doi) {
+        return None;
+    }
+    if differ(&a.doi, &b.doi) {
+        Some("have different DOIs")
+    } else if differ(&a.eprint, &b.eprint) {
+        Some("have different eprints")
+    } else if !a.isbns.is_empty()
+        && !b.isbns.is_empty()
+        && !a.isbns.iter().any(|i| b.isbns.contains(i))
+    {
+        Some("have different ISBNs")
+    } else if differ(&a.edition, &b.edition) {
+        Some("have different editions")
+    } else if differ(&a.volume, &b.volume) {
+        Some("have different volumes")
+    } else if differ(&a.number, &b.number) {
+        Some("have different numbers")
+    } else if a.isbns.iter().any(|i| b.isbns.contains(i)) && different_parts(a, b) {
+        Some("are different parts of one book")
+    } else {
+        None
+    }
+}
+
+/// Order in which matches are joined into clusters: the most reliable
+/// reasons first, so a weak link cannot claim an entry that a strong one
+/// would have put elsewhere.
+fn strength(reason: &MatchReason) -> (u8, std::cmp::Reverse<u64>) {
+    match reason {
+        MatchReason::Doi => (0, std::cmp::Reverse(0)),
+        MatchReason::Eprint => (1, std::cmp::Reverse(0)),
+        MatchReason::Isbn => (2, std::cmp::Reverse(0)),
+        MatchReason::Url => (3, std::cmp::Reverse(0)),
+        MatchReason::Title { similarity } => (
+            4,
+            std::cmp::Reverse((similarity.clamp(0.0, 1.0) * 1e6).round() as u64),
+        ),
+    }
+}
+
 /// Find all clusters of possible duplicates in `entries`.
+///
+/// Matches are joined strongest first. A join is refused when it would put
+/// two entries the user marked "not duplicates", or two evidently different
+/// works (see [`conflict`]), into one cluster, so every cluster is safe to
+/// merge as a whole. A refused match is reported in
+/// [`DuplicateCluster::related`] of the cluster(s) of its entries.
 pub fn find_duplicates(
     entries: &IndexMap<String, Entry>,
     settings: &DedupSettings,
@@ -476,16 +569,7 @@ pub fn find_duplicates(
     let prints = fingerprints(entries);
     let n = keys.len();
 
-    let mut parent: Vec<usize> = (0..n).collect();
-    fn root(parent: &mut [usize], mut i: usize) -> usize {
-        while parent[i] != i {
-            parent[i] = parent[parent[i]];
-            i = parent[i];
-        }
-        i
-    }
-
-    let mut pairs: Vec<(usize, usize, MatchReason)> = Vec::new();
+    let mut matches: Vec<(usize, usize, MatchReason)> = Vec::new();
     for i in 0..n {
         for j in (i + 1)..n {
             let Some(reason) = match_pair(&prints[i], &prints[j], settings) else {
@@ -494,36 +578,88 @@ pub fn find_duplicates(
             if is_ignored(keys[i], keys[j], ignored) {
                 continue;
             }
-            let (ri, rj) = (root(&mut parent, i), root(&mut parent, j));
-            if ri != rj {
-                parent[rj] = ri;
-            }
-            pairs.push((i, j, reason));
+            matches.push((i, j, reason));
         }
     }
+    matches.sort_by_key(|(i, j, reason)| (strength(reason), *i, *j));
 
-    let mut members: IndexMap<usize, Vec<usize>> = IndexMap::new();
-    let linked: HashSet<usize> = pairs.iter().flat_map(|(i, j, _)| [*i, *j]).collect();
-    for i in 0..n {
-        if linked.contains(&i) {
-            let r = root(&mut parent, i);
-            members.entry(r).or_default().push(i);
+    // Why `x` and `y` may not share a cluster, or `None`.
+    let separation = |x: usize, y: usize| -> Option<Separation> {
+        let (a, b) = if x < y { (x, y) } else { (y, x) };
+        if is_ignored(keys[a], keys[b], ignored) {
+            return Some(Separation::MarkedDistinct {
+                a: keys[a].clone(),
+                b: keys[b].clone(),
+            });
         }
-    }
+        let why = conflict(&prints[a], &prints[b])?;
+        match_pair(&prints[a], &prints[b], settings)
+            .is_none()
+            .then(|| Separation::Conflict {
+                a: keys[a].clone(),
+                b: keys[b].clone(),
+                why,
+            })
+    };
 
-    let mut clusters: Vec<DuplicateCluster> = members
-        .into_iter()
-        .map(|(r, indices)| DuplicateCluster {
-            keys: indices.iter().map(|&i| keys[i].clone()).collect(),
-            pairs: pairs
+    let mut cluster_of: Vec<usize> = (0..n).collect();
+    let mut members: Vec<Vec<usize>> = (0..n).map(|i| vec![i]).collect();
+    let mut linked: Vec<(usize, usize, MatchReason)> = Vec::new();
+    let mut refused: Vec<(usize, usize, MatchReason, Separation)> = Vec::new();
+    for (i, j, reason) in matches {
+        let (ci, cj) = (cluster_of[i], cluster_of[j]);
+        if ci != cj {
+            let blocker = members[ci]
                 .iter()
-                .filter(|(i, _, _)| root(&mut parent, *i) == r)
-                .map(|(i, j, reason)| DuplicatePair {
-                    a: keys[*i].clone(),
-                    b: keys[*j].clone(),
-                    reason: reason.clone(),
-                })
-                .collect(),
+                .find_map(|&x| members[cj].iter().find_map(|&y| separation(x, y)));
+            if let Some(blocker) = blocker {
+                refused.push((i, j, reason, blocker));
+                continue;
+            }
+            let (keep, absorb) = if members[ci].len() >= members[cj].len() {
+                (ci, cj)
+            } else {
+                (cj, ci)
+            };
+            let moved = std::mem::take(&mut members[absorb]);
+            for &m in &moved {
+                cluster_of[m] = keep;
+            }
+            members[keep].extend(moved);
+        }
+        linked.push((i, j, reason));
+    }
+    linked.sort_by_key(|(i, j, _)| (*i, *j));
+    refused.sort_by_key(|(i, j, _, _)| (*i, *j));
+
+    let pair = |i: usize, j: usize, reason: &MatchReason| DuplicatePair {
+        a: keys[i].clone(),
+        b: keys[j].clone(),
+        reason: reason.clone(),
+    };
+    let mut clusters: Vec<DuplicateCluster> = members
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| m.len() >= 2)
+        .map(|(c, m)| {
+            let mut indices = m.clone();
+            indices.sort_unstable();
+            DuplicateCluster {
+                keys: indices.iter().map(|&i| keys[i].clone()).collect(),
+                pairs: linked
+                    .iter()
+                    .filter(|(i, _, _)| cluster_of[*i] == c)
+                    .map(|(i, j, reason)| pair(*i, *j, reason))
+                    .collect(),
+                related: refused
+                    .iter()
+                    .filter(|(i, j, _, _)| cluster_of[*i] == c || cluster_of[*j] == c)
+                    .map(|(i, j, reason, separation)| RelatedMatch {
+                        pair: pair(*i, *j, reason),
+                        separation: separation.clone(),
+                    })
+                    .collect(),
+            }
         })
         .collect();
     clusters.sort_by_key(|c| c.keys[0].to_lowercase());
@@ -808,6 +944,133 @@ mod tests {
             keys,
             vec![vec!["A".to_string(), "B".to_string(), "C".to_string()]]
         );
+    }
+
+    fn keys(list: &[&str]) -> Vec<String> {
+        list.iter().map(|k| k.to_string()).collect()
+    }
+
+    #[test]
+    fn a_bridge_never_joins_a_marked_pair() {
+        let lib = library(vec![
+            entry("A", &[("title", "One"), ("doi", "10.1/x")]),
+            entry("B", &[("title", "Two"), ("doi", "10.1/x")]),
+            entry("C", &[("title", "Three"), ("doi", "10.1/x")]),
+        ]);
+        let ignored = vec![keys(&["C", "A"])];
+        let clusters = find_duplicates(&lib, &DedupSettings::default(), &ignored);
+        assert_eq!(clusters.len(), 1);
+        assert_eq!(clusters[0].keys, keys(&["A", "B"]));
+        assert_eq!(
+            clusters[0].related,
+            vec![RelatedMatch {
+                pair: DuplicatePair {
+                    a: "B".into(),
+                    b: "C".into(),
+                    reason: MatchReason::Doi,
+                },
+                separation: Separation::MarkedDistinct {
+                    a: "A".into(),
+                    b: "C".into(),
+                },
+            }]
+        );
+    }
+
+    #[test]
+    fn a_bridge_never_joins_conflicting_identifiers() {
+        let same = [("title", "Neutron Transport Methods"), ("year", "2020")];
+        let with = |extra: (&'static str, &'static str)| {
+            let mut fields = same.to_vec();
+            fields.push(extra);
+            fields
+        };
+        let lib = library(vec![
+            entry("A", &with(("doi", "10.1/a"))),
+            entry("B", &same),
+            entry("C", &with(("doi", "10.1/c"))),
+        ]);
+        let clusters = find_duplicates(&lib, &DedupSettings::default(), &[]);
+        assert_eq!(clusters.len(), 1);
+        assert_eq!(clusters[0].keys, keys(&["A", "B"]));
+        assert_eq!(clusters[0].related.len(), 1);
+        assert_eq!(
+            clusters[0].related[0].separation,
+            Separation::Conflict {
+                a: "A".into(),
+                b: "C".into(),
+                why: "have different DOIs",
+            }
+        );
+    }
+
+    #[test]
+    fn every_cluster_member_pair_is_compatible() {
+        // Chapters of one book: each matches the book record, not each other.
+        let lib = library(vec![
+            entry(
+                "Book",
+                &[("title", "Handbook"), ("isbn", "978-0-306-40615-7")],
+            ),
+            entry(
+                "Ch1",
+                &[
+                    ("title", "Ch1"),
+                    ("isbn", "9780306406157"),
+                    ("chapter", "1"),
+                ],
+            ),
+            entry(
+                "Ch2",
+                &[
+                    ("title", "Ch2"),
+                    ("isbn", "9780306406157"),
+                    ("chapter", "2"),
+                ],
+            ),
+        ]);
+        let clusters = find_duplicates(&lib, &DedupSettings::default(), &[]);
+        assert_eq!(clusters.len(), 1);
+        assert_eq!(clusters[0].keys, keys(&["Book", "Ch1"]));
+        assert_eq!(
+            clusters[0].related[0].separation.describe(),
+            "Ch1 and Ch2 are different parts of one book"
+        );
+    }
+
+    #[test]
+    fn stronger_matches_are_joined_first() {
+        // C~B by title comes first in library order, but B~A share a URL;
+        // A and C have different eprints, so only one join can stand.
+        let lib = library(vec![
+            entry(
+                "C",
+                &[
+                    ("title", "Neutron Transport Methods"),
+                    ("eprint", "1111.1111"),
+                ],
+            ),
+            entry(
+                "B",
+                &[
+                    ("title", "Neutron Transport Methods"),
+                    ("url", "https://x.org/paper"),
+                ],
+            ),
+            entry(
+                "A",
+                &[
+                    ("title", "Unrelated"),
+                    ("url", "https://x.org/paper"),
+                    ("eprint", "2222.2222"),
+                ],
+            ),
+        ]);
+        let clusters = find_duplicates(&lib, &DedupSettings::default(), &[]);
+        assert_eq!(clusters.len(), 1);
+        assert_eq!(clusters[0].keys, keys(&["B", "A"]));
+        assert_eq!(clusters[0].pairs[0].reason, MatchReason::Url);
+        assert_eq!(clusters[0].related[0].pair.a, "C");
     }
 
     #[test]
