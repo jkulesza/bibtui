@@ -1,6 +1,6 @@
 # Changelog
 
-### Unreleased
+### 0.70.0
 
 - **Fix: every matching value is offered for completion**: value completion (for example `address`) took the 50 most used values first, alphabetically among equally used ones, and only then kept those matching what you typed. In a library with more than 50 different values for a field, a value used by a single entry, such as one just entered, could never complete. It only appeared once a second entry used it (for example after typing it again and restarting). The typed prefix is now applied first, so any matching value is offered, still at most 50 and most used first.
 - **Re-importing a PDF no longer loads two whole PDFs into memory** (review Q02): to check whether a fresh download matched the PDF already saved under that name, both files were read completely, so a re-import at the default 100 MB limit could briefly use about 200 MB despite the streamed download. Files are now compared in 64 KiB chunks. Comparing two 100 MB PDFs raised peak memory by about 0.2 MB instead of 100 MB (measured in a release build).
