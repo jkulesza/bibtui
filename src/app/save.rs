@@ -659,7 +659,11 @@ impl App {
         let mut violations: Vec<Violation> = Vec::new();
 
         for (key, entry) in &self.database.entries {
-            for t in compute_save_transforms(cfg, entry) {
+            let expressions = self.unchanged_expression_fields(entry);
+            for t in compute_save_transforms(cfg, entry)
+                .into_iter()
+                .filter(|t| !expressions.contains(&t.field))
+            {
                 violations.push(Violation {
                     entry_key: key.clone(),
                     field: t.field,
@@ -673,6 +677,24 @@ impl App {
         violations
     }
 
+    /// Fields of `entry` still holding the value of an `@String` reference or
+    /// `#` concatenation from the file. Save actions leave these alone: the
+    /// value comes from the expression (an abbreviation or escape belongs in
+    /// the `@String` definition), and rewriting it would replace the
+    /// reference with a literal copy.
+    fn unchanged_expression_fields(&self, entry: &Entry) -> std::collections::HashSet<String> {
+        match self.database.raw_file.items.get(entry.raw_index) {
+            Some(RawItem::Entry(raw)) => raw
+                .fields
+                .iter()
+                .filter(|f| f.value.is_expression())
+                .filter(|f| entry.fields.get(&f.name) == Some(&f.resolved))
+                .map(|f| f.name.clone())
+                .collect(),
+            _ => std::collections::HashSet::new(),
+        }
+    }
+
     /// Apply the enabled save actions to every entry in the database.
     ///
     /// Entries whose fields change are marked dirty so they are re-serialised.
@@ -683,8 +705,14 @@ impl App {
         let keys: Vec<String> = self.database.entries.keys().cloned().collect();
 
         for key in &keys {
-            let transforms = match self.database.entries.get(key) {
-                Some(e) => compute_save_transforms(&cfg, e),
+            let transforms: Vec<FieldTransform> = match self.database.entries.get(key) {
+                Some(e) => {
+                    let expressions = self.unchanged_expression_fields(e);
+                    compute_save_transforms(&cfg, e)
+                        .into_iter()
+                        .filter(|t| !expressions.contains(&t.field))
+                        .collect()
+                }
                 None => continue,
             };
             if transforms.is_empty() {

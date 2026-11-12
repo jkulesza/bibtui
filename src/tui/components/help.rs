@@ -91,6 +91,7 @@ fn render_entry_list_help(f: &mut Frame, area: Rect, theme: &Theme) {
                 ("M", "name disambiguator"),
                 ("U / :dups", "find & merge duplicates"),
                 ("v", "validate (preview save)"),
+                (":warnings", "problems found reading the file"),
                 ("F", "sync all filenames to cite keys"),
             ],
         ),

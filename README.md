@@ -12,6 +12,8 @@ A terminal UI BibTeX manager written in Rust. Designed as a lightweight, keyboar
 - Fast fuzzy search across all fields with field-specific syntax (`author:smith year:2020`)
 - JabRef-compatible group tree (static and keyword groups)
 - Byte-perfect BibTeX round-tripping — formatting is preserved for unmodified entries, including blank lines inside values, macros, and comments; in edited or rekeyed entries, unchanged fields keep their original form (`#` concatenation, `@String` references, quoted vs braced style); optional `field_order: alphabetical` sorts fields within required / optional / nonstandard subgroups on save
+- Reads the BibTeX syntax reference BibTeX accepts: `@Type{...}` and `@Type(...)` items, line breaks around `=`, `#` and commas, and `"..."` values containing `{"}`; a malformed item is skipped with its bytes kept, reading resumes at the next `@` line (indented or not), and `:warnings` lists what was skipped
+- `@String` definitions are resolved for display, search, export and editing (`journal = nse` shows its definition; `{pre} # {fix}` is `prefix`), while the file keeps the reference: see [String definitions](#string-definitions)
 - Vim-style navigation throughout
 - Entry CRUD: add, edit, duplicate, delete with undo (`u`); editing after undo correctly retains unsaved-change protection
 - JabRef-compatible citation key patterns with three-level precedence (`.bib` metadata, YAML config, defaults)
@@ -375,6 +377,7 @@ Open with `:` from the entry list.
 | `:sort none` | Clear sort and restore file order |
 | `:sort` | Toggle sort direction |
 | `:dups` / `:duplicates` | Find and merge duplicate entries (same as `U`) |
+| `:warnings` | List the problems found reading the file: skipped malformed items and `@String` names that are undefined or used above their definition (`yy` copies the list) |
 | `:group <name>` | Filter to a named group |
 | `:search <query>` | Apply a search query |
 | `:import <doi-or-url-or-path>` | Import entry from DOI, URL, or local PDF file |
@@ -463,6 +466,31 @@ The group sidebar can be hidden with `Tab` and revealed again with `Tab` or `h` 
 The `display.show_groups` config option controls whether it is visible on startup.
 Groups are tracked by their position in the tree, so two groups with the same name
 in different subtrees filter independently.
+
+## String definitions
+
+Values using `@String` names and `#` concatenation are resolved as BibTeX
+resolves them: names are matched without case, a later definition replaces an
+earlier one from there on, a definition may use earlier ones, numbers are
+literal, and parts are joined exactly (`{pre} # {fix}` is `prefix`). The file
+keeps the expression: a field whose value you have not changed is written back
+as it was, even when its entry is edited, rekeyed or re-sorted, and save
+actions (such as escaping `&`) leave such fields alone; change the `@String`
+definition instead. Editing the value itself replaces the expression with the
+new text.
+
+bibtui differs from reference BibTeX on purpose in a few places, each listed
+by `:warnings` where it applies:
+
+| Case | bibtui | BibTeX |
+|------|--------|--------|
+| Undefined name (e.g. one defined in another file, like IEEEabrv's) | keeps the name | empty |
+| Name used above its definition | uses the definition below | empty |
+| `@String{a = a # {x}}` | extends the earlier `a` | `a` is empty there |
+| Built-in months (`month = apr`) | `apr`, unless redefined | `April` (from the style) |
+| Whitespace | kept as written | runs collapsed, value trimmed |
+
+`crossref` fields are not inherited.
 
 ## Configuration
 

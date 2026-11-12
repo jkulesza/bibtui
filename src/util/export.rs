@@ -403,6 +403,7 @@ mod tests {
                 ..Default::default()
             },
             duplicate_keys: Vec::new(),
+            value_warnings: Vec::new(),
         }
     }
 

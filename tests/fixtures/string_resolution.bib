@@ -1,0 +1,54 @@
+% String-macro resolution and # concatenation (review N16). The values that
+% reference BibTeX produces are recorded in tests/string_resolution.rs.
+@String{nse = "Nuclear Science and Engineering"}
+@String{NT = {Nuclear} # " " # {Technology}}
+@String{full = nse # {, Supplement}}
+@String{lab = {Los Alamos}}
+@String{lab = lab # { National Laboratory}}
+@String(paren = "Paren")
+
+@Article{Nested,
+  journal     = full,
+  note        = {pre} # {fix},
+  title       = "A" # { } # "B",
+  institution = lab,
+}
+
+@Article{Case,
+  journal = Nse,
+  note    = nT # "s",
+}
+
+@Article{Spaces,
+  note  = { lead } # " mid " # {trail },
+  title = {Two  spaces} # {
+    and a line break},
+}
+
+@Article{Numbers,
+  year   = 2020,
+  volume = 12 # {a},
+}
+
+@Article{Months,
+  month = apr,
+  note  = jan # { and } # dec,
+}
+
+@String{may = "Mayo"}
+
+@Article{Redefined,
+  month   = may,
+  journal = paren,
+}
+
+@Article{Undefined,
+  journal = nowhere,
+  note    = {x} # nowhere # {y},
+}
+
+@Article{Forward,
+  journal = later,
+}
+
+@String{later = "Defined Later"}

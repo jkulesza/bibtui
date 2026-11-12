@@ -266,9 +266,20 @@ impl App {
         if !parse_warnings.is_empty() {
             let lines: Vec<String> = parse_warnings.iter().map(|w| w.line.to_string()).collect();
             let warning = format!(
-                "Parse warning: skipped {} malformed item(s) at line(s) {} (bytes preserved)",
+                "Parse warning: skipped {} malformed item(s) at line(s) {} (bytes preserved; :warnings for details)",
                 parse_warnings.len(),
                 lines.join(", ")
+            );
+            status_message = Some(match status_message {
+                Some(msg) => format!("{} | {}", msg, warning),
+                None => warning,
+            });
+        }
+        let value_warnings = database.value_warnings.len();
+        if value_warnings > 0 {
+            let warning = format!(
+                "{} @String reference problem(s) (:warnings for details)",
+                value_warnings
             );
             status_message = Some(match status_message {
                 Some(msg) => format!("{} | {}", msg, warning),
@@ -2135,6 +2146,35 @@ impl App {
 
     // ── Commands ──
 
+    /// `:warnings`: the problems found when the file was read, which the
+    /// startup status line only summarizes.
+    fn show_warnings(&mut self) {
+        let skipped = &self.database.raw_file.warnings;
+        let values = &self.database.value_warnings;
+        if skipped.is_empty() && values.is_empty() {
+            self.status_message = Some("No warnings: every item in the file was read".to_string());
+            return;
+        }
+        let mut warnings: Vec<&crate::bib::model::ParseWarning> =
+            skipped.iter().chain(values).collect();
+        warnings.sort_by_key(|w| w.line);
+        let mut message: String = warnings
+            .iter()
+            .map(|w| format!("Line {}: {}\n", w.line, w.message))
+            .collect();
+        if !skipped.is_empty() {
+            message.push_str(
+                "\nSkipped items' text is kept unchanged in the file; fix them in an editor to load them.",
+            );
+        }
+        self.dialog_state = Some(DialogState::message(
+            &format!("{} warning(s) reading the file (yy: copy)", warnings.len()),
+            &message,
+        ));
+        self.pending_action = Some(PendingAction::DismissMessage);
+        self.mode = InputMode::Dialog;
+    }
+
     fn execute_command(&mut self) {
         let cmd = self.command_palette_state.input.trim().to_string();
         self.mode = InputMode::Normal;
@@ -2164,6 +2204,7 @@ impl App {
                 self.request_save_with(true, true);
             }
             "dups" | "duplicates" => self.open_duplicate_review(),
+            "warnings" => self.show_warnings(),
             "settings-export bib" => self.request_library_export(),
             "settings-clear-bib" => self.clear_library_settings(),
             _ if cmd == "settings-export yaml" || cmd.starts_with("settings-export yaml ") => {

@@ -40,6 +40,15 @@ fn test_entry_missing_open_brace_is_passthrough_text() {
     let input = "@Article key,\n  author = {A},\n}";
     let raw = parse_bib_file(input).unwrap();
     assert_eq!(write_bib_file(&raw), input);
+    // It starts a line, so it looks like an entry: say why it was not read.
+    assert_eq!(raw.warnings.len(), 1);
+    assert!(
+        raw.warnings[0]
+            .message
+            .contains("not followed by '{' or '('"),
+        "{:?}",
+        raw.warnings
+    );
     // No semantic entry is created from the stray text.
     let db = build_database(raw);
     assert!(db.entries.is_empty());
@@ -110,8 +119,8 @@ fn test_concatenated_field_value() {
     let input = "@Article{k,\n  note = {Part } # {One},\n}\n";
     let raw = parse_bib_file(input).unwrap();
     let db = build_database(raw);
-    // '#' concatenation is resolved: "Part " # "One" → "Part One"
-    assert_eq!(db.entries["k"].fields["note"], "Part  One");
+    // '#' joins exactly, as BibTeX does: "Part " # "One" → "Part One"
+    assert_eq!(db.entries["k"].fields["note"], "Part One");
 }
 
 #[test]
@@ -216,4 +225,97 @@ fn test_field_alignment_preserved() {
     let raw = parse_bib_file(input).unwrap();
     let output = write_bib_file(&raw);
     assert_eq!(input, output);
+}
+
+// ── BibTeX syntax accepted by reference BibTeX (review N10) ─────────────────
+
+/// Parse `input`, check it round-trips byte-for-byte without warnings, and
+/// return each entry's key with its fields.
+fn entries_of(input: &str) -> Vec<(String, Vec<(String, String)>)> {
+    let raw = parse_bib_file(input).unwrap();
+    assert!(
+        raw.warnings.is_empty(),
+        "unexpected warnings: {:?}",
+        raw.warnings
+    );
+    assert_eq!(write_bib_file(&raw), input);
+    build_database(raw)
+        .entries
+        .into_values()
+        .map(|e| {
+            let fields = e.fields.into_iter().collect();
+            (e.citation_key, fields)
+        })
+        .collect()
+}
+
+fn entry(key: &str, fields: &[(&str, &str)]) -> (String, Vec<(String, String)>) {
+    (
+        key.to_string(),
+        fields
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect(),
+    )
+}
+
+#[test]
+fn parenthesized_items_are_entries() {
+    let input = "@Misc(A, title={Title})\n\n@String(venue = \"Nature\")\n\
+@Preamble(\"\\newcommand{\\x}{y}\")\n@Book(B,\n  title = {With (parens) inside},\n  year = 2020\n)\n";
+    assert_eq!(
+        entries_of(input),
+        vec![
+            entry("A", &[("title", "Title")]),
+            entry("B", &[("title", "With (parens) inside"), ("year", "2020")]),
+        ]
+    );
+}
+
+#[test]
+fn line_breaks_around_equals_hash_and_commas_are_whitespace() {
+    let input = "@Misc{B,\n  title =\n    {A title},\n  note\n  = {N},\n  \
+subtitle = {X}\r\n    # {Y},\r\n  year = 2020\n  ,\n  month = apr\n}\n";
+    let entries = entries_of(input);
+    assert_eq!(entries.len(), 1);
+    let fields = &entries[0].1;
+    assert_eq!(fields[0], ("title".to_string(), "A title".to_string()));
+    assert_eq!(fields[1], ("note".to_string(), "N".to_string()));
+    assert_eq!(fields[2].0, "subtitle");
+    assert_eq!(fields[3], ("year".to_string(), "2020".to_string()));
+    assert_eq!(fields[4], ("month".to_string(), "apr".to_string()));
+}
+
+#[test]
+fn quotes_inside_braces_do_not_end_a_quoted_value() {
+    let input = "@Misc{Q,\n  title = \"The {\"}Quoted{\"} Word\",\n  note = \"{a \"b\" c}\"\n}\n";
+    assert_eq!(
+        entries_of(input),
+        vec![entry(
+            "Q",
+            &[
+                ("title", "The {\"}Quoted{\"} Word"),
+                ("note", "{a \"b\" c}")
+            ]
+        )]
+    );
+}
+
+#[test]
+fn recovery_resumes_at_an_indented_entry() {
+    let input = "@Misc{Bad,\n  title {missing equals},\n}\n  @Misc{Good, title = {Kept}}\n\t@Misc{Also, title = {Kept too}}\n";
+    let raw = parse_bib_file(input).unwrap();
+    assert_eq!(raw.warnings.len(), 1, "{:?}", raw.warnings);
+    assert_eq!(raw.warnings[0].line, 1);
+    assert_eq!(write_bib_file(&raw), input);
+    let db = build_database(raw);
+    let keys: Vec<&str> = db.entries.keys().map(String::as_str).collect();
+    assert_eq!(keys, ["Good", "Also"]);
+    assert_eq!(db.entries["Good"].fields["title"], "Kept");
+}
+
+#[test]
+fn mid_line_at_signs_stay_silent_prose() {
+    let input = "Contact jane@example.org about @misc usage.\n@Misc{K, title = {T}}\n";
+    assert_eq!(entries_of(input), vec![entry("K", &[("title", "T")])]);
 }

@@ -659,7 +659,7 @@ impl App {
         let original: std::collections::HashMap<String, String> = original_raw
             .fields
             .iter()
-            .map(|f| (f.name.to_lowercase(), f.value.to_string_value()))
+            .map(|f| (f.name.to_lowercase(), f.resolved.clone()))
             .collect();
 
         // Current non-empty fields must match the original exactly.

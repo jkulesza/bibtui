@@ -2475,3 +2475,134 @@ fn bridge_between_different_dois_is_not_offered_as_one_merge() {
         "A and C have different DOIs"
     );
 }
+
+// ── N10: parse warnings stay available ──────────────────────────────────────
+
+#[test]
+fn warnings_command_lists_parse_problems_after_startup() {
+    let (mut app, _dir) =
+        review_app("@Misc{Bad,\n  title {missing equals},\n}\n@Misc{Good, title = {Kept}}\n");
+    assert!(app
+        .status_message
+        .as_deref()
+        .is_some_and(|m| m.contains(":warnings for details")));
+    app.status_message = None;
+    app.command_palette_state.input = "warnings".into();
+    app.execute_command();
+    assert_eq!(app.mode, InputMode::Dialog);
+    let Some(DialogKind::Message { title, message }) = app.dialog_state.as_ref().map(|d| &d.kind)
+    else {
+        panic!("expected a message dialog");
+    };
+    assert_eq!(title, "1 warning(s) reading the file (yy: copy)");
+    assert!(
+        message.starts_with("Line 1: Expected '=' after field name 'title'"),
+        "{message}"
+    );
+    app.handle_action(Action::DialogConfirm);
+    assert_eq!(app.mode, InputMode::Normal);
+}
+
+#[test]
+fn warnings_command_without_warnings_says_so() {
+    let (mut app, _dir) = review_app("@Misc{Good, title = {Kept}}\n");
+    app.command_palette_state.input = "warnings".into();
+    app.execute_command();
+    assert!(app.dialog_state.is_none());
+    assert_eq!(
+        app.status_message.as_deref(),
+        Some("No warnings: every item in the file was read")
+    );
+}
+
+// ── N16: @String references and concatenation survive edits and saves ───────
+
+const STRINGS_BIB: &str = "@String{nse = \"Nuclear Science and Engineering\"}\n\
+@String{amp = \"Smith & Sons\"}\n\
+@Article{Old,\n  author = {Smith, Ann},\n  title = {Old Title},\n  journal = nse,\n  \
+note = {pre} # {fix},\n  publisher = amp,\n  address = {Rock & Roll},\n  year = 2020,\n}\n";
+
+/// `text` with runs of spaces collapsed (saved fields are column-aligned).
+fn squash_spaces(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        if !(c == ' ' && out.ends_with(' ')) {
+            out.push(c);
+        }
+    }
+    out
+}
+
+#[test]
+fn string_references_survive_an_edit_a_rekey_and_save_actions() {
+    let (mut app, dir) = review_app(STRINGS_BIB);
+    assert_eq!(
+        app.database.entries["Old"].fields["journal"],
+        "Nuclear Science and Engineering"
+    );
+    assert_eq!(app.database.entries["Old"].fields["note"], "prefix");
+    // An automatic save action that would rewrite the resolved values.
+    app.config.save.save_action_escape_ampersands = true;
+
+    // Confirming the edit also regenerates the (non-template) key.
+    edit_draft(&mut app, "Old", "title", "New Title");
+    app.handle_action(Action::ConfirmEdit);
+    app.handle_action(Action::CloseDetail);
+    let key = key_with_title(&app, "New Title");
+    assert_ne!(key, "Old", "the key was regenerated");
+    assert!(app.save());
+
+    let saved = squash_spaces(&std::fs::read_to_string(dir.path().join("library.bib")).unwrap());
+    for kept in [
+        "journal = nse,",
+        "note = {pre} # {fix},",
+        "publisher = amp,",
+        "@String{amp = \"Smith & Sons\"}",
+    ] {
+        assert!(saved.contains(kept), "{kept:?} in:\n{saved}");
+    }
+    // A literal value is still escaped; the referenced one is left to its
+    // @String definition.
+    assert!(saved.contains("address = {Rock \\& Roll}"), "{saved}");
+    assert!(saved.contains("title = {New Title}"), "{saved}");
+
+    let reloaded = build_database(parse_bib_file(&saved).unwrap());
+    let entry = &reloaded.entries[&key];
+    assert_eq!(entry.fields["address"], "Rock \\& Roll");
+    assert_eq!(entry.fields["journal"], "Nuclear Science and Engineering");
+    assert_eq!(entry.fields["note"], "prefix");
+    assert_eq!(entry.fields["publisher"], "Smith & Sons");
+    assert!(reloaded.value_warnings.is_empty());
+}
+
+#[test]
+fn editing_a_referenced_value_replaces_the_reference() {
+    let (mut app, dir) = review_app(STRINGS_BIB);
+    edit_draft(&mut app, "Old", "journal", "Nuclear Technology");
+    app.handle_action(Action::ConfirmEdit);
+    app.handle_action(Action::CloseDetail);
+    assert!(app.save());
+    let saved = squash_spaces(&std::fs::read_to_string(dir.path().join("library.bib")).unwrap());
+    assert!(saved.contains("journal = {Nuclear Technology},"), "{saved}");
+    assert!(saved.contains("note = {pre} # {fix},"), "{saved}");
+}
+
+#[test]
+fn undefined_string_names_are_listed_by_warnings() {
+    let (mut app, _dir) = review_app("@Article{K, journal = IEEE_J_AC, title = {T}}\n");
+    assert_eq!(app.database.entries["K"].fields["journal"], "IEEE_J_AC");
+    assert!(app
+        .status_message
+        .as_deref()
+        .is_some_and(|m| m.contains("1 @String reference problem(s)")));
+    app.command_palette_state.input = "warnings".into();
+    app.execute_command();
+    let Some(DialogKind::Message { message, .. }) = app.dialog_state.as_ref().map(|d| &d.kind)
+    else {
+        panic!("expected a message dialog");
+    };
+    assert!(message.starts_with(
+        "Line 1: K: field 'journal' uses undefined @String 'IEEE_J_AC' (kept as its name)"
+    ));
+    assert!(!message.contains("Skipped items"), "{message}");
+}

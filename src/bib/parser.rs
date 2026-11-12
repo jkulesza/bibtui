@@ -99,9 +99,10 @@ impl<'a> Parser<'a> {
     }
 
     /// Consume from the current position (assumed to be a malformed `@`-item)
-    /// through the rest of its line and any following lines, stopping at the
-    /// next line that begins with '@' (or end of input). Returns the consumed
-    /// span so it can be preserved as `Preamble`.
+    /// through the rest of its line and any following lines, stopping before
+    /// the next line whose first non-blank character is '@' (so an indented
+    /// entry after the malformed one still loads), or at end of input.
+    /// Returns the consumed span so it can be preserved as `Preamble`.
     fn skip_to_next_at_line(&mut self) -> String {
         let start = self.pos;
         loop {
@@ -110,11 +111,35 @@ impl<'a> Parser<'a> {
             if self.peek() == Some('\n') {
                 self.advance(1);
             }
-            if self.at_end() || self.peek() == Some('@') {
+            let indent = self
+                .remaining()
+                .find(|c: char| c != ' ' && c != '\t')
+                .unwrap_or(self.remaining().len());
+            if self.at_end() || self.remaining()[indent..].starts_with('@') {
                 break;
             }
         }
         self.input[start..self.pos].to_string()
+    }
+
+    /// Whether only spaces and tabs precede byte `pos` on its line.
+    fn starts_line(&self, pos: usize) -> bool {
+        self.input[..pos]
+            .rsplit('\n')
+            .next()
+            .is_none_or(|before| before.chars().all(|c| c == ' ' || c == '\t'))
+    }
+
+    /// Consume an item's opening delimiter, `{` or `(`, and return the
+    /// matching closing one.
+    fn open_delimiter(&mut self) -> Option<char> {
+        let close = match self.peek()? {
+            '{' => '}',
+            '(' => ')',
+            _ => return None,
+        };
+        self.advance(1);
+        Some(close)
     }
 
     fn parse_at_item(&mut self) -> Result<RawItem> {
@@ -137,13 +162,20 @@ impl<'a> Parser<'a> {
             _ => {
                 // A stray '@' in inter-entry text (e.g. an email address in a
                 // `%` comment line) is not the start of an entry. Only treat it
-                // as one when a '{' follows the type name; otherwise pass the
-                // rest of the line through as preamble text.
+                // as one when '{' or '(' follows the type name; otherwise pass
+                // the rest of the line through as preamble text. An `@Type`
+                // that starts a line looks like an entry, so say why it was not
+                // read as one (its bytes are still preserved).
                 let saved = self.pos;
                 self.skip_whitespace();
-                if self.peek() == Some('{') {
+                if matches!(self.peek(), Some('{' | '(')) {
                     self.pos = saved;
                     self.parse_entry(entry_start, type_name_str)
+                } else if !type_name_str.is_empty() && self.starts_line(entry_start) {
+                    bail!(
+                        "@{} is not followed by '{{' or '(', so it was not read as an entry",
+                        type_name_str
+                    );
                 } else {
                     self.pos = saved;
                     let _rest_of_line = self.take_while(|c| c != '\n');
@@ -182,24 +214,50 @@ impl<'a> Parser<'a> {
 
     fn parse_bib_preamble(&mut self, start: usize) -> Result<RawItem> {
         self.skip_whitespace();
-        if self.peek() == Some('{') {
-            self.advance(1);
-            let content = self.take_braced_content()?;
-            Ok(RawItem::BibPreamble {
-                content: content.to_string(),
-                raw_text: self.input[start..self.pos].to_string(),
-            })
-        } else {
-            bail!("Expected '{{' after @Preamble");
+        match self.open_delimiter() {
+            Some('}') => {
+                let content = self.take_braced_content()?;
+                Ok(RawItem::BibPreamble {
+                    content: content.to_string(),
+                    raw_text: self.input[start..self.pos].to_string(),
+                })
+            }
+            Some(close) => {
+                // `@Preamble("...")`: the content is the value expression.
+                self.skip_whitespace();
+                let value_start = self.pos;
+                self.parse_field_value()?;
+                let content = self.input[value_start..self.pos].to_string();
+                self.expect_close(close, "@Preamble")?;
+                Ok(RawItem::BibPreamble {
+                    content,
+                    raw_text: self.input[start..self.pos].to_string(),
+                })
+            }
+            None => bail!("Expected '{{' or '(' after @Preamble"),
         }
+    }
+
+    /// Skip whitespace and consume `close`, the end of `item`.
+    fn expect_close(&mut self, close: char, item: &str) -> Result<()> {
+        self.skip_whitespace();
+        if self.peek() != Some(close) {
+            bail!(
+                "Expected '{}' to end {} at line {}",
+                close,
+                item,
+                self.current_line()
+            );
+        }
+        self.advance(1);
+        Ok(())
     }
 
     fn parse_string_def(&mut self, start: usize) -> Result<RawItem> {
         self.skip_whitespace();
-        if self.peek() != Some('{') {
-            bail!("Expected '{{' after @String");
-        }
-        self.advance(1);
+        let Some(close) = self.open_delimiter() else {
+            bail!("Expected '{{' or '(' after @String");
+        };
         self.skip_whitespace();
 
         let name = self
@@ -217,10 +275,14 @@ impl<'a> Parser<'a> {
         self.advance(1);
         self.skip_whitespace();
 
-        let raw_value = self.take_braced_content()?;
+        let value_start = self.pos;
+        let value = self.parse_field_value()?;
+        let raw_value = self.input[value_start..self.pos].to_string();
+        self.expect_close(close, &format!("@String{{{}}}", name))?;
         Ok(RawItem::StringDef {
             name,
-            raw_value: raw_value.to_string(),
+            raw_value,
+            value,
             raw_text: self.input[start..self.pos].to_string(),
         })
     }
@@ -228,17 +290,20 @@ impl<'a> Parser<'a> {
     fn parse_entry(&mut self, start: usize, entry_type: String) -> Result<RawItem> {
         self.skip_whitespace();
 
-        if self.peek() != Some('{') {
+        // `@Type{...}` or `@Type(...)`, as BibTeX accepts both.
+        let Some(close) = self.open_delimiter() else {
             bail!(
-                "Expected '{{' after @{} at line {}",
+                "Expected '{{' or '(' after @{} at line {}",
                 entry_type,
                 self.line_at(start)
             );
-        }
-        self.advance(1);
+        };
 
-        // Read citation key (everything up to first comma or '}')
-        let citation_key = self.take_while(|c| c != ',' && c != '}').trim().to_string();
+        // Read citation key (everything up to first comma or the closing delimiter)
+        let citation_key = self
+            .take_while(|c| c != ',' && c != close)
+            .trim()
+            .to_string();
 
         // Consume comma after citation key (if present)
         if self.peek() == Some(',') {
@@ -254,7 +319,7 @@ impl<'a> Parser<'a> {
             self.take_while(|c| c == ' ' || c == '\t' || c == '\r' || c == '\n');
 
             // Check for end of entry
-            if self.peek() == Some('}') {
+            if self.peek() == Some(close) {
                 self.advance(1);
                 break;
             }
@@ -280,8 +345,8 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
-            // Whitespace before '='
-            self.skip_inline_whitespace();
+            // Whitespace (including line breaks) before '='
+            self.skip_whitespace();
 
             // Expect '='
             if self.peek() != Some('=') {
@@ -294,21 +359,22 @@ impl<'a> Parser<'a> {
             }
             self.advance(1);
 
-            // Whitespace after '='
-            self.skip_inline_whitespace();
+            // Whitespace (including line breaks) after '='
+            self.skip_whitespace();
 
             // Parse field value
             let value = self.parse_field_value()?;
 
-            // Trailing comma
+            // Trailing comma, possibly on the next line
+            let saved = self.pos;
+            self.skip_whitespace();
             if self.peek() == Some(',') {
                 self.advance(1);
+            } else {
+                self.pos = saved;
             }
 
-            fields.push(RawField {
-                name: field_name,
-                value,
-            });
+            fields.push(RawField::new(field_name, value));
         }
 
         let raw_text = self.input[start..self.pos].to_string();
@@ -324,14 +390,14 @@ impl<'a> Parser<'a> {
     fn parse_field_value(&mut self) -> Result<RawFieldValue> {
         let first = self.parse_single_value()?;
 
-        // Check for concatenation with '#'
+        // Check for concatenation with '#' (line breaks allowed around it)
         let mut parts = vec![first];
         loop {
             let saved = self.pos;
-            self.skip_inline_whitespace();
+            self.skip_whitespace();
             if self.peek() == Some('#') {
                 self.advance(1);
-                self.skip_inline_whitespace();
+                self.skip_whitespace();
                 parts.push(self.parse_single_value()?);
             } else {
                 self.pos = saved;
@@ -412,13 +478,24 @@ impl<'a> Parser<'a> {
         );
     }
 
-    /// Read content inside quotes, handling escaped quotes. Consumes the closing '"'.
+    /// Read content inside quotes, handling escaped quotes. Consumes the
+    /// closing '"'. As in BibTeX, a '"' inside braces (`"{"}quoted{"}"`) does
+    /// not end the string.
     fn take_quoted_content(&mut self) -> Result<String> {
         let start = self.pos;
+        let mut depth = 0usize;
 
         while !self.at_end() {
             match self.peek() {
-                Some('"') => {
+                Some('{') => {
+                    depth += 1;
+                    self.advance(1);
+                }
+                Some('}') => {
+                    depth = depth.saturating_sub(1);
+                    self.advance(1);
+                }
+                Some('"') if depth == 0 => {
                     let content = self.input[start..self.pos].to_string();
                     self.advance(1); // consume '"'
                     return Ok(content);
@@ -446,10 +523,6 @@ impl<'a> Parser<'a> {
         self.take_while(|c| c.is_whitespace());
     }
 
-    fn skip_inline_whitespace(&mut self) {
-        self.take_while(|c| c == ' ' || c == '\t');
-    }
-
     /// Return the 1-based line number corresponding to a byte offset in the input.
     fn line_at(&self, byte_offset: usize) -> usize {
         self.input[..byte_offset.min(self.input.len())]
@@ -464,8 +537,142 @@ impl<'a> Parser<'a> {
     }
 }
 
+/// The source text of an item, as written back.
+fn item_text(item: &RawItem) -> &str {
+    match item {
+        RawItem::Preamble(text) => text,
+        RawItem::BibPreamble { raw_text, .. }
+        | RawItem::StringDef { raw_text, .. }
+        | RawItem::Comment { raw_text } => raw_text,
+        RawItem::Entry(entry) => &entry.raw_text,
+    }
+}
+
+/// `@String` definitions, resolved as BibTeX reads them: in file order, the
+/// later of two definitions of a name (compared without case) applying from
+/// there on.
+#[derive(Default)]
+struct Macros {
+    /// Lowercase name → (item index, line, resolved value), in file order.
+    defs: std::collections::HashMap<String, Vec<(usize, usize, String)>>,
+}
+
+impl Macros {
+    /// The definition of `name` in force at item `at`, or `None`.
+    fn before(&self, name: &str, at: usize) -> Option<&(usize, usize, String)> {
+        self.defs
+            .get(&name.to_lowercase())?
+            .iter()
+            .rev()
+            .find(|(index, _, _)| *index < at)
+    }
+
+    /// The first definition of `name` after item `at`, or `None`.
+    fn after(&self, name: &str, at: usize) -> Option<&(usize, usize, String)> {
+        self.defs
+            .get(&name.to_lowercase())?
+            .iter()
+            .find(|(index, _, _)| *index > at)
+    }
+}
+
+/// Resolve every `@String` definition and entry field of `raw` (setting each
+/// field's `resolved` value), returning the problems found. A name used in
+/// an entry above its only definitions resolves to the first one below, as
+/// JabRef does, with a warning that BibTeX would leave it undefined;
+/// definitions themselves see only definitions above them, so they cannot
+/// form cycles (a definition naming itself, `@String{a = a # {x}}`, extends
+/// the earlier one, with a warning). An undefined name keeps its name as its
+/// value (BibTeX would make it empty), since names defined in another file,
+/// such as IEEEabrv's journal names, are common.
+fn resolve_strings(raw: &mut RawBibFile) -> Vec<ParseWarning> {
+    let mut warnings = Vec::new();
+    let mut macros = Macros::default();
+    let mut lines = Vec::with_capacity(raw.items.len());
+    let mut line = 1;
+    for item in &raw.items {
+        lines.push(line);
+        line += item_text(item).matches('\n').count();
+    }
+
+    for (index, item) in raw.items.iter().enumerate() {
+        let RawItem::StringDef { name, value, .. } = item else {
+            continue;
+        };
+        let text = value.resolve(&mut |used| match macros.before(used, index) {
+            Some((_, _, text)) => {
+                if used.eq_ignore_ascii_case(name) {
+                    warnings.push(ParseWarning {
+                        line: lines[index],
+                        message: format!(
+                            "@String{{{name}}} uses '{used}' in its own definition; bibtui uses the earlier definition (BibTeX would treat it as undefined)"
+                        ),
+                    });
+                }
+                Some(text.clone())
+            }
+            None => {
+                if !is_month_macro(used) {
+                    warnings.push(ParseWarning {
+                        line: lines[index],
+                        message: format!(
+                            "@String{{{name}}} uses undefined @String '{used}' (kept as its name)"
+                        ),
+                    });
+                }
+                None
+            }
+        });
+        macros
+            .defs
+            .entry(name.to_lowercase())
+            .or_default()
+            .push((index, lines[index], text));
+    }
+
+    for (index, item) in raw.items.iter_mut().enumerate() {
+        let RawItem::Entry(entry) = item else {
+            continue;
+        };
+        let key = entry.citation_key.clone();
+        for field in &mut entry.fields {
+            let field_name = field.name.clone();
+            field.resolved = field.value.resolve(&mut |used| {
+                if let Some((_, _, text)) = macros.before(used, index) {
+                    return Some(text.clone());
+                }
+                if let Some((_, def_line, text)) = macros.after(used, index) {
+                    warnings.push(ParseWarning {
+                        line: lines[index],
+                        message: format!(
+                            "{key}: field '{field_name}' uses @String '{used}' above its definition on line {def_line} (BibTeX would treat it as undefined)"
+                        ),
+                    });
+                    return Some(text.clone());
+                }
+                if !is_month_macro(used) {
+                    warnings.push(ParseWarning {
+                        line: lines[index],
+                        message: format!(
+                            "{key}: field '{field_name}' uses undefined @String '{used}' (kept as its name)"
+                        ),
+                    });
+                }
+                None
+            });
+        }
+    }
+    warnings
+}
+
 /// Build a semantic Database from a parsed RawBibFile.
-pub fn build_database(raw: RawBibFile) -> Database {
+///
+/// Field values are resolved: `@String` names are replaced by their
+/// definitions and `#` concatenations joined exactly (see
+/// [`resolve_strings`]). The raw file keeps the source expressions, which are
+/// written back for every field whose value is unchanged.
+pub fn build_database(mut raw: RawBibFile) -> Database {
+    let value_warnings = resolve_strings(&mut raw);
     let mut entries = IndexMap::new();
     let mut jabref_meta = JabRefMeta::default();
     let mut duplicate_keys = Vec::new();
@@ -489,7 +696,7 @@ pub fn build_database(raw: RawBibFile) -> Database {
                 let mut fields = IndexMap::new();
 
                 for field in &raw_entry.fields {
-                    fields.insert(field.name.clone(), field.value.to_string_value());
+                    fields.insert(field.name.clone(), field.resolved.clone());
                 }
 
                 let groups_field = fields.get("groups").cloned().unwrap_or_default();
@@ -552,6 +759,7 @@ pub fn build_database(raw: RawBibFile) -> Database {
         jabref_meta,
         raw_file: raw,
         duplicate_keys,
+        value_warnings,
     }
 }
 

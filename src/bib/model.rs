@@ -28,12 +28,14 @@ pub enum RawItem {
     /// complete original source span, written back verbatim for byte-perfect
     /// round-trip.
     BibPreamble { content: String, raw_text: String },
-    /// @String{name = value}. `name`/`raw_value` are the parsed parts (kept for
-    /// future reference resolution); `raw_text` is the complete original source
-    /// span, written back verbatim for byte-perfect round-trip.
+    /// @String{name = value}. `raw_value` is the value expression's source
+    /// text and `value` its parsed form (resolved like a field value);
+    /// `raw_text` is the complete original source span, written back
+    /// verbatim for byte-perfect round-trip.
     StringDef {
         name: String,
         raw_value: String,
+        value: RawFieldValue,
         raw_text: String,
     },
     /// @Comment{...} — includes JabRef metadata blocks
@@ -58,6 +60,22 @@ pub struct RawEntry {
 pub struct RawField {
     pub name: String,
     pub value: RawFieldValue,
+    /// The semantic value `value` had when it was read (with `@String`
+    /// references resolved) or last written. A field whose entry value still
+    /// equals this is unchanged, so its source expression is kept.
+    pub resolved: String,
+}
+
+impl RawField {
+    /// A field whose value has no `@String` references to resolve.
+    pub fn new(name: impl Into<String>, value: RawFieldValue) -> Self {
+        let resolved = value.to_string_value();
+        RawField {
+            name: name.into(),
+            value,
+            resolved,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -69,17 +87,32 @@ pub enum RawFieldValue {
 }
 
 impl RawFieldValue {
-    /// Extract the semantic string value
+    /// The semantic value with no `@String` definitions: a bare name stands
+    /// for itself. Concatenated parts are joined exactly, as BibTeX does
+    /// (`{pre} # {fix}` is `prefix`).
     pub fn to_string_value(&self) -> String {
+        self.resolve(&mut |_| None)
+    }
+
+    /// The semantic value, with each bare name other than a number replaced
+    /// by `lookup(name)`, or kept as written when that is `None`.
+    pub fn resolve(&self, lookup: &mut dyn FnMut(&str) -> Option<String>) -> String {
         match self {
-            RawFieldValue::Braced(s) => s.clone(),
-            RawFieldValue::Quoted(s) => s.clone(),
-            RawFieldValue::Bare(s) => s.clone(),
-            RawFieldValue::Concat(parts) => parts
-                .iter()
-                .map(|p| p.to_string_value())
-                .collect::<Vec<_>>()
-                .join(" "),
+            RawFieldValue::Braced(s) | RawFieldValue::Quoted(s) => s.clone(),
+            RawFieldValue::Bare(s) if s.chars().all(|c| c.is_ascii_digit()) => s.clone(),
+            RawFieldValue::Bare(s) => lookup(s).unwrap_or_else(|| s.clone()),
+            RawFieldValue::Concat(parts) => parts.iter().map(|p| p.resolve(lookup)).collect(),
+        }
+    }
+
+    /// Whether this value is an expression rather than a literal: it
+    /// concatenates parts or names an `@String` (other than a built-in month,
+    /// whose value is its own name in bibtui).
+    pub fn is_expression(&self) -> bool {
+        match self {
+            RawFieldValue::Concat(_) => true,
+            RawFieldValue::Bare(s) => !s.chars().all(|c| c.is_ascii_digit()) && !is_month_macro(s),
+            RawFieldValue::Braced(_) | RawFieldValue::Quoted(_) => false,
         }
     }
 
@@ -101,6 +134,27 @@ impl RawFieldValue {
     }
 }
 
+/// BibTeX's built-in month macros. bibtui keeps their three-letter form as
+/// the value (`month = apr` is `apr`, which its month handling expects)
+/// instead of BibTeX's full name, unless the file defines them itself.
+pub fn is_month_macro(name: &str) -> bool {
+    matches!(
+        name.to_lowercase().as_str(),
+        "jan"
+            | "feb"
+            | "mar"
+            | "apr"
+            | "may"
+            | "jun"
+            | "jul"
+            | "aug"
+            | "sep"
+            | "oct"
+            | "nov"
+            | "dec"
+    )
+}
+
 // ── Semantic layer: for display, search, edit ──
 
 #[derive(Debug, Clone, PartialEq)]
@@ -113,6 +167,9 @@ pub struct Database {
     /// copies are renamed with a `_dupN` suffix at load time (and marked dirty
     /// so the rename persists on save) — the user should be warned.
     pub duplicate_keys: Vec<String>,
+    /// Problems resolving field values at load time: undefined `@String`
+    /// names, and names used above their definition.
+    pub value_warnings: Vec<ParseWarning>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -426,7 +483,8 @@ mod tests {
             RawFieldValue::Braced("foo".to_string()),
             RawFieldValue::Bare("bar".to_string()),
         ]);
-        assert_eq!(v.to_string_value(), "foo bar");
+        // Joined exactly, as BibTeX does; a bare name stands for itself.
+        assert_eq!(v.to_string_value(), "foobar");
     }
 
     #[test]

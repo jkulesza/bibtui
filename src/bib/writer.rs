@@ -195,7 +195,7 @@ pub fn raw_value_for_field(
 ) -> RawFieldValue {
     if let Some(orig_field) = original
         .and_then(|raw| raw.fields.iter().find(|f| f.name == field_name))
-        .filter(|f| f.value.to_string_value() == value)
+        .filter(|f| f.resolved == value)
     {
         return orig_field.value.clone();
     }
@@ -236,6 +236,7 @@ pub fn merged_raw_fields(entry: &Entry, original: Option<&RawEntry>) -> Vec<RawF
         .map(|(key, value)| RawField {
             name: key.clone(),
             value: raw_value_for_field(key, value, original),
+            resolved: value.clone(),
         })
         .collect()
 }
@@ -469,6 +470,7 @@ mod tests {
             items: vec![RawItem::StringDef {
                 name: "mystr".to_string(),
                 raw_value: "{value}".to_string(),
+                value: RawFieldValue::Braced("value".to_string()),
                 raw_text: "@string{mystr={value}}".to_string(),
             }],
             ..Default::default()
@@ -515,7 +517,7 @@ mod tests {
     fn test_serialize_entry_preserves_unchanged_raw_values() {
         use crate::bib::model::{RawField, RawFieldValue};
         let mut fields = IndexMap::new();
-        fields.insert("journal".to_string(), "ieee_tps , Part B".to_string());
+        fields.insert("journal".to_string(), "ieee_tps, Part B".to_string());
         fields.insert("series".to_string(), "mainseries".to_string());
         fields.insert("note".to_string(), "quoted note".to_string());
         fields.insert("title".to_string(), "Changed Title".to_string());
@@ -531,25 +533,25 @@ mod tests {
             entry_type: "Article".into(),
             citation_key: "k".into(),
             fields: vec![
-                RawField {
-                    name: "journal".to_string(),
-                    value: RawFieldValue::Concat(vec![
+                RawField::new(
+                    "journal".to_string(),
+                    RawFieldValue::Concat(vec![
                         RawFieldValue::Bare("ieee_tps".to_string()),
                         RawFieldValue::Braced(", Part B".to_string()),
                     ]),
-                },
-                RawField {
-                    name: "series".to_string(),
-                    value: RawFieldValue::Bare("mainseries".to_string()),
-                },
-                RawField {
-                    name: "note".to_string(),
-                    value: RawFieldValue::Quoted("quoted note".to_string()),
-                },
-                RawField {
-                    name: "title".to_string(),
-                    value: RawFieldValue::Braced("Old Title".to_string()),
-                },
+                ),
+                RawField::new(
+                    "series".to_string(),
+                    RawFieldValue::Bare("mainseries".to_string()),
+                ),
+                RawField::new(
+                    "note".to_string(),
+                    RawFieldValue::Quoted("quoted note".to_string()),
+                ),
+                RawField::new(
+                    "title".to_string(),
+                    RawFieldValue::Braced("Old Title".to_string()),
+                ),
             ],
             raw_text: String::new(),
         };
@@ -582,7 +584,7 @@ mod tests {
     fn test_merged_raw_fields_keeps_unchanged_and_braces_changed() {
         use crate::bib::model::{RawField, RawFieldValue};
         let mut fields = IndexMap::new();
-        fields.insert("journal".to_string(), "abc def".to_string());
+        fields.insert("journal".to_string(), "abcdef".to_string());
         fields.insert("year".to_string(), "2021".to_string());
         let entry = Entry {
             entry_type: EntryType::Article,
@@ -595,13 +597,13 @@ mod tests {
         let original = RawEntry {
             entry_type: "Article".into(),
             citation_key: "k".into(),
-            fields: vec![RawField {
-                name: "journal".to_string(),
-                value: RawFieldValue::Concat(vec![
+            fields: vec![RawField::new(
+                "journal".to_string(),
+                RawFieldValue::Concat(vec![
                     RawFieldValue::Bare("abc".to_string()),
                     RawFieldValue::Braced("def".to_string()),
                 ]),
-            }],
+            )],
             raw_text: String::new(),
         };
         let merged = merged_raw_fields(&entry, Some(&original));
