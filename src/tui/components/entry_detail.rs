@@ -7,10 +7,11 @@ use ratatui::Frame;
 use crate::bib::entry_types::fields_for_type;
 use crate::bib::model::Entry;
 use crate::config::schema::CustomFieldGroup;
+#[cfg(test)]
+use crate::tui::components::display::apply_display_pipeline;
+use crate::tui::components::display::DisplayOptions;
 use crate::tui::theme::Theme;
-use crate::util::latex::render_latex;
 use crate::util::open::parse_file_field;
-use crate::util::titlecase::strip_case_braces;
 
 /// A single row in the detail view — either a non-selectable category header,
 /// an editable field, or one file within a multi-file attachment.
@@ -443,15 +444,13 @@ fn push_field_or_files(
     });
 }
 
-#[allow(clippy::too_many_arguments)] // display params; bundling into a struct is tracked in REVIEW_FINDINGS.md
 pub fn render_entry_detail(
     f: &mut Frame,
     area: Rect,
     entry: &Entry,
     state: &mut EntryDetailState,
     theme: &Theme,
-    show_braces: bool,
-    render_latex_enabled: bool,
+    display: DisplayOptions,
     is_searching: bool,
 ) {
     let hint = if is_searching || !state.search_query.is_empty() {
@@ -537,7 +536,7 @@ pub fn render_entry_detail(
                     let display_value: String = if value.is_empty() {
                         String::new()
                     } else {
-                        apply_display_pipeline(value, show_braces, render_latex_enabled)
+                        display.show(value)
                     };
                     ListItem::new(Line::from(vec![
                         Span::styled(format!("    {}{} : ", name, padding), name_style),
@@ -614,7 +613,7 @@ pub fn render_entry_detail(
     let (preview_label, preview_text) = match state.display_fields.get(state.selected()) {
         Some(DisplayItem::FileEntry { label, .. }) => (" file ".to_string(), label.clone()),
         Some(DisplayItem::Field { name, value, .. }) if !value.is_empty() => {
-            let text = apply_display_pipeline(value, show_braces, render_latex_enabled);
+            let text = display.show(value);
             (format!(" {} ", name), text)
         }
         Some(DisplayItem::Field { name, .. }) => (format!(" {} ", name), "(empty)".to_string()),
@@ -630,21 +629,6 @@ pub fn render_entry_detail(
         .wrap(Wrap { trim: true })
         .style(theme.value);
     f.render_widget(preview, chunks[3]);
-}
-
-/// Apply the display pipeline: optionally render LaTeX, then optionally strip braces.
-/// LaTeX must run first because it needs the `{...}` accent patterns.
-fn apply_display_pipeline(value: &str, show_braces: bool, render_latex_enabled: bool) -> String {
-    let s = if render_latex_enabled {
-        render_latex(value)
-    } else {
-        value.to_string()
-    };
-    if show_braces {
-        s
-    } else {
-        strip_case_braces(&s)
-    }
 }
 
 #[cfg(test)]

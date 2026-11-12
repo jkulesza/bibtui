@@ -5,18 +5,28 @@ use ratatui::Frame;
 
 use crate::tui::theme::Theme;
 
-#[allow(clippy::too_many_arguments)] // display params; bundling into a struct is tracked in REVIEW_FINDINGS.md
-pub fn render_status_bar(
-    f: &mut Frame,
-    area: Rect,
-    entry_count: usize,
-    active_group: Option<&str>,
-    sort_field: &str,
-    sort_asc: bool,
-    dirty: bool,
-    message: Option<&str>,
-    theme: &Theme,
-) {
+/// What the status bar reports.
+pub struct StatusInfo<'a> {
+    pub entry_count: usize,
+    /// The selected group, or `None` for all entries.
+    pub active_group: Option<&'a str>,
+    pub sort_field: &'a str,
+    pub sort_asc: bool,
+    /// Whether there are unsaved changes.
+    pub dirty: bool,
+    /// The transient status message, replacing the key hint.
+    pub message: Option<&'a str>,
+}
+
+pub fn render_status_bar(f: &mut Frame, area: Rect, info: &StatusInfo, theme: &Theme) {
+    let StatusInfo {
+        entry_count,
+        active_group,
+        sort_field,
+        sort_asc,
+        dirty,
+        message,
+    } = *info;
     let sort_dir = if sort_asc { "asc" } else { "desc" };
     let group_name = active_group.unwrap_or("All Entries");
     let dirty_indicator = if dirty { " [modified]" } else { "" };

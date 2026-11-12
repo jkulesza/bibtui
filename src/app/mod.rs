@@ -2146,6 +2146,18 @@ impl App {
 
     // ── Commands ──
 
+    /// How field values are shown right now (the `B` and `L` toggles and the
+    /// display config).
+    pub fn display_options(&self) -> crate::tui::components::display::DisplayOptions {
+        crate::tui::components::display::DisplayOptions {
+            show_braces: self.show_braces,
+            render_latex: self.render_latex,
+            abbreviate_authors: self.config.display.abbreviate_authors,
+            // The journal column always shows the abbreviated form.
+            abbreviate_journal: true,
+        }
+    }
+
     /// `:warnings`: the problems found when the file was read, which the
     /// startup status line only summarizes.
     fn show_warnings(&mut self) {

@@ -2,6 +2,7 @@ pub mod citation_preview;
 pub mod command_palette;
 pub mod dedup;
 pub mod dialog;
+pub mod display;
 pub mod entry_detail;
 pub mod entry_list;
 pub mod field_editor;

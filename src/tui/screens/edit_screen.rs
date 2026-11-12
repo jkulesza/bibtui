@@ -3,7 +3,7 @@ use ratatui::Frame;
 
 use crate::app::App;
 use crate::tui::components::entry_detail::render_entry_detail;
-use crate::tui::components::status_bar::render_status_bar;
+use crate::tui::components::status_bar::{render_status_bar, StatusInfo};
 use crate::tui::keybindings::InputMode;
 
 pub fn render_edit_screen(f: &mut Frame, app: &mut App) {
@@ -15,6 +15,7 @@ pub fn render_edit_screen(f: &mut Frame, app: &mut App) {
     ])
     .split(area);
 
+    let display = app.display_options();
     if let Some(key) = &app.detail_entry_key {
         if let Some(entry) = app.database.entries.get(key) {
             let entry = entry.clone();
@@ -26,8 +27,7 @@ pub fn render_edit_screen(f: &mut Frame, app: &mut App) {
                     &entry,
                     detail_state,
                     &app.theme,
-                    app.show_braces,
-                    app.render_latex,
+                    display,
                     is_searching,
                 );
             }
@@ -38,12 +38,14 @@ pub fn render_edit_screen(f: &mut Frame, app: &mut App) {
     render_status_bar(
         f,
         vertical[1],
-        app.database.entries.len(),
-        None,
-        &app.config.display.default_sort.field,
-        app.config.display.default_sort.ascending,
-        app.dirty,
-        app.status_message.as_deref(),
+        &StatusInfo {
+            entry_count: app.database.entries.len(),
+            active_group: None,
+            sort_field: &app.config.display.default_sort.field,
+            sort_asc: app.config.display.default_sort.ascending,
+            dirty: app.dirty,
+            message: app.status_message.as_deref(),
+        },
         &app.theme,
     );
 

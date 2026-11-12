@@ -3,6 +3,8 @@ use ratatui::Frame;
 
 use crate::app::App;
 use crate::bib::model::Entry;
+use crate::tui::components::entry_list::ListView;
+use crate::tui::components::status_bar::StatusInfo;
 use crate::tui::keybindings::InputMode;
 
 pub fn render_main_screen(f: &mut Frame, app: &mut App) {
@@ -53,6 +55,8 @@ pub fn render_main_screen(f: &mut Frame, app: &mut App) {
         app.config.display.default_sort.ascending,
     );
 
+    let display = app.display_options();
+
     // Main area: optional groups sidebar + entry list
     if app.show_groups {
         let sidebar_width = app.config.display.group_sidebar_width;
@@ -78,15 +82,14 @@ pub fn render_main_screen(f: &mut Frame, app: &mut App) {
             horizontal[1],
             &entries,
             &mut app.entry_list_state,
-            &display_columns,
+            &ListView {
+                columns: &display_columns,
+                focused: is_list_focused,
+                display,
+                bib_dir: &bib_dir,
+                highlights: &highlights,
+            },
             &app.theme,
-            is_list_focused,
-            app.show_braces,
-            app.render_latex,
-            app.config.display.abbreviate_authors,
-            true, // Journal column always shows abbreviated form
-            &bib_dir,
-            &highlights,
         );
     } else {
         crate::tui::components::entry_list::render_entry_list_window(
@@ -94,15 +97,14 @@ pub fn render_main_screen(f: &mut Frame, app: &mut App) {
             main_area,
             &entries,
             &mut app.entry_list_state,
-            &display_columns,
+            &ListView {
+                columns: &display_columns,
+                focused: true,
+                display,
+                bib_dir: &bib_dir,
+                highlights: &highlights,
+            },
             &app.theme,
-            true,
-            app.show_braces,
-            app.render_latex,
-            app.config.display.abbreviate_authors,
-            true, // Journal column always shows abbreviated form
-            &bib_dir,
-            &highlights,
         );
     }
 
@@ -140,12 +142,14 @@ pub fn render_main_screen(f: &mut Frame, app: &mut App) {
     crate::tui::components::status_bar::render_status_bar(
         f,
         status_area,
-        entry_count,
-        app.group_tree_state.active_group.as_deref(),
-        &app.config.display.default_sort.field,
-        app.config.display.default_sort.ascending,
-        app.dirty,
-        app.status_message.as_deref(),
+        &StatusInfo {
+            entry_count,
+            active_group: app.group_tree_state.active_group.as_deref(),
+            sort_field: &app.config.display.default_sort.field,
+            sort_asc: app.config.display.default_sort.ascending,
+            dirty: app.dirty,
+            message: app.status_message.as_deref(),
+        },
         &app.theme,
     );
 

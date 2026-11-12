@@ -9,12 +9,13 @@ use ratatui::Frame;
 use crate::bib::model::Entry;
 use crate::config::schema::{ColumnConfig, ColumnWidth};
 use crate::search::engine::HighlightTerm;
+#[cfg(test)]
+use crate::tui::components::display::apply_display_pipeline;
+use crate::tui::components::display::DisplayOptions;
 use crate::tui::theme::Theme;
 use crate::util::author::abbreviate_authors;
 use crate::util::journal::abbreviate_journal;
-use crate::util::latex::render_latex;
 use crate::util::open::{parse_file_field, resolve_file_path};
-use crate::util::titlecase::strip_case_braces;
 pub struct EntryListState {
     pub table_state: TableState,
     #[cfg(test)]
@@ -63,56 +64,35 @@ impl EntryListState {
     }
 }
 
-#[allow(clippy::too_many_arguments)] // display params; bundling into a struct is tracked in REVIEW_FINDINGS.md
-pub fn render_entry_list(
-    f: &mut Frame,
-    area: Rect,
-    entries: &[&Entry],
-    state: &mut EntryListState,
-    columns: &[ColumnConfig],
-    theme: &Theme,
-    focused: bool,
-    show_braces: bool,
-    render_latex_enabled: bool,
-    abbreviate_authors_enabled: bool,
-    abbreviate_journal_enabled: bool,
-    bib_dir: &Path,
-    highlights: &[HighlightTerm],
-) {
-    let range = state.viewport(entries.len(), area.height);
-    render_entry_list_window(
-        f,
-        area,
-        &entries[range],
-        state,
-        columns,
-        theme,
-        focused,
-        show_braces,
-        render_latex_enabled,
-        abbreviate_authors_enabled,
-        abbreviate_journal_enabled,
-        bib_dir,
-        highlights,
-    );
+/// What the entry list shows besides the entries themselves.
+pub struct ListView<'a> {
+    pub columns: &'a [ColumnConfig],
+    /// Whether the list has keyboard focus (vs. the group sidebar).
+    pub focused: bool,
+    pub display: DisplayOptions,
+    /// Directory attached files are resolved against (file indicator column).
+    pub bib_dir: &'a Path,
+    /// Search terms to highlight in the visible cells.
+    pub highlights: &'a [HighlightTerm],
 }
 
-#[allow(clippy::too_many_arguments)]
+/// Render the visible window of the entry list: `entries` are the rows in
+/// the viewport (see [`EntryListState::viewport`]).
 pub fn render_entry_list_window(
     f: &mut Frame,
     area: Rect,
     entries: &[&Entry],
     state: &mut EntryListState,
-    columns: &[ColumnConfig],
+    view: &ListView,
     theme: &Theme,
-    focused: bool,
-    show_braces: bool,
-    render_latex_enabled: bool,
-    abbreviate_authors_enabled: bool,
-    abbreviate_journal_enabled: bool,
-    bib_dir: &Path,
-    highlights: &[HighlightTerm],
 ) {
+    let ListView {
+        columns,
+        focused,
+        display,
+        bib_dir,
+        highlights,
+    } = *view;
     #[cfg(test)]
     {
         state.rendered_rows = entries.len();
@@ -182,10 +162,10 @@ pub fn render_entry_list_window(
                     let raw = get_field_value(
                         entry,
                         &col.field,
-                        abbreviate_authors_enabled,
-                        abbreviate_journal_enabled,
+                        display.abbreviate_authors,
+                        display.abbreviate_journal,
                     );
-                    let value = apply_display_pipeline(&raw, show_braces, render_latex_enabled);
+                    let value = display.show(&raw);
                     Cell::from(highlight_line(value, needles, theme.search_match))
                 })
                 .collect();
@@ -414,21 +394,6 @@ fn get_field_value(
             }
         }
         _ => entry.fields.get(field).cloned().unwrap_or_default(),
-    }
-}
-
-/// Apply the display pipeline: optionally render LaTeX, then optionally strip braces.
-/// LaTeX must run first because it needs the `{...}` accent patterns.
-fn apply_display_pipeline(value: &str, show_braces: bool, render_latex_enabled: bool) -> String {
-    let s = if render_latex_enabled {
-        render_latex(value)
-    } else {
-        value.to_string()
-    };
-    if show_braces {
-        s
-    } else {
-        strip_case_braces(&s)
     }
 }
 
