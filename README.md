@@ -690,7 +690,9 @@ remaining platform-validation limits.
 
 The suite drives real keyboard and paste events through edit/save/undo workflows,
 uses temporary directories for config and library fixtures, and makes no requests
-to public services. Format with `cargo fmt --all` (CI runs
+to public services. Imports and DOI lookups run through an injectable task runner:
+in tests they start nothing, and each test finishes them, in any order, to check
+how results interleave with editing, dialogs, undo and saving. Format with `cargo fmt --all` (CI runs
 `cargo fmt --all -- --check`). Repository-wide formatting commits are listed in
 `.git-blame-ignore-revs`; enable it locally with
 `git config blame.ignoreRevsFile .git-blame-ignore-revs`.

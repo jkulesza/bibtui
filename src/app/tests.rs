@@ -2915,25 +2915,28 @@ fn test_start_fetch_doi_no_entry_selected() {
 }
 
 #[test]
-fn test_start_fetch_doi_spawns_background_task() {
+fn test_start_fetch_doi_queues_a_metadata_lookup() {
     let (mut app, _tmp) = make_app();
+    let tasks = super::tasks::ManualTasks::install(&mut app);
     // Select first entry which has title+author
     app.handle_action(Action::OpenDetail);
+    let key = app.detail_entry_key.clone().unwrap();
     assert!(app.pending_doi_fetch.is_none());
     app.start_fetch_doi();
-    assert!(
-        app.pending_doi_fetch.is_some(),
-        "background fetch should be pending"
+    assert!(app.pending_doi_fetch.is_some(), "the lookup is pending");
+    assert_eq!(app.status_message.as_deref(), Some("Searching for DOI…"));
+    let entry = &app.database.entries[&key];
+    assert_eq!(
+        tasks.lookups(),
+        vec![super::tasks::DoiQuery {
+            title: entry.fields["title"].clone(),
+            author: entry.fields["author"].clone(),
+            year: entry.fields["year"].clone(),
+        }]
     );
-    assert!(
-        app.status_message
-            .as_deref()
-            .unwrap_or("")
-            .contains("earch")
-            || app.status_message.as_deref().unwrap_or("").contains("etch"),
-        "status: {:?}",
-        app.status_message
-    );
+    // Nothing happens until the lookup finishes.
+    assert!(!app.poll_background_tasks());
+    assert!(app.pending_doi_fetch.is_some());
 }
 
 // ── open_web / ISBN ──────────────────────────────────────────────────────

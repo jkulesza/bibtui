@@ -125,7 +125,7 @@ impl App {
         self.mode = InputMode::Editing;
     }
 
-    /// Spawn a background thread to fetch the entry, storing the receiver for polling.
+    /// Start a background import of `doi_or_url`, storing the receiver for polling.
     pub(super) fn spawn_import(&mut self, doi_or_url: String) {
         if self.pending_import.is_some() || self.finished_import.is_some() {
             self.status_message = Some("Import already in progress — please wait".to_string());
@@ -141,37 +141,14 @@ impl App {
             .max_pdf_size_mb
             .saturating_mul(1024 * 1024);
         let (tx, rx) = mpsc::channel();
-        std::thread::spawn(move || {
-            let result = (|| {
-                let http = crate::util::import::http::HttpClient::new()?;
-                let mut entry = crate::util::import::pipeline::run_with(&doi_or_url, &http)?;
-                if entry.pdf_path.is_none() && !entry.pdf_urls.is_empty() {
-                    let doi = entry
-                        .fields
-                        .get("doi")
-                        .cloned()
-                        .unwrap_or_else(|| "import".to_string());
-                    for pdf_url in &entry.pdf_urls {
-                        match crate::util::import::download_pdf_with(
-                            pdf_url,
-                            &bib_dir,
-                            &doi,
-                            &http,
-                            max_pdf_bytes,
-                        ) {
-                            Ok(path) => {
-                                entry.pdf_path = Some(path);
-                                entry.pdf_error = None;
-                                break;
-                            }
-                            Err(error) => entry.pdf_error = Some(error.to_string()),
-                        }
-                    }
-                }
-                Ok(entry)
-            })();
-            let _ = tx.send(result);
-        });
+        self.tasks.import(
+            super::tasks::ImportRequest {
+                query: doi_or_url,
+                pdf_dir: bib_dir,
+                max_pdf_bytes,
+            },
+            tx,
+        );
         self.pending_import = Some(rx);
         self.status_message = Some("Fetching…".to_string());
     }
@@ -343,10 +320,14 @@ impl App {
         }
 
         let (tx, rx) = mpsc::channel();
-        std::thread::spawn(move || {
-            let result = crate::util::import::crossref::search_by_metadata(&title, &author, &year);
-            let _ = tx.send(result);
-        });
+        self.tasks.lookup_doi(
+            super::tasks::DoiQuery {
+                title,
+                author,
+                year,
+            },
+            tx,
+        );
 
         self.pending_doi_fetch = Some((lookup, rx));
         self.status_message = Some("Searching for DOI…".to_string());

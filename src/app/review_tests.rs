@@ -1856,18 +1856,21 @@ const BACKGROUND_BIB: &str =
 @Article{B, title={Second Study}, author={Jones, Bob}, year={2021}}\n";
 
 /// Start a DOI lookup for `key` whose answer the test controls.
-fn start_doi_lookup(app: &mut App, key: &str) -> std::sync::mpsc::Sender<DoiFetchResult> {
-    let (tx, rx) = std::sync::mpsc::channel();
-    let lookup = super::import::DoiLookup::of(&app.database.entries[key]);
-    app.pending_doi_fetch = Some((lookup, rx));
-    tx
+fn start_doi_lookup(app: &mut App, key: &str) -> super::tasks::ManualTasks {
+    let tasks = super::tasks::ManualTasks::install(app);
+    if app.action_entry_key().as_deref() != Some(key) {
+        select_entry(app, key);
+    }
+    app.start_fetch_doi();
+    assert_eq!(tasks.lookups().len(), 1, "{:?}", app.status_message);
+    tasks
 }
 
 /// Finish a background import with `result` and poll once.
 fn finish_import(app: &mut App, result: crate::util::import::ImportResult) {
-    let (tx, rx) = std::sync::mpsc::channel();
-    tx.send(result).unwrap();
-    app.pending_import = Some(rx);
+    let tasks = super::tasks::ManualTasks::install(app);
+    app.spawn_import("10.1000/imported".into());
+    tasks.finish_import(result);
     app.poll_background_tasks();
 }
 
@@ -1933,13 +1936,12 @@ fn edit_draft(app: &mut App, key: &str, name: &str, draft: &str) {
 #[test]
 fn doi_result_applies_to_unchanged_entry_as_one_undo_step() {
     let (mut app, _dir) = review_app(BACKGROUND_BIB);
-    let tx = start_doi_lookup(&mut app, "A");
+    let tasks = start_doi_lookup(&mut app, "A");
     let depth = app.undo_stack.len();
-    tx.send(Ok(unique_doi(
+    tasks.finish_lookup(Ok(unique_doi(
         "10.1000/found",
         "https://publisher.example/a",
-    )))
-    .unwrap();
+    )));
     assert!(app.poll_background_tasks());
     assert_eq!(field(&app, "A", "doi").as_deref(), Some("10.1000/found"));
     assert_eq!(
@@ -1957,10 +1959,10 @@ fn doi_result_applies_to_unchanged_entry_as_one_undo_step() {
 #[test]
 fn doi_result_never_overwrites_a_manual_doi() {
     let (mut app, _dir) = review_app(BACKGROUND_BIB);
-    let tx = start_doi_lookup(&mut app, "A");
+    let tasks = start_doi_lookup(&mut app, "A");
     review_edit(&mut app, "A", "doi", "10.1000/manual");
     let depth = app.undo_stack.len();
-    tx.send(Ok(unique_doi("10.1000/stale", ""))).unwrap();
+    tasks.finish_lookup(Ok(unique_doi("10.1000/stale", "")));
     app.poll_background_tasks();
     assert_eq!(field(&app, "A", "doi").as_deref(), Some("10.1000/manual"));
     assert_eq!(app.undo_stack.len(), depth);
@@ -1981,9 +1983,9 @@ fn doi_result_never_overwrites_a_manual_doi() {
 fn doi_result_discarded_after_title_or_author_change() {
     for (name, value) in [("title", "Revised Study"), ("author", "Smith, Anne")] {
         let (mut app, _dir) = review_app(BACKGROUND_BIB);
-        let tx = start_doi_lookup(&mut app, "A");
+        let tasks = start_doi_lookup(&mut app, "A");
         review_edit(&mut app, "A", name, value);
-        tx.send(Ok(unique_doi("10.1000/stale", ""))).unwrap();
+        tasks.finish_lookup(Ok(unique_doi("10.1000/stale", "")));
         app.poll_background_tasks();
         assert_eq!(field(&app, "A", "doi"), None, "{name}");
         assert!(
@@ -1998,12 +2000,12 @@ fn doi_result_discarded_after_title_or_author_change() {
 fn doi_result_discarded_after_key_change_deletion_or_key_reuse() {
     // Key regenerated: the entry now lives under another key.
     let (mut app, _dir) = review_app(BACKGROUND_BIB);
-    let tx = start_doi_lookup(&mut app, "A");
+    let tasks = start_doi_lookup(&mut app, "A");
     let mut entry = app.database.entries.shift_remove("A").unwrap();
     entry.citation_key = "Smith2020".into();
     app.database.entries.insert("Smith2020".into(), entry);
     let depth = app.undo_stack.len();
-    tx.send(Ok(unique_doi("10.1000/x", ""))).unwrap();
+    tasks.finish_lookup(Ok(unique_doi("10.1000/x", "")));
     app.poll_background_tasks();
     assert_eq!(field(&app, "Smith2020", "doi"), None);
     assert_eq!(app.undo_stack.len(), depth);
@@ -2015,10 +2017,10 @@ fn doi_result_discarded_after_key_change_deletion_or_key_reuse() {
 
     // Deleted: no undo record, no success message.
     let (mut app, _dir) = review_app(BACKGROUND_BIB);
-    let tx = start_doi_lookup(&mut app, "A");
+    let tasks = start_doi_lookup(&mut app, "A");
     app.delete_entry("A");
     let depth = app.undo_stack.len();
-    tx.send(Ok(unique_doi("10.1000/x", ""))).unwrap();
+    tasks.finish_lookup(Ok(unique_doi("10.1000/x", "")));
     app.poll_background_tasks();
     assert!(!app.database.entries.contains_key("A"));
     assert_eq!(app.undo_stack.len(), depth);
@@ -2026,11 +2028,11 @@ fn doi_result_discarded_after_key_change_deletion_or_key_reuse() {
 
     // Key reused by a different entry: the answer is not for it.
     let (mut app, _dir) = review_app(BACKGROUND_BIB);
-    let tx = start_doi_lookup(&mut app, "A");
+    let tasks = start_doi_lookup(&mut app, "A");
     let mut other = app.database.entries.shift_remove("A").unwrap();
     other.fields.insert("title".into(), "Unrelated Work".into());
     app.database.entries.insert("A".into(), other);
-    tx.send(Ok(unique_doi("10.1000/x", ""))).unwrap();
+    tasks.finish_lookup(Ok(unique_doi("10.1000/x", "")));
     app.poll_background_tasks();
     assert_eq!(field(&app, "A", "doi"), None);
     assert!(status(&app).contains("not applied"), "{}", status(&app));
@@ -2039,10 +2041,10 @@ fn doi_result_discarded_after_key_change_deletion_or_key_reuse() {
 #[test]
 fn doi_result_applies_after_change_is_undone() {
     let (mut app, _dir) = review_app(BACKGROUND_BIB);
-    let tx = start_doi_lookup(&mut app, "A");
+    let tasks = start_doi_lookup(&mut app, "A");
     review_edit(&mut app, "A", "title", "Revised Study");
     app.handle_action(Action::Undo);
-    tx.send(Ok(unique_doi("10.1000/found", ""))).unwrap();
+    tasks.finish_lookup(Ok(unique_doi("10.1000/found", "")));
     app.poll_background_tasks();
     assert_eq!(field(&app, "A", "doi").as_deref(), Some("10.1000/found"));
 }
@@ -2052,8 +2054,8 @@ fn doi_result_waits_for_open_editor_on_the_same_entry() {
     let (mut app, _dir) = background_app_with_template_keys();
     let a = key_with_title(&app, "First Study");
     edit_draft(&mut app, &a, "note", "draft text");
-    let tx = start_doi_lookup(&mut app, &a);
-    tx.send(Ok(unique_doi("10.1000/found", ""))).unwrap();
+    let tasks = start_doi_lookup(&mut app, &a);
+    tasks.finish_lookup(Ok(unique_doi("10.1000/found", "")));
     app.poll_background_tasks();
     assert_eq!(app.mode, InputMode::Editing);
     assert_eq!(app.field_editor_state.as_ref().unwrap().value, "draft text");
@@ -2070,8 +2072,8 @@ fn doi_result_waits_for_open_editor_on_the_same_entry() {
 fn second_doi_lookup_refused_while_a_result_waits() {
     let (mut app, _dir) = review_app(BACKGROUND_BIB);
     edit_draft(&mut app, "A", "note", "x");
-    let tx = start_doi_lookup(&mut app, "A");
-    tx.send(Ok(unique_doi("10.1000/found", ""))).unwrap();
+    let tasks = start_doi_lookup(&mut app, "A");
+    tasks.finish_lookup(Ok(unique_doi("10.1000/found", "")));
     app.poll_background_tasks();
     assert!(app.finished_doi_fetch.is_some());
     app.handle_action(Action::CancelEdit);
@@ -2201,9 +2203,8 @@ fn weak_match(dois: &[&str]) -> crate::util::import::crossref::MetadataMatch {
 #[test]
 fn weak_doi_matches_ask_and_assign_only_the_chosen_one() {
     let (mut app, _dir) = choose_doi_app();
-    let tx = start_doi_lookup(&mut app, "A");
-    tx.send(Ok(weak_match(&["10.1000/one", "10.1000/two"])))
-        .unwrap();
+    let tasks = start_doi_lookup(&mut app, "A");
+    tasks.finish_lookup(Ok(weak_match(&["10.1000/one", "10.1000/two"])));
     app.poll_background_tasks();
     assert_eq!(app.mode, InputMode::Dialog);
     assert_eq!(
@@ -2230,8 +2231,8 @@ fn rejecting_doi_candidates_leaves_entry_unchanged() {
     for how in ["none", "cancel"] {
         let (mut app, _dir) = choose_doi_app();
         let depth = app.undo_stack.len();
-        let tx = start_doi_lookup(&mut app, "A");
-        tx.send(Ok(weak_match(&["10.1000/one"]))).unwrap();
+        let tasks = start_doi_lookup(&mut app, "A");
+        tasks.finish_lookup(Ok(weak_match(&["10.1000/one"])));
         app.poll_background_tasks();
         if how == "none" {
             app.dialog_state.as_mut().unwrap().select(1);
@@ -2249,8 +2250,8 @@ fn rejecting_doi_candidates_leaves_entry_unchanged() {
 #[test]
 fn chosen_doi_rechecks_entry_before_assigning() {
     let (mut app, _dir) = choose_doi_app();
-    let tx = start_doi_lookup(&mut app, "A");
-    tx.send(Ok(weak_match(&["10.1000/one"]))).unwrap();
+    let tasks = start_doi_lookup(&mut app, "A");
+    tasks.finish_lookup(Ok(weak_match(&["10.1000/one"])));
     app.poll_background_tasks();
     // The entry changes while the picker is open (e.g. by another path).
     review_edit(&mut app, "A", "doi", "10.1000/manual");
@@ -2266,8 +2267,8 @@ fn chosen_doi_rechecks_entry_before_assigning() {
 #[test]
 fn unique_doi_match_is_assigned_without_asking() {
     let (mut app, _dir) = choose_doi_app();
-    let tx = start_doi_lookup(&mut app, "A");
-    tx.send(Ok(unique_doi("10.1000/sure", ""))).unwrap();
+    let tasks = start_doi_lookup(&mut app, "A");
+    tasks.finish_lookup(Ok(unique_doi("10.1000/sure", "")));
     app.poll_background_tasks();
     assert_ne!(app.mode, InputMode::Dialog);
     assert_eq!(field(&app, "A", "doi").as_deref(), Some("10.1000/sure"));
@@ -2605,4 +2606,114 @@ fn undefined_string_names_are_listed_by_warnings() {
         "Line 1: K: field 'journal' uses undefined @String 'IEEE_J_AC' (kept as its name)"
     ));
     assert!(!message.contains("Skipped items"), "{message}");
+}
+
+// ── Q03: background tasks finishing in a test-controlled order ──────────────
+
+#[test]
+fn import_request_carries_the_query_and_pdf_settings() {
+    let (mut app, dir) = review_app(BACKGROUND_BIB);
+    let tasks = super::tasks::ManualTasks::install(&mut app);
+    app.config.import.max_pdf_size_mb = 3;
+    app.spawn_import("10.1000/xyz".into());
+    assert_eq!(status(&app), "Fetching…");
+    assert_eq!(
+        tasks.imports(),
+        vec![super::tasks::ImportRequest {
+            query: "10.1000/xyz".into(),
+            pdf_dir: dir.path().to_path_buf(),
+            max_pdf_bytes: 3 * 1024 * 1024,
+        }]
+    );
+}
+
+#[test]
+fn lookup_and_import_finishing_in_reverse_order_both_apply_and_undo_in_turn() {
+    let (mut app, _dir) = review_app(BACKGROUND_BIB);
+    let tasks = super::tasks::ManualTasks::install(&mut app);
+    select_entry(&mut app, "A");
+    app.start_fetch_doi();
+    app.spawn_import("10.1000/imported".into());
+    assert_eq!((tasks.lookups().len(), tasks.imports().len()), (1, 1));
+
+    // The import, started second, finishes first and opens its entry.
+    tasks.finish_import(background_import());
+    assert!(app.poll_background_tasks());
+    assert_eq!(app.mode, InputMode::Detail);
+    let imported = app.detail_entry_key.clone().unwrap();
+    assert_eq!(
+        field(&app, &imported, "title").as_deref(),
+        Some("{Imported Work}"),
+        "imported with title case"
+    );
+
+    // The lookup then lands on A, which has not changed.
+    tasks.finish_lookup(Ok(unique_doi("10.1000/found", "")));
+    assert!(app.poll_background_tasks());
+    assert_eq!(field(&app, "A", "doi").as_deref(), Some("10.1000/found"));
+
+    // Undo takes them back newest first.
+    app.handle_action(Action::CloseDetail);
+    app.handle_action(Action::Undo);
+    assert_eq!(field(&app, "A", "doi"), None);
+    assert!(app.database.entries.contains_key(&imported));
+    app.handle_action(Action::Undo);
+    assert!(!app.database.entries.contains_key(&imported));
+}
+
+#[test]
+fn a_dead_import_worker_is_reported_and_a_new_import_can_start() {
+    let (mut app, _dir) = review_app(BACKGROUND_BIB);
+    let tasks = super::tasks::ManualTasks::install(&mut app);
+    app.spawn_import("10.1000/lost".into());
+    tasks.abandon_import();
+    assert!(app.poll_background_tasks());
+    assert_eq!(status(&app), "Import failed: fetcher thread disconnected");
+    app.spawn_import("10.1000/again".into());
+    assert_eq!(tasks.imports().len(), 1, "a new import starts");
+}
+
+#[test]
+fn lookup_finishing_during_a_delete_confirmation_is_dropped_when_the_entry_goes() {
+    let (mut app, _dir) = review_app(BACKGROUND_BIB);
+    let tasks = start_doi_lookup(&mut app, "A");
+    app.handle_action(Action::DeleteEntry);
+    assert_eq!(app.mode, InputMode::Dialog);
+    tasks.finish_lookup(Ok(unique_doi("10.1000/late", "")));
+    app.poll_background_tasks();
+    assert_eq!(app.mode, InputMode::Dialog, "the confirmation stays open");
+    assert_eq!(field(&app, "A", "doi"), None);
+
+    app.handle_action(Action::DialogConfirm);
+    assert!(!app.database.entries.contains_key("A"));
+    app.poll_background_tasks();
+    assert!(status(&app).contains("10.1000/late"), "{}", status(&app));
+
+    // Undoing the deletion restores A as it was, without the late DOI.
+    let undo_steps = app.undo_stack.len();
+    app.handle_action(Action::Undo);
+    assert_eq!(app.undo_stack.len(), undo_steps - 1);
+    assert_eq!(field(&app, "A", "doi"), None);
+}
+
+#[test]
+fn a_found_doi_is_saved_and_reloads_with_the_entry_otherwise_unchanged() {
+    let (mut app, dir) = review_app(BACKGROUND_BIB);
+    let tasks = start_doi_lookup(&mut app, "A");
+    tasks.finish_lookup(Ok(unique_doi("10.1000/found", "")));
+    app.poll_background_tasks();
+    assert!(app.save());
+
+    let saved = std::fs::read_to_string(dir.path().join("library.bib")).unwrap();
+    let reloaded = build_database(parse_bib_file(&saved).unwrap());
+    let before = build_database(parse_bib_file(BACKGROUND_BIB).unwrap());
+    let mut expected = before.entries["A"].fields.clone();
+    expected.insert("doi".into(), "10.1000/found".into());
+    assert_eq!(reloaded.entries["A"].fields, expected);
+    assert_eq!(reloaded.entries["B"].fields, before.entries["B"].fields);
+    // The untouched entry is written back byte for byte.
+    assert!(
+        saved.contains(BACKGROUND_BIB.lines().nth(1).unwrap()),
+        "{saved}"
+    );
 }

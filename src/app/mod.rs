@@ -58,6 +58,7 @@ mod import;
 mod library;
 mod name_disambig;
 mod save;
+mod tasks;
 mod yank;
 pub use actions::Action;
 use actions::{ExportKind, PendingAction, UndoItem, MAX_UNDO};
@@ -68,6 +69,20 @@ use save::*;
 /// Channel for a background DOI-from-metadata lookup: Ok((doi, url)) or an error message.
 /// A metadata→DOI lookup's answer: what Crossref matched, or an error message.
 type DoiFetchResult = Result<crate::util::import::crossref::MetadataMatch, String>;
+
+/// The background tasks a new app uses. Tests never start real network
+/// work: their tasks wait until the test finishes them (see
+/// [`tasks::ManualTasks`]).
+fn default_tasks() -> Box<dyn tasks::BackgroundTasks> {
+    #[cfg(test)]
+    {
+        Box::new(tasks::ManualTasks::default())
+    }
+    #[cfg(not(test))]
+    {
+        Box::new(tasks::ThreadTasks)
+    }
+}
 type DoiFetchReceiver = mpsc::Receiver<DoiFetchResult>;
 
 pub struct App {
@@ -169,6 +184,8 @@ pub struct App {
     // System integrations, swappable for tests
     pub clipboard: Box<dyn Clipboard>,
     pub opener: Box<dyn Opener>,
+    /// Runs imports and DOI lookups (on threads; queued for tests).
+    tasks: Box<dyn tasks::BackgroundTasks>,
 
     /// How often each `yy` picker choice has been used; orders the picker.
     yank_usage: YankUsage,
@@ -300,6 +317,7 @@ impl App {
             theme,
             clipboard: Box::new(SystemClipboard),
             opener: Box::new(SystemOpener),
+            tasks: default_tasks(),
             yank_usage: usage_path
                 .as_deref()
                 .map(YankUsage::load)
@@ -394,6 +412,7 @@ impl App {
             theme,
             clipboard: Box::new(SystemClipboard),
             opener: Box::new(SystemOpener),
+            tasks: default_tasks(),
             yank_usage: usage_path
                 .as_deref()
                 .map(YankUsage::load)
