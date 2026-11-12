@@ -156,12 +156,57 @@ fn doi_to_filename(doi: &str) -> String {
     format!("{}.pdf", sanitize_filename_stem(doi))
 }
 
+/// Size of each chunk compared by [`files_equal`].
+const COMPARE_CHUNK: usize = 64 * 1024;
+
+/// Whether two files have the same contents, reading both in fixed-size
+/// chunks so memory stays bounded whatever their size. Any error counts as
+/// different, so an existing file is never reused unless it is known to match.
 fn files_equal(a: &Path, b: &Path) -> bool {
     let same_length = match (std::fs::metadata(a), std::fs::metadata(b)) {
         (Ok(a), Ok(b)) => a.len() == b.len(),
         _ => false,
     };
-    same_length && matches!((std::fs::read(a), std::fs::read(b)), (Ok(a), Ok(b)) if a == b)
+    if !same_length {
+        return false;
+    }
+    match (std::fs::File::open(a), std::fs::File::open(b)) {
+        (Ok(a), Ok(b)) => readers_equal(a, b).unwrap_or(false),
+        _ => false,
+    }
+}
+
+/// Whether two readers yield the same bytes, compared chunk by chunk.
+fn readers_equal(mut a: impl Read, mut b: impl Read) -> std::io::Result<bool> {
+    let mut chunk_a = vec![0u8; COMPARE_CHUNK];
+    let mut chunk_b = vec![0u8; COMPARE_CHUNK];
+    loop {
+        let len_a = fill(&mut a, &mut chunk_a)?;
+        let len_b = fill(&mut b, &mut chunk_b)?;
+        if chunk_a[..len_a] != chunk_b[..len_b] {
+            return Ok(false);
+        }
+        if len_a < COMPARE_CHUNK {
+            // Both ended together (a shorter `b` would have differed above).
+            return Ok(true);
+        }
+    }
+}
+
+/// Read until `buf` is full or the reader ends, retrying interrupted reads
+/// (a reader may return fewer bytes than asked at any point). Returns the
+/// number of bytes read.
+fn fill(reader: &mut impl Read, buf: &mut [u8]) -> std::io::Result<usize> {
+    let mut filled = 0;
+    while filled < buf.len() {
+        match reader.read(&mut buf[filled..]) {
+            Ok(0) => break,
+            Ok(n) => filled += n,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(filled)
 }
 
 /// Sanitize a string for use as a filesystem filename stem.
@@ -189,6 +234,129 @@ pub fn sanitize_filename_stem(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    /// Yields `data` a few bytes at a time, interrupted before every read,
+    /// optionally failing once `fail_at` bytes have been read.
+    struct Choppy {
+        data: Vec<u8>,
+        pos: usize,
+        interrupt: bool,
+        fail_at: Option<usize>,
+    }
+
+    impl Choppy {
+        fn new(data: &[u8]) -> Self {
+            Choppy {
+                data: data.to_vec(),
+                pos: 0,
+                interrupt: true,
+                fail_at: None,
+            }
+        }
+    }
+
+    impl Read for Choppy {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            if self.fail_at.is_some_and(|at| self.pos >= at) {
+                return Err(std::io::Error::other("disk error"));
+            }
+            self.interrupt = !self.interrupt;
+            if !self.interrupt {
+                return Err(std::io::ErrorKind::Interrupted.into());
+            }
+            let n = buf.len().min(7).min(self.data.len() - self.pos);
+            buf[..n].copy_from_slice(&self.data[self.pos..self.pos + n]);
+            self.pos += n;
+            Ok(n)
+        }
+    }
+
+    fn bytes(len: usize) -> Vec<u8> {
+        (0..len).map(|i| (i * 31 % 251) as u8).collect()
+    }
+
+    #[test]
+    fn files_equal_compares_whole_files_in_chunks() {
+        let dir = tempfile::tempdir().unwrap();
+        let write = |name: &str, data: &[u8]| {
+            let path = dir.path().join(name);
+            std::fs::write(&path, data).unwrap();
+            path
+        };
+        for len in [0, 1, COMPARE_CHUNK, 3 * COMPARE_CHUNK + 5] {
+            let data = bytes(len);
+            let a = write("a.pdf", &data);
+            let b = write("b.pdf", &data);
+            assert!(files_equal(&a, &b), "equal files of {len} bytes");
+            if len > 0 {
+                let mut changed = data.clone();
+                *changed.last_mut().unwrap() ^= 1;
+                let c = write("c.pdf", &changed);
+                assert!(!files_equal(&a, &c), "last byte differs at {len} bytes");
+            }
+        }
+        let a = write("a.pdf", b"%PDF-1");
+        let b = write("b.pdf", b"%PDF-12");
+        assert!(!files_equal(&a, &b), "different lengths");
+        assert!(!files_equal(&a, &dir.path().join("missing.pdf")));
+    }
+
+    /// Peak memory of the process so far, in bytes.
+    #[cfg(unix)]
+    fn peak_rss_bytes() -> u64 {
+        // SAFETY: getrusage only writes into the zeroed struct we pass.
+        let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
+        assert_eq!(unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut usage) }, 0);
+        let max = usage.ru_maxrss as u64;
+        // ru_maxrss is in bytes on macOS and in KiB on Linux.
+        if cfg!(target_os = "macos") {
+            max
+        } else {
+            max * 1024
+        }
+    }
+
+    /// Memory for comparing two PDFs of the default `max_pdf_size_mb` (100).
+    /// Run alone, in release: `cargo test --release --lib
+    /// files_equal_memory -- --ignored --nocapture`.
+    #[cfg(unix)]
+    #[test]
+    #[ignore = "writes 200 MB; a measurement, not a routine check"]
+    fn files_equal_memory_stays_bounded_at_the_download_limit() {
+        let size = 100 * 1024 * 1024;
+        let dir = tempfile::tempdir().unwrap();
+        let data = bytes(size);
+        let (a, b) = (dir.path().join("a.pdf"), dir.path().join("b.pdf"));
+        std::fs::write(&a, &data).unwrap();
+        std::fs::write(&b, &data).unwrap();
+        drop(data);
+        let before = peak_rss_bytes();
+        assert!(files_equal(&a, &b));
+        let growth = peak_rss_bytes().saturating_sub(before);
+        println!(
+            "peak memory grew by {} KiB comparing two 100 MiB files",
+            growth / 1024
+        );
+        assert!(growth < 16 * 1024 * 1024, "grew by {growth} bytes");
+    }
+
+    #[test]
+    fn readers_equal_handles_short_and_interrupted_reads() {
+        let data = bytes(2 * COMPARE_CHUNK + 3);
+        assert!(readers_equal(Choppy::new(&data), data.as_slice()).unwrap());
+        let mut other = data.clone();
+        other[COMPARE_CHUNK + 1] ^= 1;
+        assert!(!readers_equal(Choppy::new(&data), Choppy::new(&other)).unwrap());
+        // A reader that ends early differs; one that fails is an error,
+        // which files_equal treats as "different".
+        assert!(!readers_equal(&data[..10], data.as_slice()).unwrap());
+        let failing = Choppy {
+            fail_at: Some(COMPARE_CHUNK / 2),
+            ..Choppy::new(&data)
+        };
+        assert!(readers_equal(failing, data.as_slice()).is_err());
+    }
+
     use super::*;
 
     #[test]
