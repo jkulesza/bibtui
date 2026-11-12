@@ -42,19 +42,22 @@ fn main() -> Result<()> {
         None => app::App::new_empty(config)?,
     };
 
-    // Restore the terminal if we panic anywhere below, so the user is not left
+    // Restore the terminal if the event loop panics, so the user is not left
     // in raw mode on the alternate screen.
     tui::install_panic_hook();
 
-    // Setup terminal
-    let mut terminal = tui::setup_terminal()?;
+    // The guard undoes whatever setup completed, even if a later step fails.
+    let (mut guard, mut terminal) = tui::setup_terminal()?;
 
-    // Run event loop
     let result = app.run(&mut terminal);
 
-    // Restore terminal (always, even on error)
-    tui::restore_terminal(&mut terminal)?;
-
+    // Restore the terminal, attempting every step; the event loop's error
+    // (if any) is the one returned.
+    let (result, cleanup_error) = tui::finish(result, guard.restore());
+    tui::report_worker_panics();
+    if let Some(e) = cleanup_error {
+        eprintln!("bibtui: could not fully restore the terminal: {e}");
+    }
     result
 }
 
