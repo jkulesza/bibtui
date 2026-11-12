@@ -493,7 +493,7 @@ fn test_field_name_candidates_contains_standard_fields() {
 #[test]
 fn test_field_value_candidates_skips_doi() {
     let (app, _tmp) = make_app();
-    let candidates = field_value_candidates(&app.database, "doi", None);
+    let candidates = field_value_candidates(&app.database, "doi", None, "");
     assert!(candidates.is_empty());
 }
 

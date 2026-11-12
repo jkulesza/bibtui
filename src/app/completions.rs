@@ -43,12 +43,12 @@ impl App {
             e.completion_idx = 0;
         } else {
             let field = editor.field_name.clone();
-            let value_lower = editor.value.to_lowercase();
-            let all = field_value_candidates(&self.database, &field, current_key.as_deref());
-            let completions: Vec<String> = all
-                .into_iter()
-                .filter(|c| c.to_lowercase().starts_with(&value_lower))
-                .collect();
+            let completions = field_value_candidates(
+                &self.database,
+                &field,
+                current_key.as_deref(),
+                &editor.value,
+            );
             let e = self.field_editor_state.as_mut().unwrap();
             e.completions = completions;
             e.completion_idx = 0;
@@ -375,15 +375,24 @@ pub(super) fn field_name_candidates(database: &Database) -> Vec<String> {
     names.into_iter().collect()
 }
 
-/// Values used for `field` across the database, sorted by frequency then
-/// alphabetically.  Skips `current_entry_key` so the entry being edited
-/// doesn't seed its own suggestions.  Returns an empty vec for fields where
-/// completion would be unhelpful (identifiers, page ranges, etc.).
+/// Most value completions offered at once.
+const MAX_VALUE_COMPLETIONS: usize = 50;
+
+/// Values used for `field` across the database that start with `prefix`
+/// (ignoring case), most used first, then alphabetically, at most
+/// [`MAX_VALUE_COMPLETIONS`]. The prefix is applied before the cap, so a
+/// value used once (such as one just entered) is offered as soon as it is
+/// the only match, however many other values the field has. Skips
+/// `current_entry_key` so the entry being edited doesn't seed its own
+/// suggestions. Returns an empty vec for fields where completion would be
+/// unhelpful (identifiers, page ranges, etc.).
 pub(super) fn field_value_candidates(
     database: &Database,
     field: &str,
     current_entry_key: Option<&str>,
+    prefix: &str,
 ) -> Vec<String> {
+    let prefix = prefix.to_lowercase();
     // These fields hold unique identifiers or numeric ranges — skip them.
     if matches!(
         field,
@@ -400,15 +409,15 @@ pub(super) fn field_value_candidates(
             continue;
         }
         if let Some(v) = entry.fields.get(field) {
-            let v = v.trim().to_string();
-            if !v.is_empty() {
-                *freq.entry(v).or_insert(0) += 1;
+            let v = v.trim();
+            if !v.is_empty() && v.to_lowercase().starts_with(&prefix) {
+                *freq.entry(v.to_string()).or_insert(0) += 1;
             }
         }
     }
     let mut candidates: Vec<String> = freq.keys().cloned().collect();
     candidates.sort_by(|a, b| freq[b].cmp(&freq[a]).then(a.cmp(b)));
-    candidates.truncate(50);
+    candidates.truncate(MAX_VALUE_COMPLETIONS);
     candidates
 }
 

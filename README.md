@@ -247,7 +247,7 @@ The field editor uses vim-style modal editing. Opening a non-empty field starts 
 | `Backspace` / `Delete` | Delete character |
 | `Ctrl-W` | Delete word before cursor |
 | `Ctrl-U` | Delete to start of line |
-| `Tab` / `Shift-Tab` | Cycle forward / backward through completions |
+| `Tab` / `Shift-Tab` | Cycle forward / backward through completions (values other entries use for this field that start with what you typed, most used first; a value entered this session is included) |
 | `Enter` | Confirm edit |
 | `Esc` | Return to Normal mode |
 

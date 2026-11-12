@@ -2717,3 +2717,56 @@ fn a_found_doi_is_saved_and_reloads_with_the_entry_otherwise_unchanged() {
         "{saved}"
     );
 }
+
+// ── Field value completion offers every matching value ──────────────────────
+
+/// Sixty entries with different addresses, the first used twice, so more
+/// distinct values exist than the completion list holds.
+fn many_addresses_bib() -> String {
+    let mut bib = String::new();
+    for i in 0..60 {
+        bib.push_str(&format!(
+            "@Book{{K{i:02}, title={{Title {i}}}, address={{City {i:02}}}}}\n"
+        ));
+    }
+    bib.push_str("@Book{Again, title={Again}, address={City 00}}\n");
+    bib.push_str("@Book{Blank, title={Blank}, address={Somewhere}}\n");
+    bib
+}
+
+fn completions(app: &App) -> Vec<String> {
+    app.field_editor_state.as_ref().unwrap().completions.clone()
+}
+
+#[test]
+fn a_newly_entered_value_completes_in_the_same_session() {
+    let (mut app, _dir) = review_app(&many_addresses_bib());
+    // A new address, used by one entry, that sorts after all the others.
+    edit_draft(&mut app, "K59", "address", "Zzyzx, California");
+    app.handle_action(Action::ConfirmEdit);
+    app.handle_action(Action::CloseDetail);
+
+    edit_draft(&mut app, "Blank", "address", "Zzy");
+    app.update_field_completions();
+    assert_eq!(completions(&app), ["Zzyzx, California"]);
+    // Matching ignores case.
+    app.field_editor_state.as_mut().unwrap().value = "zZY".into();
+    app.update_field_completions();
+    assert_eq!(completions(&app), ["Zzyzx, California"]);
+}
+
+#[test]
+fn value_completions_are_capped_after_filtering_most_used_first() {
+    let (mut app, _dir) = review_app(&many_addresses_bib());
+    edit_draft(&mut app, "Blank", "address", "");
+    app.update_field_completions();
+    let all = completions(&app);
+    assert_eq!(all.len(), 50, "an empty prefix still offers at most 50");
+    assert_eq!(all[0], "City 00", "the value used twice comes first");
+
+    // Every one of the 60 cities is reachable by typing more of it.
+    app.field_editor_state.as_mut().unwrap().value = "City 5".into();
+    app.update_field_completions();
+    let fifties: Vec<String> = (50..60).map(|i| format!("City {i}")).collect();
+    assert_eq!(completions(&app), fifties);
+}
