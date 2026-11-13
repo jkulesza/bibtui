@@ -260,11 +260,12 @@ fn push_year_month(p: &mut Vec<String>, entry: &Entry, year: &str) {
     }
 }
 
-/// Append a DOI hyperlink (preferred) or URL to the citation, then terminate with a period.
+/// Append a DOI link (preferred) or URL to the citation, or terminate it with
+/// a period when there is neither.
 ///
 /// DOI is formatted as `https://doi.org/{doi}` and takes precedence over the `url` field.
-/// The URL is wrapped in an OSC 8 terminal hyperlink so it is clickable in supporting
-/// terminals while remaining readable as plain text everywhere else.
+/// No period follows the link: pasted into a document or browser, a trailing
+/// period is easily taken as part of the URL and breaks it.
 fn push_link(s: &mut String, entry: &Entry) {
     let doi = field(entry, "doi");
     let url = field(entry, "url");
@@ -292,7 +293,7 @@ fn push_link(s: &mut String, entry: &Entry) {
         _ => {}
     }
 
-    s.push_str(&format!(". {}.", link_url));
+    s.push_str(&format!(". {}", link_url));
 }
 
 /// Ensure the string ends with a period (adds one if missing, replaces trailing comma).
@@ -839,7 +840,7 @@ mod tests {
         );
         let result = format_citation(&entry, "ieee");
         assert!(
-            result.contains("https://doi.org/10.1234/test"),
+            result.ends_with(". https://doi.org/10.1234/test"),
             "result: {}",
             result
         );
@@ -858,7 +859,11 @@ mod tests {
             ],
         );
         let result = format_citation(&entry, "ieee");
-        assert!(result.contains("https://example.com"), "result: {}", result);
+        assert!(
+            result.ends_with(". https://example.com"),
+            "result: {}",
+            result
+        );
     }
 
     #[test]

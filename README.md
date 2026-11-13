@@ -21,7 +21,7 @@ A terminal UI BibTeX manager written in Rust. Designed as a lightweight, keyboar
 - Clipboard yank (`yy`) in configurable format: formatted citation, raw BibTeX, the attached file(s) themselves (paste them into an email as attachments), or citation key. The picker lists the choices you use most first and accepts `f` / `b` / `a` / `c` as shortcuts
 - Per-entry status indicators: `●` unsaved change, `⎘` file attachment, `⎋` DOI/URL
 - Open attached files (`o`) or DOI/URL links (`w`) with OS default applications
-- Citation preview popup (`Space`) and formatted yank in a selectable style (`citation.style`, also in Settings): **IEEEtranN** (full IEEE reference with DOI/URL link) or **slidefooter** (terse author, venue, and year for presentation footers, e.g. `Smith et al., Phys. Rev. Lett. 12(3), 2020` or `Sokolowsky and Kulesza, LANL LA-UR-24-28595, 2024`)
+- Citation preview popup (`Space`) and formatted yank in a selectable style (`citation.style`, also in Settings): **IEEEtranN** (full IEEE reference ending with its DOI/URL link, with no period after it so the link stays intact when pasted) or **slidefooter** (terse author, venue, and year for presentation footers, e.g. `Smith et al., Phys. Rev. Lett. 12(3), 2020` or `Sokolowsky and Kulesza, LANL LA-UR-24-28595, 2024`)
 - LaTeX markup rendered to Unicode for display (`L` to toggle)
 - Assigned groups shown in the entry detail header alongside the entry type
 - ISO 4 journal abbreviation: the Journal column always shows the abbreviated form; a save action syncs `journal_full` and `journal_abbrev` companion fields

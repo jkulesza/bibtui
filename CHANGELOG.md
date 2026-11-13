@@ -1,5 +1,9 @@
 # Changelog
 
+### 0.70.2
+
+- **Fix: no period after a citation's DOI or URL**: an IEEEtranN citation (preview and yank) that ends with its DOI or URL link no longer has a period appended. Pasted into a document or browser, that period was often taken as part of the link and broke it. Citations without a link still end with a period.
+
 ### 0.70.1
 
 - **Fix: a clipboard tool that fails at once reports its own error**: copying text with a helper that exits before reading it (for example `xclip` with no X display) could report "Broken pipe" instead of the helper's message, depending on timing. bibtui now waits for the helper and reports its exit status and error; a helper that exits successfully without reading all the text is reported too.
